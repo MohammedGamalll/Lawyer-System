@@ -4,6 +4,7 @@ import { getSession, hasPermission } from './session'
 import { writeQueue } from '../queue/writeQueue'
 import { ValidationError } from '@shared/schemas'
 import { mapDbError } from '../utils/errors'
+import { audit } from '../services/audit'
 import log from 'electron-log'
 
 export type AuthedUser = {
@@ -44,6 +45,10 @@ export function handle(
       }
       const run = () => fn(event, user, ...args)
       const result = options.write ? await writeQueue.enqueue(run) : run()
+      if (options.write && user && shouldAudit(channel) && isOk(result)) {
+        const entityId = firstId(args)
+        audit(user, channel.split(':')[1] || 'write', channel.split(':')[0], entityId, `تم تنفيذ ${channel}`)
+      }
       return result
     } catch (err) {
       if (err instanceof ValidationError) {
@@ -54,4 +59,24 @@ export function handle(
       return fail(mapped.message)
     }
   })
+}
+
+function isOk(result: unknown): boolean {
+  return Boolean(result && typeof result === 'object' && 'ok' in result && (result as { ok?: boolean }).ok)
+}
+
+function shouldAudit(channel: string): boolean {
+  if (/^(audit:|sync:|auth:login|auth:logout|notifications:read)/.test(channel)) return false
+  if (/:(create|remove|delete)$/.test(channel)) return false
+  return true
+}
+
+function firstId(args: unknown[]): string | null {
+  for (const a of args) {
+    if (typeof a === 'string' && a.length > 0 && a.length < 80) return a
+    if (a && typeof a === 'object' && 'id' in a && (a as { id?: unknown }).id != null) {
+      return String((a as { id: unknown }).id)
+    }
+  }
+  return null
 }

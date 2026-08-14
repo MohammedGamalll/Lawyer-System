@@ -21,6 +21,13 @@ export function applyRemoteWrite(table: string, row: Record<string, unknown> | n
       return
     }
     if (local && !isRemoteNewer(String(row.updated_at || ''), String(local.updated_at || ''))) return
+    if (table === 'users' && local) {
+      const localLogin = Date.parse(String(local.last_login_at || ''))
+      const remoteLogin = Date.parse(String(row.last_login_at || ''))
+      if (!Number.isNaN(localLogin) && (Number.isNaN(remoteLogin) || localLogin > remoteLogin)) {
+        row = { ...row, last_login_at: local.last_login_at, last_login_device: local.last_login_device }
+      }
+    }
     upsertRow(db, table, pk, row)
   })
 }

@@ -13,6 +13,7 @@ type AppState = {
   setPage: (page: string, meta?: Record<string, unknown>) => void
   toast: (text: string, type?: 'ok' | 'err') => void
   setUser: (u: UserSession | null) => void
+  applyTheme: (t: 'light' | 'dark') => void
   setTheme: (t: 'light' | 'dark') => void
   setLang: (l: 'ar' | 'en') => void
   setUpdateReady: (v: string | null) => void
@@ -33,9 +34,14 @@ export const useApp = create<AppState>((set, get) => ({
     else sonner.success(text)
   },
   setUser: (u) => set({ user: u }),
+  applyTheme: (t) => {
+    document.documentElement.classList.toggle('dark', t === 'dark')
+    set({ theme: t })
+  },
   setTheme: (t) => {
     document.documentElement.classList.toggle('dark', t === 'dark')
     set({ theme: t })
+    void invoke('settings:set', { theme: t }).catch(() => undefined)
   },
   setLang: (l) => set({ lang: l }),
   setUpdateReady: (v) => set({ updateReady: v }),

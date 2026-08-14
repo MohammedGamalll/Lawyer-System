@@ -183,7 +183,7 @@ export function Layout({ children }: { children: ReactNode }) {
             {user?.username}
           </button>
         </header>
-        <main className="relative flex-1 overflow-auto p-5">
+        <main className="relative flex-1 overflow-auto bg-[#f4f1eb] p-5 text-navy-900 dark:bg-[#07111c] dark:text-navy-50">
           {searchOpen && (
             <div className="absolute right-5 top-0 z-20 w-[480px] rounded-xl border bg-white p-3 shadow-xl dark:bg-navy-900 dark:border-navy-700 dark:text-navy-50">
               {Object.entries(results).map(([k, rows]) =>

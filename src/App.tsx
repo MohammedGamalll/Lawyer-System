@@ -79,9 +79,15 @@ export default function App() {
   }, [setUpdateReady, toast])
 
   useEffect(() => {
-    if (!user) return
+    if (!user) {
+      useApp.getState().applyTheme('light')
+      return
+    }
     invoke<Record<string, string>>('settings:get')
-      .then((s) => applyFontSize(Number(s.ui_font_size || 16)))
+      .then((s) => {
+        applyFontSize(Number(s.ui_font_size || 16))
+        useApp.getState().applyTheme(s.theme === 'dark' ? 'dark' : 'light')
+      })
       .catch(() => undefined)
     void useSyncStore.getState().refresh()
   }, [user])

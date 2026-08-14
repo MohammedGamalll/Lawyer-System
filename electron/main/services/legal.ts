@@ -188,6 +188,7 @@ export function updateContract(actor: AuthedUser, id: string, data: Record<strin
       id
     )
   recordLocalChange('contracts', id, 'UPDATE')
+  audit(actor, 'update', 'contracts', id, 'تم تعديل العقد')
   return { id }
 }
 

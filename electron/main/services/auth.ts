@@ -81,7 +81,7 @@ export function login(
 
   db.prepare(
     'UPDATE users SET failed_login_attempts = 0, locked_until = NULL, last_login_at = ?, last_login_device = ?, updated_at = ? WHERE id = ?'
-  ).run(nowIso(), deviceInfo ?? null, nowIso(), user.id)
+  ).run(nowIso(), deviceInfo ?? 'Windows Desktop', nowIso(), user.id)
   recordLocalChange('users', user.id, 'UPDATE')
   logAttempt(1)
   createSession(user.id, senderId, deviceInfo)

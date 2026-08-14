@@ -93,11 +93,11 @@ export function Field({ label, children, required, error }: { label: string; chi
 
 export function Badge({ children, tone = 'navy' }: { children: React.ReactNode; tone?: 'navy' | 'gold' | 'green' | 'red' | 'slate' }) {
   const map = {
-    navy: 'bg-navy-100 text-navy-800',
-    gold: 'bg-gold-100 text-gold-700',
-    green: 'bg-emerald-100 text-emerald-800',
-    red: 'bg-red-100 text-red-700',
-    slate: 'bg-slate-100 text-slate-700'
+    gold: 'bg-gold-100 text-gold-700 dark:bg-gold-900 dark:text-gold-200',
+    green: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200',
+    red: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200',
+    slate: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200',
+    navy: 'bg-navy-100 text-navy-800 dark:bg-navy-800 dark:text-navy-50'
   }
   return <span className={cn('inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold', map[tone])}>{children}</span>
 }
@@ -132,7 +132,7 @@ export function Modal({
         <Dialog.Content
           dir={dir}
           className={cn(
-            'fixed left-1/2 top-1/2 z-50 max-h-[90vh] -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-xl border bg-white p-5 text-start shadow-xl dark:bg-navy-900',
+            'fixed left-1/2 top-1/2 z-50 max-h-[90vh] -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-xl border bg-white p-5 text-start text-navy-900 shadow-xl dark:border-navy-700 dark:bg-navy-900 dark:text-navy-50',
             wide ? 'w-[min(920px,94vw)]' : 'w-[min(520px,94vw)]'
           )}
         >

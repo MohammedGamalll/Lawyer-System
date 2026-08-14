@@ -273,7 +273,7 @@ export function SettingsPage() {
   const save = async () => {
     await invoke('settings:set', s)
     i18n.changeLanguage(s.language || 'ar')
-    document.documentElement.classList.toggle('dark', s.theme === 'dark')
+    useApp.getState().applyTheme(s.theme === 'dark' ? 'dark' : 'light')
     document.documentElement.dir = s.language === 'en' ? 'ltr' : 'rtl'
     applyFontSize(Number(s.ui_font_size || 16))
     toast(t('savedOk'))

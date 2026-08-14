@@ -68,6 +68,38 @@ label {
   color: #c5d4e4 !important;
 }
 
+.login-sheet,
+.login-sheet .text-navy-950,
+.login-sheet .text-navy-900,
+.login-sheet .text-navy-800,
+.login-sheet .text-navy-700,
+.login-sheet .text-navy-600,
+.login-sheet .text-navy-500,
+.login-sheet .text-navy-400,
+.login-sheet .text-navy-300,
+.dark .login-sheet,
+.dark .login-sheet .text-navy-950,
+.dark .login-sheet .text-navy-900,
+.dark .login-sheet .text-navy-800,
+.dark .login-sheet .text-navy-700,
+.dark .login-sheet .text-navy-600,
+.dark .login-sheet .text-navy-500 {
+  color: #122f4d !important;
+}
+
+.dark .login-sheet .text-navy-400,
+.dark .login-sheet .text-navy-300 {
+  color: #5b7190 !important;
+}
+
+.dark .login-sheet input,
+.dark .login-sheet select,
+.dark .login-sheet textarea {
+  color: #122f4d !important;
+  background-color: #ffffff !important;
+  border-color: #c5d0dc !important;
+}
+
 .dark input,
 .dark select,
 .dark textarea {

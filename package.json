@@ -1,6 +1,6 @@
 {
   "name": "law-office-management",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Law Office Management System",
   "main": "./out/main/index.js",
   "author": "Law Office Management",
