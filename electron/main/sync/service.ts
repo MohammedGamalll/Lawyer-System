@@ -20,11 +20,8 @@ export function getSyncState() {
     pending = getSyncSnapshot().pendingCount
   }
   const snap = getSyncSnapshot()
-  if ((cycle || snap.status === 'syncing') && pending === 0 && snap.pendingCount > 0) {
-    pending = snap.pendingCount
-  }
   if (!isSyncConfigured() || !isOnline()) return { ...snap, status: 'offline' as const, pendingCount: pending }
-  if (pending > 0 || cycle) return { ...snap, pendingCount: pending, status: 'syncing' as const }
+  if (pending > 0) return { ...snap, pendingCount: pending, status: 'syncing' as const }
   return { ...snap, pendingCount: pending, status: 'synced' as const }
 }
 

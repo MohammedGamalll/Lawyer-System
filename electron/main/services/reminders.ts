@@ -48,6 +48,18 @@ export function reminderBeforeExpiry(expiryDate: string, days: number): string {
   return addDays(expiryDate, -days)
 }
 
+function alreadyNotifiedToday(type: string, relatedId?: string): boolean {
+  if (!relatedId) return false
+  const today = new Date().toISOString().slice(0, 10)
+  const row = getDb()
+    .prepare(
+      `SELECT 1 as x FROM notifications
+       WHERE type = ? AND related_id = ? AND deleted_at IS NULL AND substr(created_at, 1, 10) = ?`
+    )
+    .get(type, relatedId, today) as { x: number } | undefined
+  return Boolean(row)
+}
+
 export function notifyUser(
   userId: string | null,
   title: string,
@@ -56,6 +68,7 @@ export function notifyUser(
   relatedType?: string,
   relatedId?: string
 ): void {
+  if (alreadyNotifiedToday(type, relatedId)) return
   const id = newId()
   const ts = nowIso()
   getDb()
@@ -121,8 +134,10 @@ export function generateDailyNotifications(): void {
     .prepare(`SELECT id, title FROM tasks WHERE status NOT IN ('completed','cancelled') AND due_date < ? AND ${notDeleted()}`)
     .all(today) as { id: string; title: string }[]
   for (const t of overdue) {
-    db.prepare(`UPDATE tasks SET status = 'overdue', updated_at = ? WHERE id = ? AND status != 'overdue'`).run(nowIso(), t.id)
-    recordLocalChange('tasks', t.id, 'UPDATE')
+    const changed = db
+      .prepare(`UPDATE tasks SET status = 'overdue', updated_at = ? WHERE id = ? AND status != 'overdue'`)
+      .run(nowIso(), t.id)
+    if (changed.changes > 0) recordLocalChange('tasks', t.id, 'UPDATE')
     notifyUser(null, 'مهمة متأخرة', t.title, 'task', 'task', t.id)
   }
 

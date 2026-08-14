@@ -20,8 +20,7 @@ function applySnapshot(prev: SyncSnapshot, snap: Partial<SyncSnapshot>): SyncSna
   const status = snap.status ?? prev.status
   let pending = snap.pendingCount
   if (typeof pending !== 'number' || Number.isNaN(pending)) pending = prev.pendingCount
-  if (status === 'syncing' && pending === 0 && prev.pendingCount > 0) pending = prev.pendingCount
-  if (status === 'synced' || status === 'offline') pending = snap.pendingCount ?? pending
+  if (status === 'synced' || status === 'offline') pending = snap.pendingCount ?? 0
   return { ...prev, ...snap, status, pendingCount: pending }
 }
 

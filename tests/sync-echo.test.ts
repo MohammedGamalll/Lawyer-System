@@ -72,4 +72,22 @@ describe.skipIf(!sqliteAvailable())('sync echo loop', () => {
     runAsRemote(() => recordLocalChange('clients', id, 'UPDATE'))
     expect(pendingCount()).toBe(0)
   })
+
+  it('replaces a queued row instead of duplicating it', async () => {
+    const { getDb } = await import('../electron/main/db/database')
+    const { recordLocalChange, pendingCount } = await import('../electron/main/sync/queue')
+    const db = getDb()
+    const id = randomUUID()
+    const ts = new Date().toISOString()
+    db.prepare(
+      `INSERT INTO clients (id, client_number, full_name, client_type, created_at, updated_at)
+       VALUES (?, 'CL-DEDUP', 'عميل طابور', 'individual', ?, ?)`
+    ).run(id, ts, ts)
+    recordLocalChange('clients', id, 'INSERT')
+    recordLocalChange('clients', id, 'UPDATE')
+    expect(pendingCount()).toBe(1)
+    const ops = db.prepare('SELECT operation FROM local_sync_queue WHERE record_id = ?').all(id) as { operation: string }[]
+    expect(ops).toHaveLength(1)
+    expect(ops[0].operation).toBe('UPDATE')
+  })
 })

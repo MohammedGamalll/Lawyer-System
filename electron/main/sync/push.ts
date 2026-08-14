@@ -67,6 +67,7 @@ export async function pushQueue(): Promise<string> {
   const sb = getSupabase()
   if (!sb) return ''
   enqueueParentSnapshot()
+  if (pendingCount() === 0) return ''
   emitSyncStatus('syncing')
   let lastError = ''
   let pushed = 0

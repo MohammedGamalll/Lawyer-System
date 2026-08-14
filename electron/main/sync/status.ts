@@ -27,12 +27,7 @@ export function emitSyncStatus(status: SyncUiStatus, error = ''): void {
   lastStatus = status
   lastError = error
   if (status === 'synced') lastSyncedAt = new Date().toISOString()
-  const pending = readPending()
-  if (status === 'syncing' && pending === 0 && lastPending > 0) {
-    /* keep lastPending — empty read during a busy push */
-  } else {
-    lastPending = pending
-  }
+  lastPending = readPending()
   const snap = getSyncSnapshot()
   for (const fn of listeners) fn(snap)
 }

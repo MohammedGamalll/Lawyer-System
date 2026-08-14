@@ -35,11 +35,22 @@ export function initDatabase(dbPath = getDbPath()): Database.Database {
   }
   db.pragma('foreign_keys = ON')
   db.exec(SCHEMA_SQL)
+  dedupeSyncQueue(db)
   seedIfEmpty(db)
   ensureSetting(db, 'ui_font_size', '16')
   ensureSetting(db, 'supabase_url', '')
   ensureSetting(db, 'supabase_anon_key', '')
   return db
+}
+
+function dedupeSyncQueue(database: Database.Database): void {
+  database.exec(`
+    DELETE FROM local_sync_queue
+    WHERE rowid NOT IN (
+      SELECT MAX(rowid) FROM local_sync_queue GROUP BY table_name, record_id
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_queue_record ON local_sync_queue(table_name, record_id);
+  `)
 }
 
 function ensureSetting(database: Database.Database, key: string, value: string) {

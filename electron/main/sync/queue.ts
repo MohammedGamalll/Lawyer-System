@@ -17,7 +17,9 @@ export function pkColumn(tableName: string): string {
 export function enqueue(tableName: string, recordId: string, operation: SyncOp, payload: unknown): void {
   if (isRemoteWrite()) return
   if (!SYNC_SET.has(tableName) || !recordId) return
+  if (tableName === 'settings' && String(recordId).startsWith('sync_')) return
   const db = getDb()
+  db.prepare('DELETE FROM local_sync_queue WHERE table_name = ? AND record_id = ?').run(tableName, recordId)
   db.prepare(
     `INSERT INTO local_sync_queue (id, table_name, record_id, operation, payload, created_at) VALUES (?,?,?,?,?,?)`
   ).run(newId(), tableName, recordId, operation, JSON.stringify(payload ?? {}), Date.now())
