@@ -82,6 +82,8 @@ export function formatDate(value?: string | null, lang: string = 'ar'): string {
 }
 
 export function formatTime(value?: string | null, lang: string = 'ar'): string {
+  const instant = parseInstant(value)
+  if (instant) return formatHour(instant.getHours(), instant.getMinutes(), lang)
   const t = parseTimeParts(value)
   if (!t) {
     if (value && /^\d{2}:\d{2}/.test(String(value))) {
@@ -91,6 +93,20 @@ export function formatTime(value?: string | null, lang: string = 'ar'): string {
     return value ? String(value) : '—'
   }
   return formatHour(t.h, t.min, lang)
+}
+
+function parseInstant(value?: string | null): Date | null {
+  if (!value) return null
+  const s = String(value).trim()
+  if (!/T\d{2}:\d{2}/.test(s) && !/Z$/.test(s) && !/[+-]\d{2}:\d{2}$/.test(s)) return null
+  const d = new Date(s)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
+function formatLocalDate(d: Date): string {
+  const dd = String(d.getDate()).padStart(2, '0')
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  return `${dd}/${mm}/${d.getFullYear()}`
 }
 
 function formatHour(h: number, min: number, lang: string) {
@@ -103,6 +119,8 @@ function formatHour(h: number, min: number, lang: string) {
 
 export function formatDateTime(value?: string | null, lang: string = 'ar'): string {
   if (!value) return '—'
+  const instant = parseInstant(value)
+  if (instant) return `${formatLocalDate(instant)} ${formatHour(instant.getHours(), instant.getMinutes(), lang)}`
   const date = formatDate(value, lang)
   const hasTime = /T\d{2}:\d{2}/.test(String(value)) || /\d{2}:\d{2}:\d{2}/.test(String(value))
   if (!hasTime) return date

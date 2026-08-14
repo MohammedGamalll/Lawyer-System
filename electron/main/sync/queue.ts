@@ -88,8 +88,27 @@ const PARENT_TABLES = [
 
 let parentsBootstrapped = false
 
+function catalogAlreadyPushed(): boolean {
+  const row = getDb()
+    .prepare(`SELECT value FROM settings WHERE key = 'sync_parents_bootstrapped'`)
+    .get() as { value: string } | undefined
+  return row?.value === '1'
+}
+
+function markCatalogPushed(): void {
+  getDb()
+    .prepare(
+      `INSERT INTO settings (key, value, updated_at) VALUES ('sync_parents_bootstrapped', '1', ?)
+       ON CONFLICT(key) DO UPDATE SET value = '1', updated_at = excluded.updated_at`
+    )
+    .run(nowIso())
+}
+
 export function enqueueParentSnapshot(): number {
-  if (parentsBootstrapped) return 0
+  if (parentsBootstrapped || catalogAlreadyPushed()) {
+    parentsBootstrapped = true
+    return 0
+  }
   parentsBootstrapped = true
   const db = getDb()
   let n = 0
@@ -103,6 +122,7 @@ export function enqueueParentSnapshot(): number {
       n += 1
     }
   }
+  markCatalogPushed()
   return n
 }
 
