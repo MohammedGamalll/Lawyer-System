@@ -1,0 +1,5 @@
+# Local electron-updater feed (generic provider).
+# After `npm run dist`, copy the installer + this file to the URL in settings.update_feed_url.
+# electron-builder generates latest.yml automatically when publishing.
+provider: generic
+url: https://updates.lawoffice.local/releases/
