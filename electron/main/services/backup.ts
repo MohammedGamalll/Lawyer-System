@@ -81,7 +81,7 @@ export function maybeAutoBackup(actor: AuthedUser | null) {
   if (schedule === 'daily' && last === today) return
   if (schedule === 'weekly' && last && Date.now() - new Date(last).getTime() < 6 * 24 * 3600 * 1000) return
   try {
-    createBackup(actor ?? { id: 0, username: 'system', fullName: 'system', roleCode: 'admin', permissions: [] })
+    createBackup(actor ?? { id: 'system', username: 'system', fullName: 'system', roleCode: 'admin', permissions: [] })
     const db = getDb()
     db.prepare(
       `INSERT INTO settings (key, value) VALUES ('last_auto_backup', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`

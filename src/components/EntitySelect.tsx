@@ -8,12 +8,14 @@ export function EntitySelect({
   value,
   onChange,
   clientId,
+  excludeIds,
   className
 }: {
   kind: LookupKind
   value?: string | number
   onChange: (v: string) => void
   clientId?: string | number
+  excludeIds?: Array<string | number>
   className?: string
 }) {
   const { t } = useTranslation()
@@ -39,15 +41,17 @@ export function EntitySelect({
   const selected = opts.find((o) => String(o.value) === String(value ?? ''))
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase()
-    if (!s) return opts.slice(0, 80)
-    return opts.filter((o) => o.label.toLowerCase().includes(s)).slice(0, 80)
-  }, [opts, q])
+    const excluded = new Set((excludeIds ?? []).map((x) => String(x)))
+    const base = opts.filter((o) => !excluded.has(String(o.value)))
+    if (!s) return base.slice(0, 80)
+    return base.filter((o) => o.label.toLowerCase().includes(s)).slice(0, 80)
+  }, [opts, q, excludeIds])
 
   return (
     <div ref={box} className={cn('relative', className)}>
       <button
         type="button"
-        className="flex h-9 w-full items-center justify-between rounded-md border border-navy-200 bg-white px-3 text-sm shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-gold-400 dark:bg-navy-900 dark:border-navy-700"
+        className="flex h-9 w-full items-center justify-between rounded-md border border-navy-200 bg-white px-3 text-sm text-navy-900 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-gold-400 dark:bg-navy-900 dark:border-navy-700 dark:text-navy-50"
         onClick={() => setOpen((v) => !v)}
       >
         <span className={selected ? '' : 'text-navy-400'}>{selected?.label || t('pickFromList')}</span>

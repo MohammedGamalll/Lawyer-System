@@ -7,7 +7,7 @@ import { mapDbError } from '../utils/errors'
 import log from 'electron-log'
 
 export type AuthedUser = {
-  id: number
+  id: string
   username: string
   fullName: string
   roleCode: string

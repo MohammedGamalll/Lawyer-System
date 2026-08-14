@@ -145,6 +145,7 @@ export const ROLE_PERMISSIONS: Record<string, PermissionCode[]> = {
 }
 
 export const NAV_ITEMS: { id: string; permission?: PermissionCode; icon?: string }[] = [
+  { id: 'home' },
   { id: 'dashboard' },
   { id: 'clients', permission: 'clients.view' },
   { id: 'cases', permission: 'cases.view' },
@@ -162,7 +163,7 @@ export const NAV_ITEMS: { id: string; permission?: PermissionCode; icon?: string
   { id: 'correspondence', permission: 'correspondence.view' },
   { id: 'accounts', permission: 'accounts.view' },
   { id: 'cashbox', permission: 'cashbox.view' },
-  { id: 'invoices', permission: 'invoices.view' },
+  { id: 'expenses', permission: 'accounts.expense' },
   { id: 'reports', permission: 'reports.view' },
   { id: 'archive', permission: 'archive.view' },
   { id: 'users', permission: 'users.manage' },

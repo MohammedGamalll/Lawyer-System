@@ -16,7 +16,7 @@ export function ClientProfilePage() {
   const [p, setP] = useState<Record<string, unknown> | null>(null)
   const [contact, setContact] = useState({ name: '', position: '', phone: '', email: '' })
   const [saving, setSaving] = useState(false)
-  const id = Number(pageMeta.id)
+  const id = String(pageMeta.id || '')
   const rhf = useForm({ resolver: zodResolver(contactSchema), values: contact, mode: 'onChange' })
 
   const load = () =>
@@ -75,23 +75,23 @@ export function ClientProfilePage() {
       <div className="grid gap-3 md:grid-cols-4">
         <Card className="min-w-0">
           <div className="text-xs text-navy-500">{t('number')}</div>
-          <div className="break-all font-bold">{String(c.client_number)}</div>
+          <div className="overflow-hidden text-ellipsis whitespace-nowrap font-bold">{String(c.client_number)}</div>
         </Card>
         <Card className="min-w-0">
           <div className="text-xs text-navy-500">{t('phone')}</div>
-          <div className="break-all font-bold" dir="ltr">
+          <div className="overflow-hidden text-ellipsis whitespace-nowrap font-bold" dir="ltr">
             {String(c.phone ?? '—')}
           </div>
         </Card>
         <Card className="min-w-0">
           <div className="text-xs text-navy-500">{t('type')}</div>
-          <div className="break-words font-bold">
+          <div className="overflow-hidden text-ellipsis whitespace-nowrap font-bold">
             {t(`status.${c.client_type}`, { defaultValue: String(c.client_type) })}
           </div>
         </Card>
         <Card className="min-w-0">
           <div className="text-xs text-navy-500">{t('due')}</div>
-          <div className="break-all font-bold tabular-nums">{Number(p.due).toLocaleString('ar-EG')}</div>
+          <div className="overflow-hidden text-ellipsis whitespace-nowrap font-bold tabular-nums">{Number(p.due).toLocaleString('ar-EG')}</div>
         </Card>
       </div>
       <Card>
@@ -133,7 +133,13 @@ export function ClientProfilePage() {
             {
               id: 'documents',
               label: t('tabs.documents'),
-              body: <MiniTable rows={p.documents as object[]} keys={['title', 'category']} />
+              body: (
+                <MiniTable
+                  rows={p.documents as object[]}
+                  keys={['title', 'category']}
+                  onRowClick={(r) => invoke('documents:open', r.id).catch((e) => toast((e as Error).message, 'err'))}
+                />
+              )
             },
             {
               id: 'staff',
@@ -187,11 +193,11 @@ export function ClientProfilePage() {
                   <MiniTable rows={contacts} keys={['name', 'position', 'phone', 'email']} />
                   {contacts.map((row) => (
                     <Button
-                      key={String((row as { id: number }).id)}
+                      key={String((row as { id: string }).id)}
                       variant="ghost"
                       className="mt-1"
                       onClick={async () => {
-                        await invoke('clients:removeContact', (row as { id: number }).id)
+                        await invoke('clients:removeContact', (row as { id: string }).id)
                         toast(t('deletedOk'))
                         load()
                       }}

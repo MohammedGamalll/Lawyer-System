@@ -22,7 +22,7 @@ type AppState = {
 
 export const useApp = create<AppState>((set, get) => ({
   user: null,
-  page: 'dashboard',
+  page: 'home',
   pageMeta: {},
   theme: 'light',
   lang: 'ar',

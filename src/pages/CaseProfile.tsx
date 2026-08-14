@@ -12,7 +12,7 @@ export function CaseProfilePage() {
   const [row, setRow] = useState<Record<string, unknown> | null>(null)
   const [link, setLink] = useState({ related_case_id: '', link_type: 'appeal' })
   const [oppId, setOppId] = useState('')
-  const id = Number(pageMeta.id)
+  const id = String(pageMeta.id || '')
   const load = () => invoke<Record<string, unknown>>('cases:get', id).then(setRow)
   useEffect(() => {
     load().catch((e) => toast(e.message, 'err'))
@@ -107,7 +107,7 @@ export function CaseProfilePage() {
                     <Button
                       onClick={async () => {
                         if (!oppId) return
-                        await invoke('opponents:linkCase', Number(oppId), id)
+                        await invoke('opponents:linkCase', String(oppId), id)
                         toast(t('savedOk'))
                         load()
                       }}
@@ -123,16 +123,18 @@ export function CaseProfilePage() {
         />
       </Card>
       <Card>
-        <h3 className="mb-2 font-bold">{t('nav.cases')}</h3>
+        <h3 className="mb-1 font-bold">{t('tabs.relatedCases')}</h3>
+        <p className="mb-2 text-xs text-navy-500 dark:text-navy-300">{t('tabs.relatedCasesHint')}</p>
         <div className="flex flex-wrap gap-2">
           <div className="min-w-[240px] flex-1">
             <EntitySelect
               kind="cases"
               value={link.related_case_id}
-              onChange={(v) => setLink({ ...link, related_case_id: v })}
+              excludeIds={[id]}
+              onChange={(v) => setLink((prev) => ({ ...prev, related_case_id: v }))}
             />
           </div>
-          <Select value={link.link_type} onChange={(e) => setLink({ ...link, link_type: e.target.value })}>
+          <Select value={link.link_type} onChange={(e) => setLink((prev) => ({ ...prev, link_type: e.target.value }))}>
             <option value="original">{t('status.original')}</option>
             <option value="appeal">{t('status.appeal')}</option>
             <option value="cassation">{t('status.cassation')}</option>
@@ -140,9 +142,19 @@ export function CaseProfilePage() {
           </Select>
           <Button
             onClick={async () => {
-              await invoke('cases:link', id, Number(link.related_case_id), link.link_type)
-              toast(t('savedOk'))
-              load()
+              const relatedId = String(link.related_case_id || '')
+              if (!relatedId) {
+                toast(t('tabs.relatedCasesHint'), 'err')
+                return
+              }
+              try {
+                await invoke('cases:link', id, relatedId, link.link_type)
+                toast(t('savedOk'))
+                setLink({ related_case_id: '', link_type: link.link_type })
+                await load()
+              } catch (e) {
+                toast((e as Error).message, 'err')
+              }
             }}
           >
             {t('save')}

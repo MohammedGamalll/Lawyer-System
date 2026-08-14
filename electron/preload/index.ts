@@ -8,6 +8,11 @@ const api = {
     ipcRenderer.on(channel, listener)
     return () => ipcRenderer.removeListener(channel, listener)
   },
+  onUpdateProgress: (cb: (progress: { percent: number }) => void) => {
+    const listener = (_e: unknown, progress: { percent: number }) => cb(progress)
+    ipcRenderer.on('updater:progress', listener)
+    return () => ipcRenderer.removeListener('updater:progress', listener)
+  },
   channels: IPC
 }
 

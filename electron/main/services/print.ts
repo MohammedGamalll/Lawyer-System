@@ -39,13 +39,23 @@ function cairoFace(): string {
   return `@font-face { font-family: 'Cairo'; src: local('Cairo'), local('Segoe UI'); }`
 }
 
+function bundledLogoPath(): string | null {
+  const candidates = [
+    path.join(process.resourcesPath || '', 'brand-logo.png'),
+    path.join(app.getAppPath(), 'resources', 'brand-logo.png'),
+    path.join(process.cwd(), 'resources', 'brand-logo.png')
+  ]
+  return candidates.find((p) => fs.existsSync(p)) || null
+}
+
 function logoImg(): string {
   const logo = getSetting('office_logo', '')
   const full = logo && fs.existsSync(logo) ? logo : path.join(getDataRoot(), 'logo.png')
-  if (full && fs.existsSync(full)) {
-    const ext = path.extname(full).slice(1) || 'png'
-    const b64 = fs.readFileSync(full).toString('base64')
-    return `<img src="data:image/${ext};base64,${b64}" style="height:48px" alt="logo"/>`
+  const file = full && fs.existsSync(full) ? full : bundledLogoPath()
+  if (file && fs.existsSync(file)) {
+    const ext = path.extname(file).slice(1) || 'png'
+    const b64 = fs.readFileSync(file).toString('base64')
+    return `<img src="data:image/${ext};base64,${b64}" class="logo" alt="logo"/>`
   }
   return ''
 }
@@ -130,7 +140,8 @@ export async function printHtml(html: string, kind: PrintKind, parent?: BrowserW
         {
           silent: Boolean(doSilent && match && !pdfLike),
           ...(match && !pdfLike ? { deviceName: match.name } : {}),
-          printBackground: true
+          printBackground: true,
+          pageSize: 'A4'
         },
         (success, error) => {
           if (!success && error && !isCancel(error)) reject(new Error(error))

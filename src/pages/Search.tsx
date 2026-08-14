@@ -22,9 +22,9 @@ export function SearchPage() {
   const run = async () => {
     try {
       const data = await invoke<Record<string, unknown>[]>('search:advanced', {
-        case_type_id: filters.case_type_id ? Number(filters.case_type_id) : undefined,
+        case_type_id: filters.case_type_id || undefined,
         status: filters.status || undefined,
-        lawyer_id: filters.lawyer_id ? Number(filters.lawyer_id) : undefined,
+        lawyer_id: filters.lawyer_id || undefined,
         hearing_from: filters.hearing_from || undefined,
         hearing_to: filters.hearing_to || undefined
       })
@@ -75,7 +75,7 @@ export function SearchPage() {
         </Button>
       </Card>
       <Card>
-        <table className="w-full table-fixed border-collapse text-sm">
+        <table className="w-full border-collapse text-sm">
           <thead>
             <tr>
               <th className="px-3 py-2 text-start">{t('fields.case_number')}</th>
@@ -95,17 +95,17 @@ export function SearchPage() {
             )}
             {rows.map((r) => (
               <tr key={String(r.id)} className="border-t">
-                <td className="min-w-0 px-3 py-2 text-start align-middle">
-                  <button className="text-navy-800 underline" onClick={() => setPage('caseProfile', { id: r.id })}>
+                <td className="min-w-0 px-3 py-2 text-start align-middle leading-relaxed text-navy-900 dark:text-white">
+                  <button className="text-navy-800 underline dark:text-gold-300" onClick={() => setPage('caseProfile', { id: r.id })}>
                     {String(r.case_number)}
                   </button>
                 </td>
-                <td className="min-w-0 px-3 py-2 text-start align-middle">{String(r.title)}</td>
-                <td className="min-w-0 px-3 py-2 text-start align-middle">{String(r.client_name)}</td>
-                <td className="min-w-0 px-3 py-2 text-start align-middle">
+                <td className="min-w-0 px-3 py-2 text-start align-middle leading-relaxed text-navy-900 dark:text-white">{String(r.title)}</td>
+                <td className="min-w-0 px-3 py-2 text-start align-middle leading-relaxed text-navy-900 dark:text-white">{String(r.client_name)}</td>
+                <td className="min-w-0 px-3 py-2 text-start align-middle leading-relaxed">
                   <StatusBadge value={String(r.status)} />
                 </td>
-                <td className="min-w-0 px-3 py-2 text-start align-middle">{String(r.lawyer_name ?? '')}</td>
+                <td className="min-w-0 px-3 py-2 text-start align-middle leading-relaxed text-navy-900 dark:text-white">{String(r.lawyer_name ?? '')}</td>
               </tr>
             ))}
           </tbody>

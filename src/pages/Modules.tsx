@@ -1,12 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { CrudPage, FieldDef } from '../components/CrudPage'
-import { Button, Card, Field, Input, MiniTable, PageHeader, Select, UiTabs } from '../components/ui'
-import { DatePicker, TimePicker } from '../components/DateTimePicker'
+import { Button, Select } from '../components/ui'
 import { invoke } from '../lib/api'
 import { useApp } from '../store'
-import { toIsoDate } from '../lib/datetime'
-import { onDataChanged } from '../lib/bus'
 import { CASE_STATUSES, CLIENT_TYPES, HEARING_STATUSES, REMINDER_TYPES, TASK_STATUSES } from '@shared/types'
 import {
   appointmentSchema,
@@ -15,18 +12,17 @@ import {
   consultationSchema,
   contractSchema,
   correspondenceSchema,
-  employeeSchema,
   hearingSchema,
-  lawyerSchema,
   opponentSchema,
   poaSchema,
   reminderSchema,
   taskSchema
 } from '@shared/schemas'
+import { StaffFormPage } from './StaffForm'
 import { ClientProfilePage } from './ClientProfile'
 import { CaseProfilePage } from './CaseProfile'
 
-export { ClientProfilePage, CaseProfilePage }
+export { ClientProfilePage, CaseProfilePage, StaffFormPage }
 
 const st = (t: (k: string) => string, arr: readonly string[]) => arr.map((v) => ({ value: v, label: t(`status.${v}`) }))
 
@@ -194,14 +190,14 @@ export function TasksPage() {
   const { t } = useTranslation()
   const [view, setView] = useState('all')
   const [lawyerId, setLawyerId] = useState('')
-  const [lawyers, setLawyers] = useState<{ id: number; user_id: number | null; full_name: string }[]>([])
+  const [lawyers, setLawyers] = useState<{ id: string; user_id: string | null; full_name: string }[]>([])
   useEffect(() => {
     invoke<{ rows: typeof lawyers }>('lawyers:list', { pageSize: 200 })
       .then((r) => setLawyers(r.rows))
       .catch(() => undefined)
   }, [])
   const filters: Record<string, unknown> = {}
-  if (view === 'byLawyer' && lawyerId) filters.assignee_id = Number(lawyerId)
+  if (view === 'byLawyer' && lawyerId) filters.assignee_id = lawyerId
   else if (view !== 'all' && view !== 'byLawyer') filters.view = view
 
   return (
@@ -310,10 +306,12 @@ export function LawyersPage() {
     <CrudPage
       title={t('nav.lawyers')}
       listChannel="lawyers:list"
-      createChannel="lawyers:create"
-      updateChannel="lawyers:update"
       removeChannel="lawyers:remove"
-      schema={lawyerSchema}
+      extraActions={
+        <Button variant="gold" onClick={() => setPage('staffForm', { lockRole: 'lawyer', back: 'lawyers' })}>
+          {t('hr.addLawyer')}
+        </Button>
+      }
       columns={[
         { key: 'full_name', label: t('fields.full_name') },
         { key: 'bar_number', label: t('fields.bar_number') },
@@ -321,71 +319,21 @@ export function LawyersPage() {
         { key: 'phone', label: t('fields.phone') },
         { key: 'status', label: t('fields.status'), status: true }
       ]}
-      fields={[
-        f(t, 'full_name', { required: true }),
-        f(t, 'bar_number'),
-        f(t, 'specialization'),
-        f(t, 'phone'),
-        f(t, 'email'),
-        f(t, 'hire_date', { type: 'date' }),
-        f(t, 'status', { type: 'select', options: st(t, ['active', 'inactive']) }),
-        f(t, 'notes', { type: 'textarea' })
-      ]}
-      onRowOpen={(r) => setPage('lawyerProfile', { id: r.id })}
+      fields={[]}
+      onRowOpen={(r) =>
+        setPage('staffForm', {
+          employeeId: r.employee_id,
+          lawyerId: r.id,
+          lockRole: 'lawyer',
+          back: 'lawyers'
+        })
+      }
     />
   )
 }
 
 export function LawyerProfilePage() {
-  const { t } = useTranslation()
-  const { pageMeta, setPage, toast } = useApp()
-  const [d, setD] = useState<Record<string, unknown> | null>(null)
-  const load = () =>
-    invoke<Record<string, unknown>>('lawyers:dashboard', Number(pageMeta.id)).then(setD).catch((e) => toast(e.message, 'err'))
-  useEffect(() => {
-    load()
-  }, [pageMeta.id])
-  if (!d) return null
-  const l = d.lawyer as Record<string, unknown>
-  return (
-    <div className="space-y-3">
-      <PageHeader
-        title={`${t('nav.lawyers')} — ${l.full_name}`}
-        actions={
-          <>
-            <Button
-              variant="outline"
-              onClick={async () => {
-                const file = await invoke<{ name: string; data: number[] }>('files:pick')
-                await invoke('lawyers:savePhoto', Number(pageMeta.id), file)
-                toast(t('savedOk'))
-                load()
-              }}
-            >
-              {t('settings.uploadPhoto')}
-            </Button>
-            <Button variant="outline" onClick={() => setPage('lawyers')}>
-              {t('back')}
-            </Button>
-          </>
-        }
-      />
-      <div className="grid grid-cols-3 gap-3">
-        <Card>
-          {t('dash.open')}: {String(d.openCount)}
-        </Card>
-        <Card>
-          {t('dash.closed')}: {String(d.closedCount)}
-        </Card>
-        <Card>
-          {t('fields.bar_number')}: {String(l.bar_number ?? '—')}
-        </Card>
-      </div>
-      {l.photo_path ? <img src={`file://${l.photo_path}`} alt="" className="h-24 rounded-lg object-cover" /> : null}
-      <MiniTable rows={d.cases as object[]} keys={['case_number', 'title', 'status']} />
-      <MiniTable rows={d.hearings as object[]} keys={['hearing_date', 'case_number', 'status']} />
-    </div>
-  )
+  return <StaffFormPage />
 }
 
 export function EmployeesPage() {
@@ -395,124 +343,27 @@ export function EmployeesPage() {
     <CrudPage
       title={t('nav.employees')}
       listChannel="employees:list"
-      createChannel="employees:create"
-      updateChannel="employees:update"
       removeChannel="employees:remove"
-      createPerm="employees.manage"
-      schema={employeeSchema}
+      extraActions={
+        <Button variant="gold" onClick={() => setPage('staffForm', { back: 'employees' })}>
+          {t('hr.addStaff')}
+        </Button>
+      }
       columns={[
         { key: 'full_name', label: t('fields.full_name') },
+        { key: 'role_name', label: t('fields.role_name') },
         { key: 'job_title', label: t('fields.job_title') },
-        { key: 'salary', label: t('fields.salary'), money: true },
-        { key: 'hire_date', label: t('fields.hire_date') },
+        { key: 'phone', label: t('fields.phone') },
         { key: 'status', label: t('fields.status'), status: true }
       ]}
-      fields={[
-        f(t, 'full_name', { required: true }),
-        f(t, 'job_title'),
-        f(t, 'department'),
-        f(t, 'salary', { type: 'number' }),
-        f(t, 'hire_date', { type: 'date' }),
-        f(t, 'phone'),
-        f(t, 'email'),
-        f(t, 'status', { type: 'select', options: st(t, ['active', 'inactive']) })
-      ]}
-      onRowOpen={(r) => setPage('employeeProfile', { id: r.id })}
+      fields={[]}
+      onRowOpen={(r) => setPage('staffForm', { employeeId: r.id, lawyerId: r.lawyer_id, userId: r.user_id, back: 'employees' })}
     />
   )
 }
 
 export function EmployeeProfilePage() {
-  const { t } = useTranslation()
-  const { pageMeta, setPage, toast } = useApp()
-  const [d, setD] = useState<Record<string, unknown> | null>(null)
-  const [att, setAtt] = useState({
-    date: toIsoDate(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate()),
-    check_in: '09:00',
-    check_out: '17:00',
-    status: 'present'
-  })
-  const [leave, setLeave] = useState({ leave_type: 'annual', start_date: '', end_date: '', status: 'pending' })
-  const id = Number(pageMeta.id)
-  const load = () => invoke<Record<string, unknown>>('employees:get', id).then(setD)
-  useEffect(() => {
-    load().catch((e) => toast(e.message, 'err'))
-  }, [id])
-  useEffect(() => onDataChanged(() => load().catch(() => undefined)), [id])
-  if (!d) return <div>{t('loading')}</div>
-  const emp = d.employee as Record<string, unknown>
-  return (
-    <div className="space-y-4">
-      <PageHeader
-        title={`${t('nav.employees')} — ${emp.full_name}`}
-        actions={
-          <Button variant="outline" onClick={() => setPage('employees')}>
-            {t('back')}
-          </Button>
-        }
-      />
-      <Card>
-        <UiTabs
-          tabs={[
-            {
-              id: 'attendance',
-              label: t('tabs.attendance'),
-              body: (
-                <div>
-                  <div className="mb-3 flex flex-wrap gap-2">
-                    <DatePicker value={att.date} onChange={(d) => setAtt({ ...att, date: d })} />
-                    <TimePicker value={att.check_in} onChange={(tm) => setAtt({ ...att, check_in: tm })} />
-                    <TimePicker value={att.check_out} onChange={(tm) => setAtt({ ...att, check_out: tm })} />
-                    <Select value={att.status} onChange={(e) => setAtt({ ...att, status: e.target.value })}>
-                      <option value="present">{t('hr.present')}</option>
-                      <option value="absent">{t('hr.absent')}</option>
-                    </Select>
-                    <Button
-                      onClick={async () => {
-                        await invoke('employees:attendance', { ...att, employee_id: id })
-                        toast(t('savedOk'))
-                        load()
-                      }}
-                    >
-                      {t('hr.checkIn')}
-                    </Button>
-                  </div>
-                  <MiniTable rows={d.attendance as object[]} keys={['date', 'check_in', 'check_out', 'status']} />
-                </div>
-              )
-            },
-            {
-              id: 'leaves',
-              label: t('tabs.leaves'),
-              body: (
-                <div>
-                  <div className="mb-3 flex flex-wrap gap-2">
-                    <Select value={leave.leave_type} onChange={(e) => setLeave({ ...leave, leave_type: e.target.value })}>
-                      <option value="annual">{t('hr.annual')}</option>
-                      <option value="sick">{t('hr.sick')}</option>
-                      <option value="unpaid">{t('hr.unpaid')}</option>
-                    </Select>
-                    <DatePicker value={leave.start_date} onChange={(d) => setLeave({ ...leave, start_date: d })} />
-                    <DatePicker value={leave.end_date} onChange={(d) => setLeave({ ...leave, end_date: d })} />
-                    <Button
-                      onClick={async () => {
-                        await invoke('employees:leave', { ...leave, employee_id: id })
-                        toast(t('savedOk'))
-                        load()
-                      }}
-                    >
-                      {t('hr.leave')}
-                    </Button>
-                  </div>
-                  <MiniTable rows={d.leaves as object[]} keys={['leave_type', 'start_date', 'end_date', 'status']} />
-                </div>
-              )
-            }
-          ]}
-        />
-      </Card>
-    </div>
-  )
+  return <StaffFormPage />
 }
 
 export function OpponentsPage() {

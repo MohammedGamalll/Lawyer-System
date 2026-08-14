@@ -76,9 +76,9 @@ export function daysInMonth(y: number, m: number) {
 export function formatDate(value?: string | null, lang: string = 'ar'): string {
   const p = parseDateParts(value)
   if (!p) return value ? String(value) : '—'
-  const months = lang === 'en' ? EN_MONTHS : AR_MONTHS
-  if (lang === 'en') return `${p.d} ${months[p.m - 1]} ${p.y}`
-  return `${p.d} ${months[p.m - 1]} ${p.y}`
+  const dd = String(p.d).padStart(2, '0')
+  const mm = String(p.m).padStart(2, '0')
+  return `${dd}/${mm}/${p.y}`
 }
 
 export function formatTime(value?: string | null, lang: string = 'ar'): string {
@@ -98,7 +98,7 @@ function formatHour(h: number, min: number, lang: string) {
   const h12 = h % 12 || 12
   const mm = String(min).padStart(2, '0')
   if (lang === 'en') return `${h12}:${mm} ${period ? 'PM' : 'AM'}`
-  return `${h12}:${mm} ${period ? 'مساءً' : 'صباحاً'}`
+  return `${h12}:${mm} ${period ? 'م' : 'ص'}`
 }
 
 export function formatDateTime(value?: string | null, lang: string = 'ar'): string {
@@ -106,7 +106,24 @@ export function formatDateTime(value?: string | null, lang: string = 'ar'): stri
   const date = formatDate(value, lang)
   const hasTime = /T\d{2}:\d{2}/.test(String(value)) || /\d{2}:\d{2}:\d{2}/.test(String(value))
   if (!hasTime) return date
-  return `${date} — ${formatTime(value, lang)}`
+  return `${date} ${formatTime(value, lang)}`
+}
+
+export function prettyFileName(name: string, lang: string = 'ar'): string {
+  const raw = String(name || '').trim()
+  if (!raw) return '—'
+  const wa = raw.match(/(\d{4})-(\d{2})-(\d{2})\s+at\s+(\d{1,2})[.:](\d{2})[.:](\d{2})\s*(AM|PM)/i)
+  if (wa) {
+    let h = Number(wa[4])
+    const min = Number(wa[5])
+    const ap = wa[7].toUpperCase()
+    if (ap === 'PM' && h < 12) h += 12
+    if (ap === 'AM' && h === 12) h = 0
+    const date = formatDate(`${wa[1]}-${wa[2]}-${wa[3]}`, lang)
+    const ext = (raw.match(/\.[a-z0-9]+$/i) || [''])[0]
+    return `${date} ${formatHour(h, min, lang)}${ext}`
+  }
+  return raw.replace(/(\d{4})-(\d{2})-(\d{2})/g, (_, y, m, d) => formatDate(`${y}-${m}-${d}`, lang))
 }
 
 export function isDateKey(key: string) {
@@ -124,10 +141,15 @@ export function isTimeKey(key: string) {
 export function formatCell(key: string, value: unknown, lang: string, translate: (k: string) => string): string {
   if (value === null || value === undefined || value === '') return '—'
   if (key === 'is_active') return Number(value) === 1 ? translate('status.yes') : translate('status.no')
+  if (key === 'file_name' || key === 'file' || key === 'original_name') return prettyFileName(String(value), lang)
   if (isDateTimeKey(key)) return formatDateTime(String(value), lang)
   if (isTimeKey(key) && !isDateKey(key)) return formatTime(String(value), lang)
   if (isDateKey(key)) return formatDate(String(value), lang)
   const raw = String(value)
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+    return /T\d{2}:\d{2}/.test(raw) || /\d{2}:\d{2}:\d{2}/.test(raw) ? formatDateTime(raw, lang) : formatDate(raw, lang)
+  }
+  if (/\d{4}-\d{2}-\d{2}\s+at\s+/i.test(raw)) return prettyFileName(raw, lang)
   const statusKey = `status.${raw}`
   const status = translate(statusKey)
   if (status && status !== statusKey) return status

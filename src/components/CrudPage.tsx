@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { invoke } from '../lib/api'
 import { ApiError } from '../lib/api'
 import { useApp } from '../store'
-import { Button, Field, Input, Select, Textarea, Modal, PageHeader, StatusBadge, ConfirmBar } from './ui'
+import { Button, Field, Input, Select, Textarea, Modal, PageHeader, StatusBadge, ConfirmBar, RowMenu } from './ui'
 import { DatePicker, DateTimePicker, TimePicker } from './DateTimePicker'
 import { EntitySelect } from './EntitySelect'
 import { formatCell } from '../lib/datetime'
@@ -53,13 +53,17 @@ export function FormFields({
   values,
   onChange,
   errors,
-  register
+  register,
+  extra,
+  extraAfter
 }: {
   fields: FieldDef[]
   values: Record<string, unknown>
   onChange: (name: string, value: unknown) => void
   errors?: Record<string, string>
   register?: (name: string) => Record<string, unknown>
+  extra?: React.ReactNode
+  extraAfter?: string
 }) {
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -72,7 +76,8 @@ export function FormFields({
           onChange?: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => void
         }
         return (
-          <div key={f.name} className={span}>
+          <React.Fragment key={f.name}>
+          <div className={span}>
             <Field label={f.label} required={f.required} error={err}>
               {f.type === 'textarea' ? (
                 <Textarea {...reg} value={String(val)} onChange={(e) => { reg.onChange?.(e); onChange(f.name, e.target.value) }} />
@@ -81,7 +86,7 @@ export function FormFields({
                   kind={f.lookup as LookupKind}
                   value={val}
                   clientId={f.lookup === 'cases' ? (values.client_id as string | number | undefined) : undefined}
-                  onChange={(v) => onChange(f.name, v === '' ? '' : Number(v))}
+                  onChange={(v) => onChange(f.name, v === '' ? '' : v)}
                 />
               ) : f.type === 'select' ? (
                 <Select {...reg} value={String(val)} onChange={(e) => { reg.onChange?.(e); onChange(f.name, e.target.value) }}>
@@ -112,8 +117,11 @@ export function FormFields({
               )}
             </Field>
           </div>
+          {extraAfter === f.name && extra ? <div className="md:col-span-2">{extra}</div> : null}
+          </React.Fragment>
         )
       })}
+      {!extraAfter && extra ? <div className="md:col-span-2">{extra}</div> : null}
     </div>
   )
 }
@@ -139,7 +147,8 @@ export function CrudPage({
   onRowOpen,
   extraActions,
   rowActions,
-  formExtra
+  formExtra,
+  formExtraAfter
 }: {
   title: string
   listChannel: string
@@ -160,6 +169,7 @@ export function CrudPage({
   extraActions?: React.ReactNode
   rowActions?: (row: Record<string, unknown>, reload: () => Promise<void>) => React.ReactNode
   formExtra?: (form: Record<string, unknown>, setField: (name: string, value: unknown) => void) => React.ReactNode
+  formExtraAfter?: string
 }) {
   const { t, i18n } = useTranslation()
   const { toast, can } = useApp()
@@ -315,8 +325,8 @@ export function CrudPage({
         <Input placeholder={t('search')} value={q} onChange={(e) => { setPage(1); setQ(e.target.value) }} className="max-w-sm" />
         {extraFilters}
       </div>
-      <div className="overflow-auto rounded-xl border border-navy-100 bg-white dark:bg-navy-900 dark:border-navy-800">
-        <table className="w-full min-w-[720px] table-fixed border-collapse text-sm">
+      <div className="data-table-wrap overflow-y-auto overflow-x-hidden rounded-xl border border-navy-100 bg-white dark:bg-navy-900 dark:border-navy-800">
+        <table className="w-full border-collapse text-sm">
           <thead className="bg-navy-800 text-white">
             <tr>
               {columns.map((c) => (
@@ -329,13 +339,13 @@ export function CrudPage({
                   </button>
                 </th>
               ))}
-              <th className="w-44 px-3 py-2 text-start">{t('actions')}</th>
+              <th className="w-12 px-2 py-2 text-center">{t('actions')}</th>
             </tr>
             <tr className="bg-navy-700">
               {columns.map((c) => (
                 <th key={c.key} className="px-2 py-1.5">
                   <input
-                    className="h-7 w-full rounded border-0 bg-white/95 px-2 text-xs font-normal text-navy-900 outline-none"
+                    className="h-7 w-full rounded border-0 bg-white/95 px-2 text-xs font-normal text-navy-900 outline-none dark:bg-navy-800 dark:text-white"
                     placeholder={t('filter')}
                     value={colFilters[c.key] || ''}
                     onChange={(e) => setColFilters((prev) => ({ ...prev, [c.key]: e.target.value }))}
@@ -354,9 +364,9 @@ export function CrudPage({
               </tr>
             )}
             {displayRows.map((row) => (
-              <tr key={String(row.id)} className="border-t border-navy-50 hover:bg-navy-50/60 dark:border-navy-800">
+              <tr key={String(row.id)} className="border-t border-navy-50 hover:bg-navy-50/60 dark:border-navy-800 dark:hover:bg-navy-800/60">
                 {columns.map((c) => (
-                  <td key={c.key} className="min-w-0 overflow-hidden px-3 py-2 text-start align-middle">
+                  <td key={c.key} className="px-3 py-2 text-start align-middle leading-relaxed text-navy-900 dark:text-white">
                     {c.status ? (
                       <StatusBadge value={String(row[c.key] ?? '')} />
                     ) : c.money ? (
@@ -366,30 +376,26 @@ export function CrudPage({
                     )}
                   </td>
                 ))}
-                <td className="px-3 py-2 whitespace-nowrap">
-                  {onRowOpen && (
-                    <Button variant="ghost" onClick={() => onRowOpen(row)}>
-                      {t('details')}
-                    </Button>
-                  )}
-                  {updateChannel && (!updatePerm || can(updatePerm)) && (
-                    <Button variant="ghost" onClick={() => startEdit(row)}>
-                      {t('edit')}
-                    </Button>
-                  )}
-                  {removeChannel && (!deletePerm || can(deletePerm)) && (
-                    <Button variant="ghost" onClick={() => setDel(row)}>
-                      {t('delete')}
-                    </Button>
-                  )}
-                  {rowActions?.(row, load)}
+                <td className="w-12 px-1 py-2 text-center align-middle">
+                  <RowMenu
+                    items={[
+                      ...(onRowOpen ? [{ label: t('details'), onClick: () => onRowOpen(row) }] : []),
+                      ...(updateChannel && (!updatePerm || can(updatePerm))
+                        ? [{ label: t('edit'), onClick: () => startEdit(row) }]
+                        : []),
+                      ...(removeChannel && (!deletePerm || can(deletePerm))
+                        ? [{ label: t('delete'), onClick: () => setDel(row), danger: true }]
+                        : [])
+                    ]}
+                    extra={rowActions?.(row, load)}
+                  />
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <div className="mt-3 flex items-center justify-between text-sm text-navy-600">
+      <div className="mt-3 flex items-center justify-between text-sm text-navy-600 dark:text-navy-200">
         <span>
           {t('page')} {page} {t('of')} {pages} — {data.total}
         </span>
@@ -410,15 +416,16 @@ export function CrudPage({
             values={form}
             errors={fieldErrors}
             register={rhf.register as never}
+            extraAfter={formExtraAfter}
+            extra={formExtra?.(form, (n, v) => {
+              setForm((prev) => ({ ...prev, [n]: v }))
+              rhf.setValue(n as never, v as never, { shouldValidate: true })
+            })}
             onChange={(n, v) => {
               setForm((prev) => ({ ...prev, [n]: v }))
               rhf.setValue(n as never, v as never, { shouldValidate: true })
             }}
           />
-          {formExtra?.(form, (n, v) => {
-            setForm((prev) => ({ ...prev, [n]: v }))
-            rhf.setValue(n as never, v as never, { shouldValidate: true })
-          })}
           <div className="mt-4 flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               {t('cancel')}

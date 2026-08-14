@@ -4,35 +4,45 @@ PRAGMA journal_mode = WAL;
 PRAGMA busy_timeout = 5000;
 
 CREATE TABLE IF NOT EXISTS roles (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT PRIMARY KEY,
   code TEXT NOT NULL UNIQUE,
   name_ar TEXT NOT NULL,
   name_en TEXT NOT NULL,
-  is_system INTEGER NOT NULL DEFAULT 1
+  is_system INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS permissions (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT PRIMARY KEY,
   code TEXT NOT NULL UNIQUE,
   name_ar TEXT NOT NULL,
   name_en TEXT NOT NULL,
-  module TEXT NOT NULL
+  module TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS role_permissions (
-  role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
-  permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
-  PRIMARY KEY (role_id, permission_id)
+  id TEXT PRIMARY KEY,
+  role_id TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+  permission_id TEXT NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT,
+  UNIQUE (role_id, permission_id)
 );
 
 CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT PRIMARY KEY,
   username TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
   full_name TEXT NOT NULL,
   email TEXT,
   phone TEXT,
-  role_id INTEGER NOT NULL REFERENCES roles(id),
+  role_id TEXT NOT NULL REFERENCES roles(id),
   is_active INTEGER NOT NULL DEFAULT 1,
   failed_login_attempts INTEGER NOT NULL DEFAULT 0,
   locked_until TEXT,
@@ -40,26 +50,31 @@ CREATE TABLE IF NOT EXISTS users (
   last_login_device TEXT,
   avatar_path TEXT,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS user_permissions (
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  permission_id TEXT NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
   granted INTEGER NOT NULL DEFAULT 1,
-  PRIMARY KEY (user_id, permission_id)
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT,
+  UNIQUE (user_id, permission_id)
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   created_at TEXT NOT NULL,
   expires_at TEXT NOT NULL,
   device_info TEXT
 );
 
 CREATE TABLE IF NOT EXISTS login_attempts (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT PRIMARY KEY,
   username TEXT,
   success INTEGER NOT NULL,
   device_info TEXT,
@@ -68,18 +83,22 @@ CREATE TABLE IF NOT EXISTS login_attempts (
 
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
-  value TEXT
+  value TEXT,
+  updated_at TEXT,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS number_sequences (
   name TEXT PRIMARY KEY,
   prefix TEXT NOT NULL DEFAULT '',
   current_value INTEGER NOT NULL DEFAULT 0,
-  padding INTEGER NOT NULL DEFAULT 4
+  padding INTEGER NOT NULL DEFAULT 4,
+  updated_at TEXT,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS clients (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT PRIMARY KEY,
   client_number TEXT NOT NULL UNIQUE,
   full_name TEXT NOT NULL,
   trade_name TEXT,
@@ -102,7 +121,8 @@ CREATE TABLE IF NOT EXISTS clients (
   is_archived INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  created_by INTEGER
+  created_by TEXT,
+  deleted_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_clients_name ON clients(full_name);
@@ -110,17 +130,20 @@ CREATE INDEX IF NOT EXISTS idx_clients_phone ON clients(phone);
 CREATE INDEX IF NOT EXISTS idx_clients_national ON clients(national_id);
 
 CREATE TABLE IF NOT EXISTS client_contacts (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  id TEXT PRIMARY KEY,
+  client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   position TEXT,
   phone TEXT,
-  email TEXT
+  email TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS lawyers (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER REFERENCES users(id),
+  id TEXT PRIMARY KEY,
+  user_id TEXT REFERENCES users(id),
   full_name TEXT NOT NULL,
   photo_path TEXT,
   bar_number TEXT,
@@ -130,12 +153,14 @@ CREATE TABLE IF NOT EXISTS lawyers (
   hire_date TEXT,
   status TEXT NOT NULL DEFAULT 'active',
   notes TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS employees (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER REFERENCES users(id),
+  id TEXT PRIMARY KEY,
+  user_id TEXT REFERENCES users(id),
   full_name TEXT NOT NULL,
   job_title TEXT,
   department TEXT,
@@ -145,31 +170,42 @@ CREATE TABLE IF NOT EXISTS employees (
   email TEXT,
   status TEXT NOT NULL DEFAULT 'active',
   notes TEXT,
-  created_at TEXT NOT NULL
+  photo_path TEXT,
+  license_no TEXT,
+  qualification TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS attendance (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  id TEXT PRIMARY KEY,
+  employee_id TEXT NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
   date TEXT NOT NULL,
   check_in TEXT,
   check_out TEXT,
   status TEXT NOT NULL DEFAULT 'present',
-  notes TEXT
+  notes TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS leaves (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  id TEXT PRIMARY KEY,
+  employee_id TEXT NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
   leave_type TEXT NOT NULL,
   start_date TEXT NOT NULL,
   end_date TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending',
-  notes TEXT
+  notes TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS opponents (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT PRIMARY KEY,
   full_name TEXT NOT NULL,
   national_id TEXT,
   phone TEXT,
@@ -177,26 +213,31 @@ CREATE TABLE IF NOT EXISTS opponents (
   lawyer_name TEXT,
   extra_data TEXT,
   notes TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS case_types (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT PRIMARY KEY,
   name_ar TEXT NOT NULL,
   name_en TEXT,
   is_active INTEGER NOT NULL DEFAULT 1,
-  sort_order INTEGER NOT NULL DEFAULT 0
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS cases (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT PRIMARY KEY,
   case_number TEXT NOT NULL UNIQUE,
   internal_file_number TEXT,
   title TEXT NOT NULL,
-  client_id INTEGER NOT NULL REFERENCES clients(id),
-  primary_lawyer_id INTEGER REFERENCES lawyers(id),
-  assistant_lawyer_id INTEGER REFERENCES lawyers(id),
-  case_type_id INTEGER REFERENCES case_types(id),
+  client_id TEXT NOT NULL REFERENCES clients(id),
+  primary_lawyer_id TEXT REFERENCES lawyers(id),
+  assistant_lawyer_id TEXT REFERENCES lawyers(id),
+  case_type_id TEXT REFERENCES case_types(id),
   category TEXT,
   court TEXT,
   circuit TEXT,
@@ -218,7 +259,8 @@ CREATE TABLE IF NOT EXISTS cases (
   closed_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  created_by INTEGER
+  created_by TEXT,
+  deleted_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_cases_client ON cases(client_id);
@@ -226,25 +268,32 @@ CREATE INDEX IF NOT EXISTS idx_cases_status ON cases(status);
 CREATE INDEX IF NOT EXISTS idx_cases_lawyer ON cases(primary_lawyer_id);
 
 CREATE TABLE IF NOT EXISTS case_links (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  case_id INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
-  related_case_id INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
-  link_type TEXT NOT NULL
+  id TEXT PRIMARY KEY,
+  case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  related_case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  link_type TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS case_opponents (
-  case_id INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
-  opponent_id INTEGER NOT NULL REFERENCES opponents(id) ON DELETE CASCADE,
-  PRIMARY KEY (case_id, opponent_id)
+  id TEXT PRIMARY KEY,
+  case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  opponent_id TEXT NOT NULL REFERENCES opponents(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT,
+  UNIQUE (case_id, opponent_id)
 );
 
 CREATE TABLE IF NOT EXISTS hearings (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  case_id INTEGER NOT NULL REFERENCES cases(id),
+  id TEXT PRIMARY KEY,
+  case_id TEXT NOT NULL REFERENCES cases(id),
   hearing_date TEXT NOT NULL,
   hearing_time TEXT,
   hearing_type TEXT,
-  lawyer_id INTEGER REFERENCES lawyers(id),
+  lawyer_id TEXT REFERENCES lawyers(id),
   status TEXT NOT NULL DEFAULT 'upcoming',
   result TEXT,
   court_decision TEXT,
@@ -255,137 +304,152 @@ CREATE TABLE IF NOT EXISTS hearings (
   next_actions TEXT,
   notes TEXT,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_hearings_date ON hearings(hearing_date);
 CREATE INDEX IF NOT EXISTS idx_hearings_case ON hearings(case_id);
 
 CREATE TABLE IF NOT EXISTS appointments (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   appointment_type TEXT NOT NULL DEFAULT 'client',
-  client_id INTEGER REFERENCES clients(id),
-  lawyer_id INTEGER REFERENCES lawyers(id),
-  case_id INTEGER REFERENCES cases(id),
+  client_id TEXT REFERENCES clients(id),
+  lawyer_id TEXT REFERENCES lawyers(id),
+  case_id TEXT REFERENCES cases(id),
   date TEXT NOT NULL,
   time TEXT,
   location TEXT,
   purpose TEXT,
   notes TEXT,
   status TEXT NOT NULL DEFAULT 'scheduled',
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS tasks (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   description TEXT,
-  assignee_id INTEGER REFERENCES users(id),
-  case_id INTEGER REFERENCES cases(id),
-  client_id INTEGER REFERENCES clients(id),
+  assignee_id TEXT REFERENCES users(id),
+  case_id TEXT REFERENCES cases(id),
+  client_id TEXT REFERENCES clients(id),
   start_date TEXT,
   due_date TEXT,
   priority TEXT NOT NULL DEFAULT 'medium',
   status TEXT NOT NULL DEFAULT 'new',
   progress INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS reminders (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT PRIMARY KEY,
   reminder_type TEXT NOT NULL,
   title TEXT NOT NULL,
   remind_at TEXT NOT NULL,
   notify_before_minutes INTEGER NOT NULL DEFAULT 60,
   priority TEXT NOT NULL DEFAULT 'medium',
-  assignee_id INTEGER REFERENCES users(id),
-  case_id INTEGER REFERENCES cases(id),
-  client_id INTEGER REFERENCES clients(id),
+  assignee_id TEXT REFERENCES users(id),
+  case_id TEXT REFERENCES cases(id),
+  client_id TEXT REFERENCES clients(id),
   related_type TEXT,
-  related_id INTEGER,
+  related_id TEXT,
   is_sent INTEGER NOT NULL DEFAULT 0,
   is_dismissed INTEGER NOT NULL DEFAULT 0,
   notes TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS notifications (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER REFERENCES users(id),
+  id TEXT PRIMARY KEY,
+  user_id TEXT REFERENCES users(id),
   title TEXT NOT NULL,
   body TEXT,
   type TEXT,
   related_type TEXT,
-  related_id INTEGER,
+  related_id TEXT,
   is_read INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS documents (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   category TEXT NOT NULL DEFAULT 'other',
-  client_id INTEGER REFERENCES clients(id),
-  case_id INTEGER REFERENCES cases(id),
-  hearing_id INTEGER REFERENCES hearings(id),
-  contract_id INTEGER,
+  client_id TEXT REFERENCES clients(id),
+  case_id TEXT REFERENCES cases(id),
+  hearing_id TEXT REFERENCES hearings(id),
+  contract_id TEXT,
   file_path TEXT NOT NULL,
   file_name TEXT NOT NULL,
   mime_type TEXT,
   file_size INTEGER,
   current_version INTEGER NOT NULL DEFAULT 1,
   notes TEXT,
-  created_by INTEGER,
+  created_by TEXT,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS document_versions (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  id TEXT PRIMARY KEY,
+  document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
   version INTEGER NOT NULL,
   file_path TEXT NOT NULL,
   file_name TEXT,
-  created_by INTEGER,
-  created_at TEXT NOT NULL
+  created_by TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS power_of_attorney (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT PRIMARY KEY,
   poa_number TEXT NOT NULL UNIQUE,
   poa_type TEXT,
-  client_id INTEGER REFERENCES clients(id),
-  lawyer_id INTEGER REFERENCES lawyers(id),
+  client_id TEXT REFERENCES clients(id),
+  lawyer_id TEXT REFERENCES lawyers(id),
   issuing_authority TEXT,
   issue_date TEXT,
   expiry_date TEXT,
   status TEXT NOT NULL DEFAULT 'active',
-  document_id INTEGER REFERENCES documents(id),
+  document_id TEXT REFERENCES documents(id),
   notes TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS contracts (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT PRIMARY KEY,
   contract_number TEXT NOT NULL UNIQUE,
   title TEXT NOT NULL,
-  client_id INTEGER REFERENCES clients(id),
+  client_id TEXT REFERENCES clients(id),
   contract_type TEXT,
   start_date TEXT,
   end_date TEXT,
   value REAL,
   status TEXT NOT NULL DEFAULT 'active',
-  lawyer_id INTEGER REFERENCES lawyers(id),
+  lawyer_id TEXT REFERENCES lawyers(id),
   notes TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS consultations (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  client_id INTEGER REFERENCES clients(id),
-  lawyer_id INTEGER REFERENCES lawyers(id),
+  id TEXT PRIMARY KEY,
+  client_id TEXT REFERENCES clients(id),
+  lawyer_id TEXT REFERENCES lawyers(id),
   consultation_date TEXT,
   consultation_type TEXT,
   subject TEXT,
@@ -394,65 +458,77 @@ CREATE TABLE IF NOT EXISTS consultations (
   fees REAL,
   payment_status TEXT NOT NULL DEFAULT 'unpaid',
   notes TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS correspondence (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT PRIMARY KEY,
   correspondence_number TEXT NOT NULL UNIQUE,
   direction TEXT NOT NULL DEFAULT 'outgoing',
   correspondence_type TEXT NOT NULL DEFAULT 'letter',
   date TEXT,
   party TEXT,
   subject TEXT,
-  responsible_user_id INTEGER REFERENCES users(id),
-  case_id INTEGER REFERENCES cases(id),
-  client_id INTEGER REFERENCES clients(id),
+  responsible_user_id TEXT REFERENCES users(id),
+  case_id TEXT REFERENCES cases(id),
+  client_id TEXT REFERENCES clients(id),
   notes TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS cashboxes (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   type TEXT NOT NULL DEFAULT 'office',
   current_balance REAL NOT NULL DEFAULT 0,
-  is_active INTEGER NOT NULL DEFAULT 1
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS case_fees (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  case_id INTEGER NOT NULL UNIQUE REFERENCES cases(id) ON DELETE CASCADE,
+  id TEXT PRIMARY KEY,
+  case_id TEXT NOT NULL UNIQUE REFERENCES cases(id) ON DELETE CASCADE,
   total_fees REAL NOT NULL DEFAULT 0,
   paid REAL NOT NULL DEFAULT 0,
   remaining REAL NOT NULL DEFAULT 0,
   due_date TEXT,
   payment_method TEXT,
   installment_count INTEGER NOT NULL DEFAULT 1,
-  notes TEXT
+  notes TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS payments (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT PRIMARY KEY,
   payment_number TEXT NOT NULL UNIQUE,
-  client_id INTEGER REFERENCES clients(id),
-  case_id INTEGER REFERENCES cases(id),
+  client_id TEXT REFERENCES clients(id),
+  case_id TEXT REFERENCES cases(id),
   amount REAL NOT NULL,
   payment_type TEXT NOT NULL DEFAULT 'fees',
   payment_method TEXT NOT NULL DEFAULT 'cash',
-  cashbox_id INTEGER REFERENCES cashboxes(id),
+  cashbox_id TEXT REFERENCES cashboxes(id),
   payment_date TEXT,
   due_date TEXT,
   notes TEXT,
-  created_by INTEGER,
-  created_at TEXT NOT NULL
+  created_by TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS invoices (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT PRIMARY KEY,
   invoice_number TEXT NOT NULL UNIQUE,
-  client_id INTEGER REFERENCES clients(id),
-  case_id INTEGER REFERENCES cases(id),
+  client_id TEXT REFERENCES clients(id),
+  case_id TEXT REFERENCES cases(id),
   invoice_date TEXT,
   due_date TEXT,
   subtotal REAL NOT NULL DEFAULT 0,
@@ -461,93 +537,177 @@ CREATE TABLE IF NOT EXISTS invoices (
   paid REAL NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'unpaid',
   notes TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS invoice_items (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+  id TEXT PRIMARY KEY,
+  invoice_id TEXT NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
   description TEXT NOT NULL,
   quantity REAL NOT NULL DEFAULT 1,
   unit_price REAL NOT NULL DEFAULT 0,
-  total REAL NOT NULL DEFAULT 0
+  total REAL NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS receipts (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT PRIMARY KEY,
   receipt_number TEXT NOT NULL UNIQUE,
-  payment_id INTEGER REFERENCES payments(id),
-  client_id INTEGER REFERENCES clients(id),
+  payment_id TEXT REFERENCES payments(id),
+  client_id TEXT REFERENCES clients(id),
   amount REAL NOT NULL,
   receipt_date TEXT,
   notes TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS vouchers (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT PRIMARY KEY,
   voucher_number TEXT NOT NULL UNIQUE,
   voucher_type TEXT NOT NULL,
   amount REAL NOT NULL,
-  cashbox_id INTEGER REFERENCES cashboxes(id),
-  related_id INTEGER,
+  cashbox_id TEXT REFERENCES cashboxes(id),
+  related_id TEXT,
   voucher_date TEXT,
   notes TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS expense_categories (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT PRIMARY KEY,
   name_ar TEXT NOT NULL,
   name_en TEXT,
-  is_active INTEGER NOT NULL DEFAULT 1
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS expenses (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT PRIMARY KEY,
   expense_number TEXT NOT NULL UNIQUE,
-  category_id INTEGER REFERENCES expense_categories(id),
+  category_id TEXT REFERENCES expense_categories(id),
   amount REAL NOT NULL,
-  cashbox_id INTEGER REFERENCES cashboxes(id),
+  cashbox_id TEXT REFERENCES cashboxes(id),
   expense_date TEXT,
-  client_id INTEGER REFERENCES clients(id),
-  case_id INTEGER REFERENCES cases(id),
+  client_id TEXT REFERENCES clients(id),
+  case_id TEXT REFERENCES cases(id),
   description TEXT,
   notes TEXT,
-  created_by INTEGER,
-  created_at TEXT NOT NULL
+  created_by TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS cashbox_transactions (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  cashbox_id INTEGER NOT NULL REFERENCES cashboxes(id),
+  id TEXT PRIMARY KEY,
+  cashbox_id TEXT NOT NULL REFERENCES cashboxes(id),
   transaction_type TEXT NOT NULL,
   amount REAL NOT NULL,
   related_type TEXT,
-  related_id INTEGER,
+  related_id TEXT,
   description TEXT,
   transaction_date TEXT,
-  created_by INTEGER,
-  created_at TEXT NOT NULL
+  created_by TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS audit_logs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER,
+  id TEXT PRIMARY KEY,
+  user_id TEXT,
   username TEXT,
   action TEXT NOT NULL,
   entity_type TEXT,
-  entity_id INTEGER,
+  entity_id TEXT,
   description TEXT,
   old_values TEXT,
   new_values TEXT,
   device_info TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS local_sync_queue (
+  id TEXT PRIMARY KEY,
+  table_name TEXT NOT NULL,
+  record_id TEXT NOT NULL,
+  operation TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_sync_queue_created ON local_sync_queue(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, is_read);
 `
+
+export const SYNC_TABLES = [
+  'roles',
+  'permissions',
+  'role_permissions',
+  'users',
+  'user_permissions',
+  'settings',
+  'number_sequences',
+  'clients',
+  'client_contacts',
+  'lawyers',
+  'employees',
+  'attendance',
+  'leaves',
+  'opponents',
+  'case_types',
+  'cases',
+  'case_links',
+  'case_opponents',
+  'hearings',
+  'appointments',
+  'tasks',
+  'reminders',
+  'notifications',
+  'documents',
+  'document_versions',
+  'power_of_attorney',
+  'contracts',
+  'consultations',
+  'correspondence',
+  'cashboxes',
+  'case_fees',
+  'payments',
+  'invoices',
+  'invoice_items',
+  'receipts',
+  'vouchers',
+  'expense_categories',
+  'expenses',
+  'cashbox_transactions',
+  'audit_logs'
+] as const
+
+export const NUMBERED_TABLES: Record<string, string> = {
+  clients: 'client',
+  cases: 'case',
+  invoices: 'invoice',
+  receipts: 'receipt',
+  vouchers: 'voucher',
+  payments: 'payment',
+  expenses: 'expense',
+  power_of_attorney: 'poa',
+  contracts: 'contract',
+  correspondence: 'correspondence'
+}
 
 export const CASE_TYPE_SEEDS = [
   'جنائي', 'مدني', 'تجاري', 'عمالي', 'أحوال شخصية', 'أسرة', 'إيجارات', 'عقارات',

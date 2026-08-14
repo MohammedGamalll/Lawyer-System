@@ -1,7 +1,7 @@
 import { getDb } from '../db/database'
 import { nowIso, addDays } from '../utils/time'
-import { audit } from './audit'
-import type { AuthedUser } from '../ipc/helpers'
+import { newId, asIdOrNull, notDeleted } from '../db/ids'
+import { recordLocalChange } from '../sync/queue'
 
 export function createReminder(data: {
   reminder_type: string
@@ -9,36 +9,39 @@ export function createReminder(data: {
   remind_at: string
   notify_before_minutes?: number
   priority?: string
-  assignee_id?: number | null
-  case_id?: number | null
-  client_id?: number | null
+  assignee_id?: string | null
+  case_id?: string | null
+  client_id?: string | null
   related_type?: string
-  related_id?: number
+  related_id?: string
   notes?: string
-}): number {
+}): string {
   const db = getDb()
-  const info = db
-    .prepare(
-      `INSERT INTO reminders (
-        reminder_type, title, remind_at, notify_before_minutes, priority, assignee_id, case_id, client_id,
-        related_type, related_id, notes, created_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
-    )
-    .run(
-      data.reminder_type,
-      data.title,
-      data.remind_at,
-      data.notify_before_minutes ?? 1440,
-      data.priority ?? 'medium',
-      data.assignee_id ?? null,
-      data.case_id ?? null,
-      data.client_id ?? null,
-      data.related_type ?? null,
-      data.related_id ?? null,
-      data.notes ?? null,
-      nowIso()
-    )
-  return Number(info.lastInsertRowid)
+  const id = newId()
+  const ts = nowIso()
+  db.prepare(
+    `INSERT INTO reminders (
+        id, reminder_type, title, remind_at, notify_before_minutes, priority, assignee_id, case_id, client_id,
+        related_type, related_id, notes, created_at, updated_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  ).run(
+    id,
+    data.reminder_type,
+    data.title,
+    data.remind_at,
+    data.notify_before_minutes ?? 1440,
+    data.priority ?? 'medium',
+    asIdOrNull(data.assignee_id),
+    asIdOrNull(data.case_id),
+    asIdOrNull(data.client_id),
+    data.related_type ?? null,
+    asIdOrNull(data.related_id),
+    data.notes ?? null,
+    ts,
+    ts
+  )
+  recordLocalChange('reminders', id, 'INSERT')
+  return id
 }
 
 export function reminderBeforeExpiry(expiryDate: string, days: number): string {
@@ -46,19 +49,22 @@ export function reminderBeforeExpiry(expiryDate: string, days: number): string {
 }
 
 export function notifyUser(
-  userId: number | null,
+  userId: string | null,
   title: string,
   body: string,
   type: string,
   relatedType?: string,
-  relatedId?: number
+  relatedId?: string
 ): void {
+  const id = newId()
+  const ts = nowIso()
   getDb()
     .prepare(
-      `INSERT INTO notifications (user_id, title, body, type, related_type, related_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO notifications (id, user_id, title, body, type, related_type, related_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(userId, title, body, type, relatedType ?? null, relatedId ?? null, nowIso())
+    .run(id, asIdOrNull(userId), title, body, type, relatedType ?? null, asIdOrNull(relatedId), ts, ts)
+  recordLocalChange('notifications', id, 'INSERT')
 }
 
 export function processDueReminders(): number {
@@ -66,21 +72,22 @@ export function processDueReminders(): number {
   const now = nowIso()
   const due = db
     .prepare(
-      `SELECT * FROM reminders WHERE is_sent = 0 AND is_dismissed = 0
+      `SELECT * FROM reminders WHERE is_sent = 0 AND is_dismissed = 0 AND ${notDeleted()}
        AND datetime(remind_at, '-' || notify_before_minutes || ' minutes') <= datetime(?)`
     )
     .all(now) as {
-    id: number
+    id: string
     title: string
     reminder_type: string
-    assignee_id: number | null
+    assignee_id: string | null
     related_type: string | null
-    related_id: number | null
+    related_id: string | null
   }[]
-  const mark = db.prepare('UPDATE reminders SET is_sent = 1 WHERE id = ?')
+  const mark = db.prepare('UPDATE reminders SET is_sent = 1, updated_at = ? WHERE id = ?')
   for (const r of due) {
     notifyUser(r.assignee_id, r.title, `تذكير: ${r.title}`, r.reminder_type, r.related_type ?? undefined, r.related_id ?? undefined)
-    mark.run(r.id)
+    mark.run(nowIso(), r.id)
+    recordLocalChange('reminders', r.id, 'UPDATE')
   }
   return due.length
 }
@@ -93,9 +100,9 @@ export function generateDailyNotifications(): void {
   const todayHearings = db
     .prepare(
       `SELECT h.id, cs.title, cs.case_number FROM hearings h JOIN cases cs ON cs.id = h.case_id
-       WHERE h.hearing_date = ? AND h.status = 'upcoming'`
+       WHERE h.hearing_date = ? AND h.status = 'upcoming' AND ${notDeleted('h')} AND ${notDeleted('cs')}`
     )
-    .all(today) as { id: number; title: string; case_number: string }[]
+    .all(today) as { id: string; title: string; case_number: string }[]
   for (const h of todayHearings) {
     notifyUser(null, 'جلسة اليوم', `جلسة القضية ${h.case_number} — ${h.title}`, 'hearing', 'hearing', h.id)
   }
@@ -103,31 +110,34 @@ export function generateDailyNotifications(): void {
   const tomorrowHearings = db
     .prepare(
       `SELECT h.id, cs.title, cs.case_number FROM hearings h JOIN cases cs ON cs.id = h.case_id
-       WHERE h.hearing_date = ? AND h.status = 'upcoming'`
+       WHERE h.hearing_date = ? AND h.status = 'upcoming' AND ${notDeleted('h')} AND ${notDeleted('cs')}`
     )
-    .all(tomorrow) as { id: number; title: string; case_number: string }[]
+    .all(tomorrow) as { id: string; title: string; case_number: string }[]
   for (const h of tomorrowHearings) {
     notifyUser(null, 'جلسة الغد', `جلسة القضية ${h.case_number} — ${h.title}`, 'hearing', 'hearing', h.id)
   }
 
   const overdue = db
-    .prepare(`SELECT id, title FROM tasks WHERE status NOT IN ('completed','cancelled') AND due_date < ?`)
-    .all(today) as { id: number; title: string }[]
+    .prepare(`SELECT id, title FROM tasks WHERE status NOT IN ('completed','cancelled') AND due_date < ? AND ${notDeleted()}`)
+    .all(today) as { id: string; title: string }[]
   for (const t of overdue) {
-    db.prepare(`UPDATE tasks SET status = 'overdue' WHERE id = ? AND status != 'overdue'`).run(t.id)
+    db.prepare(`UPDATE tasks SET status = 'overdue', updated_at = ? WHERE id = ? AND status != 'overdue'`).run(nowIso(), t.id)
+    recordLocalChange('tasks', t.id, 'UPDATE')
     notifyUser(null, 'مهمة متأخرة', t.title, 'task', 'task', t.id)
   }
 
   const expiringPoa = db
-    .prepare(`SELECT id, poa_number FROM power_of_attorney WHERE status = 'active' AND expiry_date BETWEEN ? AND ?`)
-    .all(today, addDays(today, 14).slice(0, 10)) as { id: number; poa_number: string }[]
+    .prepare(
+      `SELECT id, poa_number FROM power_of_attorney WHERE status = 'active' AND expiry_date BETWEEN ? AND ? AND ${notDeleted()}`
+    )
+    .all(today, addDays(today, 14).slice(0, 10)) as { id: string; poa_number: string }[]
   for (const p of expiringPoa) {
     notifyUser(null, 'توكيل قارَب على الانتهاء', `التوكيل ${p.poa_number}`, 'poa_expiry', 'poa', p.id)
   }
 
   const expiringContracts = db
-    .prepare(`SELECT id, title FROM contracts WHERE status = 'active' AND end_date BETWEEN ? AND ?`)
-    .all(today, addDays(today, 14).slice(0, 10)) as { id: number; title: string }[]
+    .prepare(`SELECT id, title FROM contracts WHERE status = 'active' AND end_date BETWEEN ? AND ? AND ${notDeleted()}`)
+    .all(today, addDays(today, 14).slice(0, 10)) as { id: string; title: string }[]
   for (const c of expiringContracts) {
     notifyUser(null, 'عقد قارَب على الانتهاء', c.title, 'contract_renewal', 'contract', c.id)
   }

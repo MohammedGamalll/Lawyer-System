@@ -3,6 +3,7 @@
 @import '@fontsource/cairo/arabic-600.css';
 @import '@fontsource/cairo/arabic-700.css';
 @import '@fontsource/cairo/arabic-800.css';
+@import '@fontsource/cairo/latin-800.css';
 
 @tailwind base;
 @tailwind components;
@@ -10,6 +11,11 @@
 
 :root {
   color-scheme: light;
+  --app-font-size: 16px;
+}
+
+html {
+  font-size: var(--app-font-size);
 }
 
 html,
@@ -23,12 +29,84 @@ body {
   background: #f4f1eb;
   color: #122f4d;
   font-family: Cairo, Tahoma, sans-serif;
+  font-size: 1rem;
+  font-weight: 800;
 }
 
-.dark body,
+button,
+input,
+select,
+textarea,
+th,
+td,
+label {
+  font-weight: 800;
+}
+
 .dark {
+  color-scheme: dark;
   background: #07111c;
   color: #e8eef5;
+}
+
+.dark body {
+  background: #07111c;
+  color: #e8eef5;
+}
+
+.dark .text-navy-950,
+.dark .text-navy-900,
+.dark .text-navy-800,
+.dark .text-navy-700,
+.dark .text-navy-600,
+.dark .text-navy-500 {
+  color: #e8eef5 !important;
+}
+
+.dark .text-navy-400,
+.dark .text-navy-300 {
+  color: #c5d4e4 !important;
+}
+
+.dark input,
+.dark select,
+.dark textarea {
+  color: #f3f6fa;
+  background-color: #0c1b2e;
+  border-color: #3d6d9e;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #9bb0c4;
+}
+
+.dark thead {
+  color: #fff;
+}
+
+.data-table-wrap {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.data-table-wrap table {
+  table-layout: auto;
+  width: 100%;
+}
+
+.data-table-wrap th,
+.data-table-wrap td,
+.data-grid > * {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  vertical-align: middle;
+}
+
+.dark tbody td,
+.dark .data-grid > * {
+  color: #f3f6fa;
 }
 
 ::-webkit-scrollbar {
@@ -40,8 +118,131 @@ body {
   border-radius: 8px;
 }
 
-input,
-select,
-textarea {
-  font-family: inherit;
+.dark .law-calendar,
+.dark .law-calendar .fc {
+  --fc-page-bg-color: #0c1b2e;
+  --fc-neutral-bg-color: #122f4d;
+  --fc-border-color: #3d6d9e;
+  --fc-button-bg-color: #163a5f;
+  --fc-button-border-color: #3d6d9e;
+  --fc-button-text-color: #ffffff;
+  --fc-button-hover-bg-color: #1e4d7b;
+  --fc-button-active-bg-color: #c9a227;
+  --fc-today-bg-color: rgba(201, 162, 39, 0.18);
+  --fc-now-indicator-color: #c9a227;
+  --fc-event-bg-color: #1e4d7b;
+  --fc-event-border-color: #c9a227;
+  --fc-event-text-color: #ffffff;
+  --fc-neutral-text-color: #e8eef5;
+  --fc-list-event-hover-bg-color: #163a5f;
+  color: #e8eef5;
+}
+
+.dark .law-calendar .fc-toolbar-title,
+.dark .law-calendar .fc-col-header-cell,
+.dark .law-calendar .fc-col-header-cell-cushion,
+.dark .law-calendar .fc-timegrid-axis-cushion,
+.dark .law-calendar .fc-timegrid-slot-label-cushion,
+.dark .law-calendar .fc-daygrid-day-number,
+.dark .law-calendar .fc-multimonth-title,
+.dark .law-calendar a {
+  color: #ffffff !important;
+}
+
+.dark .law-calendar .fc-scrollgrid-section-sticky > *,
+.dark .law-calendar .fc-scrollgrid-section-header,
+.dark .law-calendar .fc-col-header,
+.dark .law-calendar .fc-col-header-cell,
+.dark .law-calendar th.fc-col-header-cell,
+.dark .law-calendar .fc-timegrid-axis {
+  background: #122f4d !important;
+  color: #ffffff !important;
+}
+
+.dark .law-calendar .fc-scrollgrid-section-header > td,
+.dark .law-calendar .fc-scrollgrid-section-header > th {
+  background: #122f4d !important;
+}
+
+.dark .law-calendar .fc-theme-standard td,
+.dark .law-calendar .fc-theme-standard th {
+  border-color: #3d6d9e !important;
+}
+
+.dark .law-calendar .fc-button {
+  background: #163a5f !important;
+  border-color: #3d6d9e !important;
+  color: #ffffff !important;
+}
+
+.dark .law-calendar .fc-button-active,
+.dark .law-calendar .fc-button-primary:not(:disabled).fc-button-active {
+  background: #c9a227 !important;
+  border-color: #c9a227 !important;
+  color: #0c1b2e !important;
+}
+
+.law-calendar {
+  overflow: hidden;
+}
+
+.law-calendar .fc {
+  font-weight: 800;
+}
+
+.law-calendar .fc-scrollgrid,
+.law-calendar .fc-scrollgrid-sync-table,
+.law-calendar .fc-daygrid-body,
+.law-calendar .fc-col-header {
+  width: 100% !important;
+}
+
+.law-calendar .fc-daygrid-day-frame {
+  overflow: hidden;
+  min-width: 0;
+}
+
+.law-calendar .fc-daygrid-event-harness,
+.law-calendar .fc-daygrid-event {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.law-calendar .fc-event {
+  overflow: hidden;
+}
+
+.law-calendar .fc-event-main,
+.law-calendar .fc-event-title,
+.law-calendar .fc-event-title-container {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  padding-inline: 4px;
+}
+
+.law-calendar .fc-col-header-cell-cushion,
+.law-calendar .fc-daygrid-day-number,
+.law-calendar .fc-timegrid-axis-cushion,
+.law-calendar .fc-timegrid-slot-label-cushion {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-inline: 6px;
+  display: inline-block;
+  max-width: 100%;
+}
+
+.law-calendar .fc-daygrid-day:last-child .fc-daygrid-day-events,
+.law-calendar .fc-daygrid-day:first-child .fc-daygrid-day-events,
+.law-calendar .fc-col-header-cell:last-child,
+.law-calendar .fc-col-header-cell:first-child {
+  padding-inline: 4px;
+}
+
+.law-calendar .fc-direction-rtl .fc-daygrid-day:last-child,
+.law-calendar .fc-direction-rtl .fc-col-header-cell:last-child {
+  padding-left: 8px;
+  padding-right: 4px;
 }

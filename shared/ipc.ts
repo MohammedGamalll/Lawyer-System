@@ -13,7 +13,8 @@ export const IPC = {
     update: 'users:update',
     remove: 'users:remove',
     setPermissions: 'users:setPermissions',
-    permissions: 'users:permissions'
+    permissions: 'users:permissions',
+    roles: 'users:roles'
   },
   clients: {
     list: 'clients:list',
@@ -51,13 +52,13 @@ export const IPC = {
     postpone: 'hearings:postpone'
   },
   dashboard: { stats: 'dashboard:stats' },
-  lawyers: { list: 'lawyers:list', get: 'lawyers:get', create: 'lawyers:create', update: 'lawyers:update', remove: 'lawyers:remove', dashboard: 'lawyers:dashboard', savePhoto: 'lawyers:savePhoto' },
-  employees: { list: 'employees:list', get: 'employees:get', create: 'employees:create', update: 'employees:update', remove: 'employees:remove', attendance: 'employees:attendance', leave: 'employees:leave' },
+  lawyers: { list: 'lawyers:list', get: 'lawyers:get', create: 'lawyers:create', update: 'lawyers:update', remove: 'lawyers:remove', dashboard: 'lawyers:dashboard', savePhoto: 'lawyers:savePhoto', saveStaff: 'lawyers:saveStaff' },
+  employees: { list: 'employees:list', get: 'employees:get', create: 'employees:create', update: 'employees:update', remove: 'employees:remove', attendance: 'employees:attendance', leave: 'employees:leave', staff: 'employees:staff', savePhoto: 'employees:savePhoto' },
   opponents: { list: 'opponents:list', get: 'opponents:get', create: 'opponents:create', update: 'opponents:update', remove: 'opponents:remove', linkCase: 'opponents:linkCase' },
   caseTypes: { list: 'caseTypes:list', create: 'caseTypes:create', update: 'caseTypes:update', remove: 'caseTypes:remove' },
   tasks: { list: 'tasks:list', get: 'tasks:get', create: 'tasks:create', update: 'tasks:update', remove: 'tasks:remove' },
-  reminders: { list: 'reminders:list', create: 'reminders:create', update: 'reminders:update', remove: 'reminders:remove', dismiss: 'reminders:dismiss' },
-  appointments: { list: 'appointments:list', create: 'appointments:create', update: 'appointments:update', remove: 'appointments:remove' },
+  reminders: { list: 'reminders:list', get: 'reminders:get', create: 'reminders:create', update: 'reminders:update', remove: 'reminders:remove', dismiss: 'reminders:dismiss' },
+  appointments: { list: 'appointments:list', get: 'appointments:get', create: 'appointments:create', update: 'appointments:update', remove: 'appointments:remove' },
   calendar: { events: 'calendar:events', move: 'calendar:move' },
   documents: { list: 'documents:list', get: 'documents:get', upload: 'documents:upload', update: 'documents:update', remove: 'documents:remove', open: 'documents:open', download: 'documents:download', versions: 'documents:versions', rename: 'documents:rename', move: 'documents:move' },
   poa: { list: 'poa:list', get: 'poa:get', create: 'poa:create', update: 'poa:update', remove: 'poa:remove' },
@@ -65,7 +66,13 @@ export const IPC = {
   consultations: { list: 'consultations:list', create: 'consultations:create', update: 'consultations:update', remove: 'consultations:remove' },
   correspondence: { list: 'correspondence:list', create: 'correspondence:create', update: 'correspondence:update', remove: 'correspondence:remove' },
   payments: { list: 'payments:list', create: 'payments:create', remove: 'payments:remove', balance: 'payments:balance' },
-  expenses: { list: 'expenses:list', create: 'expenses:create', remove: 'expenses:remove', categories: 'expenses:categories' },
+  expenses: {
+    list: 'expenses:list',
+    create: 'expenses:create',
+    remove: 'expenses:remove',
+    categories: 'expenses:categories',
+    staff: 'expenses:staff'
+  },
   invoices: { list: 'invoices:list', get: 'invoices:get', create: 'invoices:create', update: 'invoices:update', remove: 'invoices:remove' },
   cashbox: { list: 'cashbox:list', create: 'cashbox:create', update: 'cashbox:update', transactions: 'cashbox:transactions', move: 'cashbox:move' },
   reports: { run: 'reports:run', export: 'reports:export' },
@@ -76,8 +83,9 @@ export const IPC = {
   backup: { create: 'backup:create', restore: 'backup:restore', list: 'backup:list', schedule: 'backup:schedule' },
   print: { preview: 'print:preview', print: 'print:print', pdf: 'print:pdf', printers: 'print:printers', voucher: 'print:voucher', receipt: 'print:receipt', manual: 'print:manual' },
   files: { gc: 'files:gc', pick: 'files:pick' },
-  updater: { check: 'updater:check', version: 'updater:version' },
-  demo: { seed: 'demo:seed' }
+  updater: { check: 'updater:check', version: 'updater:version', install: 'updater:install' },
+  demo: { seed: 'demo:seed', wipe: 'demo:wipe' },
+  sync: { status: 'sync:status', now: 'sync:now' }
 } as const
 
 export type IpcResult<T> = { ok: true; data: T } | { ok: false; error: string; fieldErrors?: Record<string, string> }

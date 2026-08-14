@@ -10,4 +10,11 @@ i18n.use(initReactI18next).init({
   resources: { ar: { translation: ar }, en: { translation: en } }
 })
 
+const applyDir = (lng: string) => {
+  document.documentElement.dir = lng === 'en' ? 'ltr' : 'rtl'
+  document.documentElement.lang = lng === 'en' ? 'en' : 'ar'
+}
+applyDir(i18n.language)
+i18n.on('languageChanged', applyDir)
+
 export default i18n

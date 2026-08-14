@@ -28,7 +28,7 @@ export function getSession(event: IpcMainInvokeEvent): AuthedUser | null {
     | {
         id: string
         expires_at: string
-        user_id: number
+        user_id: string
         username: string
         full_name: string
         is_active: number
@@ -49,7 +49,7 @@ export function getSession(event: IpcMainInvokeEvent): AuthedUser | null {
   }
 }
 
-export function createSession(userId: number, senderId: number, deviceInfo?: string): string {
+export function createSession(userId: string, senderId: number, deviceInfo?: string): string {
   const db = getDb()
   const id = randomUUID()
   const expires = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString()
@@ -66,7 +66,7 @@ export function destroySession(senderId: number): void {
   SESSION_HEADER.delete(senderId)
 }
 
-export function loadPermissions(userId: number, roleCode: string): string[] {
+export function loadPermissions(userId: string, roleCode: string): string[] {
   const db = getDb()
   const rolePerms = db
     .prepare(

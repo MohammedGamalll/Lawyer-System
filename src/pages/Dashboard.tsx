@@ -128,7 +128,7 @@ export function DashboardPage() {
         <Card>
           <h3 className="mb-3 font-bold">{t('dash.todayH')}</h3>
           <ul className="space-y-2 text-sm">
-            {(s.todayHearingList as { id: number; case_number: string; case_title: string; client_name: string; hearing_time: string }[]).map((h) => (
+            {(s.todayHearingList as { id: string; case_number: string; case_title: string; client_name: string; hearing_time: string }[]).map((h) => (
               <li key={h.id} className="rounded-lg bg-navy-50 px-3 py-2 dark:bg-navy-800">
                 {formatTime(h.hearing_time, i18n.language)} — {h.case_number} {h.case_title} ({h.client_name})
               </li>
@@ -139,7 +139,7 @@ export function DashboardPage() {
         <Card>
           <h3 className="mb-3 font-bold">{t('dash.activity')}</h3>
           <ul className="space-y-2 text-sm">
-            {(s.activity as { id: number; description: string; created_at: string; username: string }[]).map((a) => (
+            {(s.activity as { id: string; description: string; created_at: string; username: string }[]).map((a) => (
               <li key={a.id} className="border-b border-navy-50 pb-2 dark:border-navy-800">
                 <div>{a.description}</div>
                 <div className="text-xs text-navy-400">

@@ -5,6 +5,9 @@ import { PERMISSIONS, ROLES, ROLE_PERMISSIONS } from '@shared/permissions'
 import { getDbPath } from '../paths'
 import { nowIso } from '../utils/time'
 import { assertNetworkDriverConfigured, getDriverName } from './adapter'
+import { newId } from './ids'
+import { migrateToUuidIfNeeded } from './migrateToUuid'
+import log from 'electron-log'
 
 let db: Database.Database | null = null
 
@@ -21,11 +24,27 @@ export function initDatabase(dbPath = getDbPath()): Database.Database {
   }
   db = new Database(dbPath)
   db.pragma('journal_mode = WAL')
-  db.pragma('foreign_keys = ON')
   db.pragma('busy_timeout = 5000')
+  try {
+    migrateToUuidIfNeeded(db, dbPath)
+  } catch (err) {
+    log.error(err)
+    db.close()
+    db = null
+    throw err
+  }
+  db.pragma('foreign_keys = ON')
   db.exec(SCHEMA_SQL)
   seedIfEmpty(db)
+  ensureSetting(db, 'ui_font_size', '16')
+  ensureSetting(db, 'supabase_url', '')
+  ensureSetting(db, 'supabase_anon_key', '')
   return db
+}
+
+function ensureSetting(database: Database.Database, key: string, value: string) {
+  const row = database.prepare('SELECT key FROM settings WHERE key = ?').get(key) as { key: string } | undefined
+  if (!row) database.prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)').run(key, value, nowIso())
 }
 
 export function closeDatabase(): void {
@@ -34,76 +53,78 @@ export function closeDatabase(): void {
 }
 
 function seedIfEmpty(database: Database.Database): void {
-  const roleCount = database.prepare('SELECT COUNT(*) as c FROM roles').get() as { c: number }
-  if (roleCount.c > 0) return
+  const roleCount = (database.prepare('SELECT COUNT(*) as c FROM roles WHERE deleted_at IS NULL').get() as { c: number }).c
+  if (roleCount > 0) return
 
+  const ts = nowIso()
   const insertRole = database.prepare(
-    'INSERT INTO roles (code, name_ar, name_en, is_system) VALUES (?, ?, ?, 1)'
+    'INSERT INTO roles (id, code, name_ar, name_en, is_system, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)'
   )
-  for (const role of ROLES) insertRole.run(role.code, role.nameAr, role.nameEn)
+  const roleIds: Record<string, string> = {}
+  for (const role of ROLES) {
+    const id = newId()
+    roleIds[role.code] = id
+    insertRole.run(id, role.code, role.nameAr, role.nameEn, ts, ts)
+  }
 
   const insertPerm = database.prepare(
-    'INSERT INTO permissions (code, name_ar, name_en, module) VALUES (?, ?, ?, ?)'
+    'INSERT INTO permissions (id, code, name_ar, name_en, module, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
   )
-  for (const p of PERMISSIONS) insertPerm.run(p.code, p.nameAr, p.nameEn, p.module)
+  const permIds: Record<string, string> = {}
+  for (const p of PERMISSIONS) {
+    const id = newId()
+    permIds[p.code] = id
+    insertPerm.run(id, p.code, p.nameAr, p.nameEn, p.module, ts, ts)
+  }
 
-  const roleByCode = database.prepare('SELECT id FROM roles WHERE code = ?')
-  const permByCode = database.prepare('SELECT id FROM permissions WHERE code = ?')
   const insertRp = database.prepare(
-    'INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)'
+    'INSERT INTO role_permissions (id, role_id, permission_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
   )
-
   for (const [code, perms] of Object.entries(ROLE_PERMISSIONS)) {
-    const role = roleByCode.get(code) as { id: number }
+    const roleId = roleIds[code]
     for (const permCode of perms) {
-      const perm = permByCode.get(permCode) as { id: number } | undefined
-      if (perm) insertRp.run(role.id, perm.id)
+      const permId = permIds[permCode]
+      if (roleId && permId) insertRp.run(newId(), roleId, permId, ts, ts)
     }
   }
 
-  const adminRole = roleByCode.get('admin') as { id: number }
-  const hash = bcrypt.hashSync('Admin@123', 10)
-  const ts = nowIso()
   database
     .prepare(
-      `INSERT INTO users (username, password_hash, full_name, email, role_id, is_active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 1, ?, ?)`
+      `INSERT INTO users (id, username, password_hash, full_name, email, role_id, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`
     )
-    .run('admin', hash, 'مدير النظام', 'admin@lawoffice.local', adminRole.id, ts, ts)
+    .run(newId(), 'admin', bcrypt.hashSync('Admin@123', 10), 'مدير النظام', 'admin@lawoffice.local', roleIds.admin, ts, ts)
 
   const insertType = database.prepare(
-    'INSERT INTO case_types (name_ar, name_en, is_active, sort_order) VALUES (?, ?, 1, ?)'
+    'INSERT INTO case_types (id, name_ar, name_en, is_active, sort_order, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?)'
   )
-  CASE_TYPE_SEEDS.forEach((name, i) => insertType.run(name, name, i))
+  CASE_TYPE_SEEDS.forEach((name, i) => insertType.run(newId(), name, name, i, ts, ts))
 
   const insertExp = database.prepare(
-    'INSERT INTO expense_categories (name_ar, name_en, is_active) VALUES (?, ?, 1)'
+    'INSERT INTO expense_categories (id, name_ar, name_en, is_active, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)'
   )
-  EXPENSE_CATEGORY_SEEDS.forEach((name) => insertExp.run(name, name))
+  EXPENSE_CATEGORY_SEEDS.forEach((name) => insertExp.run(newId(), name, name, ts, ts))
 
-  database
-    .prepare('INSERT INTO cashboxes (name, type, current_balance, is_active) VALUES (?, ?, 0, 1)')
-    .run('خزينة المكتب', 'office')
-  database
-    .prepare('INSERT INTO cashboxes (name, type, current_balance, is_active) VALUES (?, ?, 0, 1)')
-    .run('البنك', 'bank')
-  database
-    .prepare('INSERT INTO cashboxes (name, type, current_balance, is_active) VALUES (?, ?, 0, 1)')
-    .run('محفظة إلكترونية', 'wallet')
+  const insertCb = database.prepare(
+    'INSERT INTO cashboxes (id, name, type, current_balance, is_active, created_at, updated_at) VALUES (?, ?, ?, 0, 1, ?, ?)'
+  )
+  insertCb.run(newId(), 'خزينة المكتب', 'office', ts, ts)
+  insertCb.run(newId(), 'البنك', 'bank', ts, ts)
+  insertCb.run(newId(), 'محفظة إلكترونية', 'wallet', ts, ts)
 
   const seq = database.prepare(
-    'INSERT INTO number_sequences (name, prefix, current_value, padding) VALUES (?, ?, 0, ?)'
+    'INSERT INTO number_sequences (name, prefix, current_value, padding, updated_at) VALUES (?, ?, 0, ?, ?)'
   )
-  seq.run('client', 'CL-', 4)
-  seq.run('case', 'CS-', 5)
-  seq.run('invoice', 'INV-', 5)
-  seq.run('receipt', 'RCP-', 5)
-  seq.run('voucher', 'VCH-', 5)
-  seq.run('payment', 'PAY-', 5)
-  seq.run('expense', 'EXP-', 5)
-  seq.run('poa', 'POA-', 4)
-  seq.run('contract', 'CNT-', 4)
-  seq.run('correspondence', 'COR-', 4)
+  seq.run('client', 'CL-', 4, ts)
+  seq.run('case', 'CS-', 5, ts)
+  seq.run('invoice', 'INV-', 5, ts)
+  seq.run('receipt', 'RCP-', 5, ts)
+  seq.run('voucher', 'VCH-', 5, ts)
+  seq.run('payment', 'PAY-', 5, ts)
+  seq.run('expense', 'EXP-', 5, ts)
+  seq.run('poa', 'POA-', 4, ts)
+  seq.run('contract', 'CNT-', 4, ts)
+  seq.run('correspondence', 'COR-', 4, ts)
 
   const defaults: Record<string, string> = {
     office_name: 'مكتب المحاماة',
@@ -123,10 +144,13 @@ function seedIfEmpty(database: Database.Database): void {
     update_feed_url: '',
     backup_schedule: 'daily',
     backup_path: '',
-    notify_hearings: 'true'
+    notify_hearings: 'true',
+    ui_font_size: '16',
+    supabase_url: '',
+    supabase_anon_key: ''
   }
-  const insertSetting = database.prepare('INSERT INTO settings (key, value) VALUES (?, ?)')
-  for (const [k, v] of Object.entries(defaults)) insertSetting.run(k, v)
+  const insertSetting = database.prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)')
+  for (const [k, v] of Object.entries(defaults)) insertSetting.run(k, v, ts)
 }
 
 export function nextNumber(database: Database.Database, name: string): string {
@@ -137,7 +161,7 @@ export function nextNumber(database: Database.Database, name: string): string {
   }
   if (!row) throw new Error(`Unknown sequence: ${name}`)
   const next = row.current_value + 1
-  database.prepare('UPDATE number_sequences SET current_value = ? WHERE name = ?').run(next, name)
+  database.prepare('UPDATE number_sequences SET current_value = ?, updated_at = ? WHERE name = ?').run(next, nowIso(), name)
   return `${row.prefix}${String(next).padStart(row.padding, '0')}`
 }
 

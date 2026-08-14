@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { userCreateSchema, userFormSchema, userUpdateSchema } from '@shared/schemas'
 import { invoke } from '../lib/api'
 import { useApp } from '../store'
 import { Button, Card, Field, Input, PageHeader, Select } from '../components/ui'
@@ -8,6 +7,9 @@ import { DatePicker } from '../components/DateTimePicker'
 import { CrudPage } from '../components/CrudPage'
 import i18n from '../i18n'
 import { formatCell } from '../lib/datetime'
+import { wipeAllBusinessData } from '../lib/wipeData'
+import { applyFontSize, clampFontSize, FONT_SIZE_MAX, FONT_SIZE_MIN } from '../lib/uiPrefs'
+import type { SyncSnapshot } from '../store/sync'
 
 const REPORT_KEYS = [
   'clients',
@@ -42,6 +44,9 @@ export function ReportsPage() {
   const cell = (k: string, v: unknown) => (typeof v === 'object' && v !== null ? '' : formatCell(k, v, i18n.language, t))
 
   const run = () => invoke<object[]>('reports:run', { type, from, to }).then(setRows).catch((e) => toast(e.message, 'err'))
+  useEffect(() => {
+    run()
+  }, [type, from, to])
   const exp = async (format: 'xlsx' | 'csv') => {
     const r = await invoke<{ canceled?: boolean }>('reports:export', { type, from, to }, format)
     if (!r?.canceled) toast(t('savedOk'))
@@ -81,8 +86,8 @@ export function ReportsPage() {
         </div>
       </Card>
       <Card>
-        <div className="overflow-auto">
-          <table className="w-full table-fixed border-collapse text-sm">
+        <div className="data-table-wrap overflow-x-hidden">
+          <table className="w-full border-collapse text-sm">
             <thead>
               <tr>
                 {headerKeys.map((k) => (
@@ -96,7 +101,7 @@ export function ReportsPage() {
               {rows.map((r, i) => (
                 <tr key={i} className="border-t">
                   {headerKeys.map((k) => (
-                      <td key={k} className="min-w-0 overflow-hidden px-3 py-2 text-start align-middle">
+                      <td key={k} className="min-w-0 px-3 py-2 text-start align-middle leading-relaxed text-navy-900 dark:text-white">
                         {cell(k, (r as Record<string, unknown>)[k])}
                       </td>
                     ))}
@@ -113,7 +118,7 @@ export function ReportsPage() {
 export function ArchivePage() {
   const { t } = useTranslation()
   const { toast } = useApp()
-  const [rows, setRows] = useState<{ rows: { id: number; case_number: string; title: string }[] }>({ rows: [] })
+  const [rows, setRows] = useState<{ rows: { id: string; case_number: string; title: string }[] }>({ rows: [] })
   useEffect(() => {
     invoke<typeof rows>('cases:list', { pageSize: 50, archived: 1 }).then(setRows).catch((e) => toast(e.message, 'err'))
   }, [])
@@ -144,17 +149,18 @@ export function ArchivePage() {
 
 export function UsersPage() {
   const { t } = useTranslation()
-  const { toast } = useApp()
-  const [permOpen, setPermOpen] = useState<number | null>(null)
+  const { toast, setPage } = useApp()
+  const [permOpen, setPermOpen] = useState<{ id: string; username: string; full_name: string } | null>(null)
   const [all, setAll] = useState<{ code: string; name_ar: string }[]>([])
   const [selected, setSelected] = useState<string[]>([])
 
-  const openPerms = async (id: number) => {
+  const openPerms = async (r: Record<string, unknown>) => {
+    const id = String(r.id || '')
     const u = await invoke<{ permissions: string[] }>('users:get', id)
     const cat = await invoke<{ permissions: { code: string; name_ar: string }[] }>('users:permissions')
     setAll(cat.permissions)
     setSelected(u.permissions)
-    setPermOpen(id)
+    setPermOpen({ id, username: String(r.username || ''), full_name: String(r.full_name || '') })
   }
 
   return (
@@ -162,13 +168,12 @@ export function UsersPage() {
       <CrudPage
         title={t('nav.users')}
         listChannel="users:list"
-        createChannel="users:create"
-        updateChannel="users:update"
         removeChannel="users:remove"
-        createPerm="users.manage"
-        createSchema={userCreateSchema}
-        updateSchema={userUpdateSchema}
-        schema={userFormSchema}
+        extraActions={
+          <Button variant="gold" onClick={() => setPage('staffForm', { hideType: true, back: 'users' })}>
+            {t('hr.addUser')}
+          </Button>
+        }
         columns={[
           { key: 'username', label: t('fields.username') },
           { key: 'full_name', label: t('fields.full_name') },
@@ -176,42 +181,27 @@ export function UsersPage() {
           { key: 'is_active', label: t('fields.is_active') },
           { key: 'last_login_at', label: t('fields.last_login_at') }
         ]}
-        fields={[
-          { name: 'username', label: t('fields.username'), required: true },
-          { name: 'password', label: `${t('fields.password')} (${t('users.passwordHint')})`, type: 'password', required: true },
-          { name: 'full_name', label: t('fields.full_name'), required: true },
-          { name: 'email', label: t('fields.email') },
-          { name: 'phone', label: t('fields.phone') },
-          { name: 'role_id', label: t('fields.role_id'), lookup: 'roles', required: true },
-          {
-            name: 'is_active',
-            label: t('fields.is_active'),
-            type: 'select',
-            options: [
-              { value: 1, label: t('status.yes') },
-              { value: 0, label: t('status.no') }
-            ]
-          }
-        ]}
-        extraActions={<span />}
-        onRowOpen={(r) => openPerms(Number(r.id))}
+        fields={[]}
+        onRowOpen={(r) =>
+          setPage('staffForm', {
+            userId: r.id,
+            employeeId: r.employee_id,
+            lawyerId: r.lawyer_id,
+            hideType: true,
+            back: 'users'
+          })
+        }
         rowActions={(r) => (
-          <Button
-            variant="ghost"
-            onClick={async () => {
-              const next = window.prompt(t('users.newPasswordPrompt'))
-              if (!next) return
-              await invoke('auth:resetPassword', r.id, next)
-              toast(t('savedOk'))
-            }}
-          >
-            {t('resetPassword')}
+          <Button variant="ghost" onClick={() => openPerms(r).catch((e) => toast((e as Error).message, 'err'))}>
+            {t('users.perms')}
           </Button>
         )}
       />
       {permOpen && (
         <Card className="mt-4">
-          <h3 className="mb-2 font-bold">{t('users.perms')}</h3>
+          <h3 className="mb-2 font-bold">
+            {t('users.permsFor', { name: permOpen.full_name || permOpen.username, username: permOpen.username })}
+          </h3>
           <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
             {all.map((p) => (
               <label key={p.code} className="flex items-center gap-2 text-sm">
@@ -229,7 +219,7 @@ export function UsersPage() {
           <Button
             className="mt-3"
             onClick={async () => {
-              await invoke('users:setPermissions', permOpen, selected)
+              await invoke('users:setPermissions', permOpen.id, selected)
               toast(t('savedOk'))
               setPermOpen(null)
             }}
@@ -267,13 +257,14 @@ export function SettingsPage() {
   const { toast, setUser, user } = useApp()
   const [s, setS] = useState<Record<string, string>>({})
   const [pw, setPw] = useState({ current: '', next: '' })
-  const [types, setTypes] = useState<{ id: number; name_ar: string }[]>([])
+  const [types, setTypes] = useState<{ id: string; name_ar: string }[]>([])
   const [printers, setPrinters] = useState<{ name: string }[]>([])
   const [newType, setNewType] = useState('')
+  const [wiping, setWiping] = useState(false)
 
   useEffect(() => {
     invoke<Record<string, string>>('settings:get').then(setS)
-    invoke<{ id: number; name_ar: string }[]>('caseTypes:list').then(setTypes)
+    invoke<{ id: string; name_ar: string }[]>('caseTypes:list').then(setTypes)
     invoke<{ name: string }[]>('print:printers')
       .then(setPrinters)
       .catch(() => setPrinters([]))
@@ -284,6 +275,7 @@ export function SettingsPage() {
     i18n.changeLanguage(s.language || 'ar')
     document.documentElement.classList.toggle('dark', s.theme === 'dark')
     document.documentElement.dir = s.language === 'en' ? 'ltr' : 'rtl'
+    applyFontSize(Number(s.ui_font_size || 16))
     toast(t('savedOk'))
   }
 
@@ -331,6 +323,52 @@ export function SettingsPage() {
         </div>
       </Card>
       <Card>
+        <h3 className="mb-3">{t('settings.appearance')}</h3>
+        <Field label={`${t('settings.fontSize')} (${clampFontSize(Number(s.ui_font_size || 16))}px)`}>
+          <input
+            type="range"
+            min={FONT_SIZE_MIN}
+            max={FONT_SIZE_MAX}
+            step={1}
+            className="h-2 w-full max-w-md cursor-pointer accent-gold-400"
+            value={clampFontSize(Number(s.ui_font_size || 16))}
+            onChange={(e) => {
+              const ui_font_size = e.target.value
+              setS({ ...s, ui_font_size })
+              applyFontSize(Number(ui_font_size))
+            }}
+          />
+          <p className="mt-1 text-sm text-navy-500">{t('settings.fontSizeHint')}</p>
+        </Field>
+      </Card>
+      <Card>
+        <h3 className="mb-3 font-bold">{t('sync.title')}</h3>
+        <div className="grid gap-3 md:grid-cols-2">
+          <Field label={t('sync.url')}>
+            <Input value={s.supabase_url || ''} readOnly disabled className="opacity-80" />
+          </Field>
+          <Field label={t('sync.anonKey')}>
+            <Input type="password" autoComplete="off" value={s.supabase_anon_key || ''} readOnly disabled className="opacity-80" />
+          </Field>
+        </div>
+        <p className="mt-2 text-sm text-navy-500">{t('sync.hint')}</p>
+        <div className="mt-3">
+          <Button
+            variant="outline"
+            type="button"
+            onClick={async () => {
+              await invoke('settings:set', s)
+              const snap = await invoke<SyncSnapshot>('sync:now')
+              if (snap.status === 'synced') toast(t('sync.doneOk'))
+              else if (snap.error) toast(snap.error, 'err')
+              else toast(t('sync.stillPending', { count: snap.pendingCount }))
+            }}
+          >
+            {t('sync.now')}
+          </Button>
+        </div>
+      </Card>
+      <Card>
         <h3 className="mb-3 font-bold">{t('settings.printing')}</h3>
         <div className="grid gap-3 md:grid-cols-2">
           <Field label={t('settings.a4Printer')}>
@@ -368,16 +406,23 @@ export function SettingsPage() {
               <option value="false">{t('status.no')}</option>
             </Select>
           </Field>
-          <Field label="URL">
-            <Input value={s.update_feed_url || ''} onChange={(e) => setS({ ...s, update_feed_url: e.target.value })} />
+          <Field label={t('settings.updateFeedUrl')}>
+            <Input
+              value={s.update_feed_url || ''}
+              onChange={(e) => setS({ ...s, update_feed_url: e.target.value })}
+              placeholder=""
+            />
           </Field>
+          <p className="text-sm text-navy-500 md:col-span-2">{t('settings.updateFeedHint')}</p>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           <Button
             variant="outline"
             onClick={async () => {
-              await invoke('updater:check')
-              toast(t('settings.checkUpdates'))
+              const r = await invoke<{ none?: boolean; error?: string }>('updater:check')
+              if (r?.error) toast(r.error, 'err')
+              else if (r?.none) toast(t('settings.noUpdates'))
+              else toast(t('settings.checkUpdates'))
             }}
           >
             {t('settings.checkUpdates')}
@@ -418,7 +463,26 @@ export function SettingsPage() {
           >
             {t('settings.downloadManual')}
           </Button>
+          <Button
+            variant="danger"
+            disabled={wiping}
+            onClick={async () => {
+              if (!confirm(t('settings.wipeConfirm'))) return
+              setWiping(true)
+              try {
+                await wipeAllBusinessData()
+                toast(t('settings.wiped'))
+              } catch (e) {
+                toast((e as Error).message, 'err')
+              } finally {
+                setWiping(false)
+              }
+            }}
+          >
+            {wiping ? t('loading') : t('settings.wipeData')}
+          </Button>
         </div>
+        <p className="mt-2 text-xs text-navy-500">{t('settings.wipeDataHint')}</p>
       </Card>
       <Card>
         <h3 className="mb-3 font-bold">{t('settings.caseTypes')}</h3>

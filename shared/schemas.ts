@@ -15,7 +15,9 @@ export const optStr = z.preprocess((v) => (empty(v) ? undefined : v), z.string()
 export const optNum = z.preprocess((v) => (empty(v) ? undefined : Number(v)), z.number().optional())
 export const reqStr = z.string({ required_error: msg.required }).trim().min(1, msg.required)
 export const reqNum = z.coerce.number({ required_error: msg.required, invalid_type_error: msg.required })
-export const reqRoleId = z.preprocess((v) => (empty(v) ? undefined : Number(v)), z.number({ required_error: msg.required }).int().positive(msg.required))
+export const optId = z.preprocess((v) => (empty(v) ? undefined : String(v)), z.string().min(1).optional())
+export const reqId = z.preprocess((v) => (empty(v) ? undefined : String(v)), z.string({ required_error: msg.required }).min(1, msg.required))
+export const reqRoleId = reqId
 export const optPassword = z.preprocess((v) => (empty(v) ? undefined : v), z.string().min(6, msg.min6).optional())
 export const activeFlag = z.preprocess((v) => {
   if (v === false || v === 0 || v === '0') return 0
@@ -66,10 +68,10 @@ export const clientUpdateSchema = clientSchema
 
 export const caseSchema = z.object({
   title: reqStr,
-  client_id: reqNum,
-  primary_lawyer_id: optNum,
-  assistant_lawyer_id: optNum,
-  case_type_id: optNum,
+  client_id: reqId,
+  primary_lawyer_id: optId,
+  assistant_lawyer_id: optId,
+  case_type_id: optId,
   category: optStr,
   court: optStr,
   circuit: optStr,
@@ -92,16 +94,16 @@ export const caseSchema = z.object({
   fees_due_date: optStr,
   payment_method: optStr,
   installment_count: optNum,
-  related_case_id: optNum,
+  related_case_id: optId,
   link_type: optStr
 })
 
 export const hearingSchema = z.object({
-  case_id: reqNum,
+  case_id: reqId,
   hearing_date: reqStr,
   hearing_time: optStr,
   hearing_type: optStr,
-  lawyer_id: optNum,
+  lawyer_id: optId,
   status: optStr,
   result: optStr,
   court_decision: optStr,
@@ -116,9 +118,9 @@ export const hearingSchema = z.object({
 export const taskSchema = z.object({
   title: reqStr,
   description: optStr,
-  assignee_id: optNum,
-  case_id: optNum,
-  client_id: optNum,
+  assignee_id: optId,
+  case_id: optId,
+  client_id: optId,
   start_date: optStr,
   due_date: optStr,
   priority: optStr,
@@ -132,20 +134,20 @@ export const reminderSchema = z.object({
   remind_at: reqStr,
   notify_before_minutes: optNum,
   priority: optStr,
-  assignee_id: optNum,
-  case_id: optNum,
+  assignee_id: optId,
+  case_id: optId,
   client_id: optStr,
   notes: optStr
 }).extend({
-  client_id: optNum
+  client_id: optId
 })
 
 export const appointmentSchema = z.object({
   title: reqStr,
   appointment_type: optStr,
-  client_id: optNum,
-  lawyer_id: optNum,
-  case_id: optNum,
+  client_id: optId,
+  lawyer_id: optId,
+  case_id: optId,
   date: reqStr,
   time: optStr,
   location: optStr,
@@ -155,24 +157,24 @@ export const appointmentSchema = z.object({
 })
 
 export const paymentSchema = z.object({
-  client_id: optNum,
-  case_id: optNum,
+  client_id: optId,
+  case_id: optId,
   amount: z.coerce.number().positive(msg.amount),
   payment_type: optStr,
   payment_method: optStr,
-  cashbox_id: optNum,
+  cashbox_id: optId,
   payment_date: optStr,
   due_date: optStr,
   notes: optStr
 }).refine((d) => Boolean(d.client_id || d.case_id), { message: 'لا يمكن تسجيل دفعة بدون عميل أو قضية', path: ['client_id'] })
 
 export const expenseSchema = z.object({
-  category_id: optNum,
+  category_id: optId,
   amount: z.coerce.number().positive(msg.amount),
-  cashbox_id: optNum,
+  cashbox_id: optId,
   expense_date: optStr,
-  client_id: optNum,
-  case_id: optNum,
+  client_id: optId,
+  case_id: optId,
   description: optStr,
   notes: optStr
 })
@@ -219,7 +221,7 @@ export const passwordChangeSchema = z.object({
 
 export const lawyerSchema = z.object({
   full_name: reqStr,
-  user_id: optNum,
+  user_id: optId,
   bar_number: optStr,
   specialization: optStr,
   phone: phoneSchema,
@@ -230,21 +232,58 @@ export const lawyerSchema = z.object({
   photo_path: optStr
 })
 
-export const employeeSchema = z.object({
-  full_name: reqStr,
-  user_id: optNum,
-  job_title: optStr,
-  department: optStr,
-  salary: optNum,
-  hire_date: optStr,
-  phone: phoneSchema,
-  email: emailSchema,
-  status: optStr,
-  notes: optStr
-})
+export const staffSchema = z
+  .object({
+    lawyer_id: optId,
+    user_id: optId,
+    employee_id: optId,
+    full_name: reqStr,
+    bar_number: optStr,
+    specialization: optStr,
+    phone: phoneSchema,
+    email: emailSchema,
+    hire_date: optStr,
+    status: optStr,
+    notes: optStr,
+    username: optStr,
+    password: optPassword,
+    role_id: optId,
+    is_active: activeFlag.optional(),
+    job_title: optStr,
+    department: optStr,
+    salary: optNum,
+    license_no: optStr,
+    qualification: optStr
+  })
+  .superRefine((d, ctx) => {
+    if (!d.lawyer_id && !d.user_id) {
+      if (!d.username) ctx.addIssue({ code: z.ZodIssueCode.custom, message: msg.required, path: ['username'] })
+      if (!d.password) ctx.addIssue({ code: z.ZodIssueCode.custom, message: msg.min6, path: ['password'] })
+    }
+  })
+
+export const employeeSchema = z
+  .object({
+    full_name: optStr,
+    user_id: optId,
+    lawyer_id: optId,
+    job_title: optStr,
+    department: optStr,
+    salary: optNum,
+    hire_date: optStr,
+    phone: phoneSchema,
+    email: emailSchema,
+    status: optStr,
+    notes: optStr
+  })
+  .superRefine((d, ctx) => {
+    if (!d.lawyer_id && !String(d.full_name ?? '').trim()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: msg.required, path: ['full_name'] })
+    }
+  })
 
 export const attendanceSchema = z.object({
-  employee_id: reqNum,
+  employee_id: reqId,
   date: reqStr,
   check_in: optStr,
   check_out: optStr,
@@ -253,7 +292,7 @@ export const attendanceSchema = z.object({
 })
 
 export const leaveSchema = z.object({
-  employee_id: reqNum,
+  employee_id: reqId,
   leave_type: reqStr,
   start_date: reqStr,
   end_date: reqStr,
@@ -269,13 +308,13 @@ export const opponentSchema = z.object({
   lawyer_name: optStr,
   extra_data: optStr,
   notes: optStr,
-  case_id: optNum
+  case_id: optId
 })
 
 export const poaSchema = z.object({
   poa_type: optStr,
-  client_id: optNum,
-  lawyer_id: optNum,
+  client_id: optId,
+  lawyer_id: optId,
   issuing_authority: optStr,
   issue_date: optStr,
   expiry_date: optStr,
@@ -285,19 +324,19 @@ export const poaSchema = z.object({
 
 export const contractSchema = z.object({
   title: reqStr,
-  client_id: optNum,
+  client_id: optId,
   contract_type: optStr,
   start_date: optStr,
   end_date: optStr,
   value: optNum,
   status: optStr,
-  lawyer_id: optNum,
+  lawyer_id: optId,
   notes: optStr
 })
 
 export const consultationSchema = z.object({
-  client_id: optNum,
-  lawyer_id: optNum,
+  client_id: optId,
+  lawyer_id: optId,
   consultation_date: optStr,
   consultation_type: optStr,
   subject: optStr,
@@ -314,25 +353,25 @@ export const correspondenceSchema = z.object({
   date: optStr,
   party: optStr,
   subject: optStr,
-  responsible_user_id: optNum,
-  case_id: optNum,
-  client_id: optNum,
+  responsible_user_id: optId,
+  case_id: optId,
+  client_id: optId,
   notes: optStr
 })
 
 export const documentMetaSchema = z.object({
   title: reqStr,
   category: optStr,
-  client_id: optNum,
-  case_id: optNum,
-  hearing_id: optNum,
-  contract_id: optNum,
+  client_id: optId,
+  case_id: optId,
+  hearing_id: optId,
+  contract_id: optId,
   notes: optStr
 })
 
 export const invoiceSchema = z.object({
-  client_id: z.preprocess((v) => (empty(v) ? undefined : Number(v)), z.number({ required_error: 'يجب اختيار العميل' }).positive()),
-  case_id: optNum,
+  client_id: reqId,
+  case_id: optId,
   invoice_date: optStr,
   due_date: optStr,
   tax: optNum,

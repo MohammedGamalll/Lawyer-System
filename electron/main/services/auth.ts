@@ -2,6 +2,8 @@ import bcrypt from 'bcryptjs'
 import { getDb } from '../db/database'
 import { nowIso } from '../utils/time'
 import { audit } from './audit'
+import { newId, notDeleted } from '../db/ids'
+import { recordLocalChange } from '../sync/queue'
 import { createSession, destroySession, loadPermissions, toPublicSession } from '../ipc/session'
 import type { AuthedUser } from '../ipc/helpers'
 import type { UserSession } from '@shared/types'
@@ -22,11 +24,12 @@ export function login(
   const db = getDb()
   const user = db
     .prepare(
-      `SELECT u.*, r.code as role_code FROM users u LEFT JOIN roles r ON r.id = u.role_id WHERE lower(trim(u.username)) = lower(trim(?))`
+      `SELECT u.*, r.code as role_code FROM users u LEFT JOIN roles r ON r.id = u.role_id
+       WHERE lower(trim(u.username)) = lower(trim(?)) AND ${notDeleted('u')}`
     )
     .get(username.trim()) as
     | {
-        id: number
+        id: string
         username: string
         password_hash: string
         full_name: string
@@ -39,8 +42,8 @@ export function login(
 
   const logAttempt = (success: number) => {
     db.prepare(
-      'INSERT INTO login_attempts (username, success, device_info, created_at) VALUES (?, ?, ?, ?)'
-    ).run(username, success, deviceInfo ?? null, nowIso())
+      'INSERT INTO login_attempts (id, username, success, device_info, created_at) VALUES (?, ?, ?, ?, ?)'
+    ).run(newId(), username, success, deviceInfo ?? null, nowIso())
   }
 
   if (!user) {
@@ -64,19 +67,22 @@ export function login(
     const lockMin = Number(setting('lock_minutes', '15'))
     const fails = user.failed_login_attempts + 1
     const lockedUntil = fails >= max ? new Date(Date.now() + lockMin * 60 * 1000).toISOString() : null
-    db.prepare('UPDATE users SET failed_login_attempts = ?, locked_until = ? WHERE id = ?').run(
+    db.prepare('UPDATE users SET failed_login_attempts = ?, locked_until = ?, updated_at = ? WHERE id = ?').run(
       fails,
       lockedUntil,
+      nowIso(),
       user.id
     )
+    recordLocalChange('users', user.id, 'UPDATE')
     logAttempt(0)
     if (lockedUntil) throw new Error(`تم قفل الحساب لمدة ${lockMin} دقيقة بعد ${max} محاولات فاشلة`)
     throw new Error('اسم المستخدم أو كلمة المرور غير صحيحة')
   }
 
   db.prepare(
-    'UPDATE users SET failed_login_attempts = 0, locked_until = NULL, last_login_at = ?, last_login_device = ? WHERE id = ?'
-  ).run(nowIso(), deviceInfo ?? null, user.id)
+    'UPDATE users SET failed_login_attempts = 0, locked_until = NULL, last_login_at = ?, last_login_device = ?, updated_at = ? WHERE id = ?'
+  ).run(nowIso(), deviceInfo ?? null, nowIso(), user.id)
+  recordLocalChange('users', user.id, 'UPDATE')
   logAttempt(1)
   createSession(user.id, senderId, deviceInfo)
   const authed: AuthedUser = {
@@ -106,16 +112,20 @@ export function changePassword(user: AuthedUser, current: string, next: string):
     nowIso(),
     user.id
   )
+  recordLocalChange('users', user.id, 'UPDATE')
   audit(user, 'change_password', 'users', user.id, `قام المستخدم ${user.username} بتغيير كلمة المرور`)
 }
 
-export function resetPassword(admin: AuthedUser, userId: number, next: string): void {
+export function resetPassword(admin: AuthedUser, userId: string, next: string): void {
   if (!next || next.length < 6) throw new Error('كلمة المرور الجديدة يجب ألا تقل عن 6 أحرف')
   const db = getDb()
-  const target = db.prepare('SELECT username FROM users WHERE id = ?').get(userId) as { username: string } | undefined
+  const target = db.prepare(`SELECT username FROM users WHERE id = ? AND ${notDeleted()}`).get(userId) as
+    | { username: string }
+    | undefined
   if (!target) throw new Error('المستخدم غير موجود')
   db.prepare(
     'UPDATE users SET password_hash = ?, failed_login_attempts = 0, locked_until = NULL, updated_at = ? WHERE id = ?'
   ).run(bcrypt.hashSync(next, 10), nowIso(), userId)
+  recordLocalChange('users', userId, 'UPDATE')
   audit(admin, 'reset_password', 'users', userId, `قام المدير بإعادة تعيين كلمة مرور ${target.username}`)
 }

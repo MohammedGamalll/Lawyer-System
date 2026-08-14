@@ -24,11 +24,12 @@ export function DocumentsPage() {
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState<Record<string, unknown>>({ category: 'other' })
   const [file, setFile] = useState<{ name: string; data: number[] } | null>(null)
-  const [renameId, setRenameId] = useState<number | null>(null)
+  const [renameId, setRenameId] = useState<string | null>(null)
   const [newTitle, setNewTitle] = useState('')
   const [moveRow, setMoveRow] = useState<Record<string, unknown> | null>(null)
-  const [versions, setVersions] = useState<{ id: number; version: number; file_name: string; created_at: string }[] | null>(null)
-  const [versionDoc, setVersionDoc] = useState<number | null>(null)
+  const [versions, setVersions] = useState<{ id: string; version: number; file_name: string; created_at: string }[] | null>(null)
+  const [versionDoc, setVersionDoc] = useState<string | null>(null)
+  const [versionMeta, setVersionMeta] = useState<Record<string, unknown> | null>(null)
 
   const pick = async () => {
     const f = await invoke<{ name: string; data: number[] }>('files:pick')
@@ -44,6 +45,9 @@ export function DocumentsPage() {
 
   return (
     <div>
+      <p className="mb-3 rounded-lg border border-navy-200 bg-navy-50 px-3 py-2 text-sm leading-relaxed text-navy-800 dark:border-navy-700 dark:bg-navy-900 dark:text-white">
+        {t('docs.versionsHint')}
+      </p>
       <CrudPage
         title={t('nav.documents')}
         listChannel="documents:list"
@@ -79,7 +83,7 @@ export function DocumentsPage() {
             <Button
               variant="ghost"
               onClick={() => {
-                setRenameId(Number(r.id))
+                setRenameId(String(r.id))
                 setNewTitle(String(r.title || ''))
               }}
             >
@@ -101,7 +105,8 @@ export function DocumentsPage() {
               variant="ghost"
               onClick={async () => {
                 const rows = await invoke<typeof versions>('documents:versions', r.id)
-                setVersionDoc(Number(r.id))
+                setVersionDoc(String(r.id))
+                setVersionMeta(r)
                 setVersions(rows)
               }}
             >
@@ -202,8 +207,8 @@ export function DocumentsPage() {
           className="mt-3"
           onClick={async () => {
             await invoke('documents:move', moveRow?.id, {
-              client_id: moveRow?.client_id ? Number(moveRow.client_id) : undefined,
-              case_id: moveRow?.case_id ? Number(moveRow.case_id) : undefined
+              client_id: moveRow?.client_id ? String(moveRow.client_id) : undefined,
+              case_id: moveRow?.case_id ? String(moveRow.case_id) : undefined
             })
             toast(t('docs.moved'))
             setMoveRow(null)
@@ -213,12 +218,43 @@ export function DocumentsPage() {
         </Button>
       </Modal>
       <Modal open={!!versions} title={t('docs.history')} onClose={() => setVersions(null)} wide>
+        <p className="mb-3 text-sm text-navy-600 dark:text-navy-200">{t('docs.versionsHint')}</p>
+        {can('documents.upload') && versionDoc && (
+          <Button
+            className="mb-3"
+            variant="gold"
+            onClick={async () => {
+              try {
+                const f = await invoke<{ name: string; data: number[] }>('files:pick')
+                await invoke(
+                  'documents:update',
+                  versionDoc,
+                  {
+                    title: versionMeta?.title,
+                    category: versionMeta?.category,
+                    notes: versionMeta?.notes,
+                    client_id: versionMeta?.client_id,
+                    case_id: versionMeta?.case_id
+                  },
+                  f
+                )
+                const rows = await invoke<typeof versions>('documents:versions', versionDoc)
+                setVersions(rows)
+                toast(t('docs.versionAdded'))
+              } catch (e) {
+                toast((e as Error).message, 'err')
+              }
+            }}
+          >
+            {t('docs.addVersion')}
+          </Button>
+        )}
         <table className="w-full text-sm">
           <tbody>
             {(versions || []).map((v) => (
               <tr key={v.id} className="border-t">
                 <td className="py-2">v{v.version}</td>
-                <td>{v.file_name}</td>
+                <td>{formatCell('file_name', v.file_name, i18n.language, t)}</td>
                 <td>{formatDateTime(v.created_at, i18n.language)}</td>
                 <td>
                   <Button
@@ -255,7 +291,7 @@ function cats(t: (k: string) => string) {
   ]
 }
 
-async function doPrint(channel: string, id: number, pdf: boolean) {
+async function doPrint(channel: string, id: string, pdf: boolean) {
   const p = await invoke<{ title: string; body: string; kind: string; name?: string }>(channel, id)
   if (pdf) {
     const r = await invoke<{ canceled?: boolean }>('print:pdf', p.kind, p.title, p.body, p.name || `${p.kind}.pdf`)
@@ -266,7 +302,7 @@ async function doPrint(channel: string, id: number, pdf: boolean) {
 }
 
 type BalanceCase = {
-  id: number
+  id: string
   case_number: string
   title: string
   total_fees: number
@@ -275,7 +311,7 @@ type BalanceCase = {
 }
 
 type ClientBalance = {
-  client_id: number | null
+  client_id: string | null
   total: number
   paid: number
   remaining: number
@@ -292,11 +328,11 @@ function asFees(row: Record<string, unknown>): Pick<BalanceCase, 'total_fees' | 
   }
 }
 
-async function loadClientBalance(clientId: number, caseId: number): Promise<ClientBalance> {
+async function loadClientBalance(clientId: string, caseId: string): Promise<ClientBalance> {
   let cid = clientId
   if (!cid && caseId) {
     const cs = await invoke<Record<string, unknown>>('cases:get', caseId)
-    cid = Number(cs.client_id || 0)
+    cid = String(cs.client_id || '')
     const f = asFees(cs)
     return {
       client_id: cid || null,
@@ -306,7 +342,7 @@ async function loadClientBalance(clientId: number, caseId: number): Promise<Clie
       invoiceDue: 0,
       cases: [
         {
-          id: Number(cs.id),
+          id: String(cs.id || ''),
           case_number: String(cs.case_number ?? ''),
           title: String(cs.title ?? ''),
           ...f
@@ -318,7 +354,7 @@ async function loadClientBalance(clientId: number, caseId: number): Promise<Clie
   const profile = await invoke<Record<string, unknown>>('clients:profile', cid)
   const rawCases = (profile.cases as Record<string, unknown>[]) || []
   let cases: BalanceCase[] = rawCases.map((c) => ({
-    id: Number(c.id),
+    id: String(c.id || ''),
     case_number: String(c.case_number ?? ''),
     title: String(c.title ?? ''),
     ...asFees(c)
@@ -348,16 +384,16 @@ async function loadClientBalance(clientId: number, caseId: number): Promise<Clie
 
   let invoiceDue = 0
   try {
-    const inv = await invoke<{ rows: { client_id: number; case_id?: number; total: number; paid: number; status: string }[] }>(
+    const inv = await invoke<{ rows: { client_id: string; case_id?: string; total: number; paid: number; status: string }[] }>(
       'invoices:list',
       { page: 1, pageSize: 100 }
     )
     invoiceDue = (inv.rows || [])
       .filter(
         (r) =>
-          Number(r.client_id) === cid &&
+          String(r.client_id) === String(cid) &&
           r.status !== 'paid' &&
-          (!caseId || Number(r.case_id) === caseId || !r.case_id)
+          (!caseId || String(r.case_id) === String(caseId) || !r.case_id)
       )
       .reduce((s, r) => s + (Number(r.total) - Number(r.paid)), 0)
   } catch {
@@ -382,8 +418,8 @@ function PaymentBalance({
   const [b, setB] = useState<ClientBalance | null>(null)
   const [loading, setLoading] = useState(false)
   const loc = i18n.language === 'en' ? 'en-EG' : 'ar-EG'
-  const cid = clientId ? Number(clientId) : 0
-  const kid = caseId ? Number(caseId) : 0
+  const cid = clientId ? String(clientId) : ''
+  const kid = caseId ? String(caseId) : ''
 
   useEffect(() => {
     if (!cid && !kid) {
@@ -546,17 +582,107 @@ export function AccountsPage() {
         )}
         rowActions={(r) => (
           <>
-            <Button variant="ghost" onClick={() => doPrint('print:receipt', Number(r.id), false).catch((e) => toast(e.message, 'err'))}>
+            <Button variant="ghost" onClick={() => doPrint('print:receipt', String(r.id), false).catch((e) => toast(e.message, 'err'))}>
               {t('print')}
             </Button>
-            <Button variant="ghost" onClick={() => doPrint('print:receipt', Number(r.id), true).catch((e) => toast(e.message, 'err'))}>
+            <Button variant="ghost" onClick={() => doPrint('print:receipt', String(r.id), true).catch((e) => toast(e.message, 'err'))}>
               {t('exportPdf')}
             </Button>
           </>
         )}
       />
+    </div>
+  )
+}
+
+function isSalaryCategory(c: { name_ar?: string | null; name_en?: string | null }) {
+  const s = `${c.name_ar || ''} ${c.name_en || ''}`.toLowerCase()
+  return /راتب|رواتب|salary|salaries|payroll|wage/.test(s)
+}
+
+function ExpenseSalaryStaff({
+  categoryId,
+  employeeId,
+  description,
+  setField
+}: {
+  categoryId?: unknown
+  employeeId?: unknown
+  description?: unknown
+  setField: (name: string, value: unknown) => void
+}) {
+  const { t } = useTranslation()
+  const [cats, setCats] = useState<{ id: string; name_ar?: string; name_en?: string }[]>([])
+  const [staff, setStaff] = useState<{ id: string; full_name: string; job_title?: string | null; salary?: number | null }[]>([])
+
+  useEffect(() => {
+    invoke<{ id: string; name_ar?: string; name_en?: string }[]>('expenses:categories')
+      .then(setCats)
+      .catch(() => setCats([]))
+  }, [])
+
+  const salaryCat = cats.some((c) => String(c.id) === String(categoryId ?? '') && isSalaryCategory(c))
+
+  useEffect(() => {
+    if (!salaryCat) return
+    invoke<{ id: string; full_name: string; job_title?: string | null; salary?: number | null }[]>('expenses:staff')
+      .then((rows) => setStaff(Array.isArray(rows) ? rows : []))
+      .catch(() =>
+        invoke<{ rows: { id: string; full_name: string; job_title?: string | null; salary?: number | null }[] }>('employees:list', {
+          pageSize: 1000
+        })
+          .then((r) => setStaff(r.rows || []))
+          .catch(() => setStaff([]))
+      )
+  }, [salaryCat])
+
+  if (!salaryCat) return null
+
+  const picked = staff.find((s) => String(s.id) === String(employeeId ?? ''))
+  const salaryNum = picked?.salary == null ? NaN : Number(picked.salary)
+  const hasSalary = Number.isFinite(salaryNum) && salaryNum > 0
+
+  return (
+    <div className="grid grid-cols-1 gap-2">
+      <Field label={t('finance.pickEmployeeSalary')} required>
+        <Select
+          value={employeeId ? String(employeeId) : ''}
+          onChange={(e) => {
+            const id = e.target.value
+            if (!id) {
+              setField('employee_id', '')
+              return
+            }
+            const emp = staff.find((s) => String(s.id) === id)
+            setField('employee_id', id)
+            const n = emp?.salary == null ? NaN : Number(emp.salary)
+            setField('amount', Number.isFinite(n) && n > 0 ? n : '')
+            const desc = String(description ?? '').trim()
+            if (emp && (!desc || desc.startsWith('راتب ') || desc.toLowerCase().startsWith('salary '))) {
+              setField('description', `راتب ${emp.full_name}`)
+            }
+          }}
+        >
+          <option value="">—</option>
+          {staff.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.full_name}
+              {s.job_title ? ` — ${s.job_title}` : ''}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      {picked && !hasSalary ? <p className="text-xs text-navy-500">{t('finance.salaryEmptyHint')}</p> : null}
+    </div>
+  )
+}
+
+export function ExpensesPage() {
+  const { t } = useTranslation()
+  const { toast } = useApp()
+  return (
       <CrudPage
-        title={t('finance.expenses')}
+        title={t('nav.expenses')}
         listChannel="expenses:list"
         createChannel="expenses:create"
         removeChannel="expenses:remove"
@@ -578,18 +704,26 @@ export function AccountsPage() {
           { name: 'case_id', label: t('fields.case_id'), lookup: 'cases' },
           { name: 'description', label: t('fields.description'), type: 'textarea' }
         ]}
+        formExtraAfter="category_id"
+        formExtra={(form, setField) => (
+          <ExpenseSalaryStaff
+            categoryId={form.category_id}
+            employeeId={form.employee_id}
+            description={form.description}
+            setField={setField}
+          />
+        )}
         rowActions={(r) => (
           <>
-            <Button variant="ghost" onClick={() => doPrint('print:voucher', Number(r.id), false).catch((e) => toast(e.message, 'err'))}>
+            <Button variant="ghost" onClick={() => doPrint('print:voucher', String(r.id), false).catch((e) => toast(e.message, 'err'))}>
               {t('print')}
             </Button>
-            <Button variant="ghost" onClick={() => doPrint('print:voucher', Number(r.id), true).catch((e) => toast(e.message, 'err'))}>
+            <Button variant="ghost" onClick={() => doPrint('print:voucher', String(r.id), true).catch((e) => toast(e.message, 'err'))}>
               {t('exportPdf')}
             </Button>
           </>
         )}
       />
-    </div>
   )
 }
 
@@ -618,7 +752,7 @@ export function InvoicesPage() {
       return
     }
     try {
-      const d = await invoke<Record<string, unknown>>('cases:get', Number(v))
+      const d = await invoke<Record<string, unknown>>('cases:get', String(v))
       const fees = (d.fees as Record<string, unknown>) || {}
       const remaining = Number(fees.remaining ?? 0)
       const totalFees = Number(fees.total_fees ?? d.total_fees ?? 0)
@@ -643,7 +777,7 @@ export function InvoicesPage() {
     }
   }
 
-  const printInv = async (id: number, pdf = false) => {
+  const printInv = async (id: string, pdf = false) => {
     const p = await invoke<{ title: string; body: string; kind: string }>('print:preview', id)
     if (pdf) {
       const r = await invoke<{ canceled?: boolean }>('print:pdf', p.kind, p.title, p.body, `invoice-${id}.pdf`)
@@ -683,10 +817,10 @@ export function InvoicesPage() {
         }
         rowActions={(r) => (
           <>
-            <Button variant="ghost" onClick={() => printInv(Number(r.id)).catch((e) => toast(e.message, 'err'))}>
+            <Button variant="ghost" onClick={() => printInv(String(r.id)).catch((e) => toast(e.message, 'err'))}>
               {t('print')}
             </Button>
-            <Button variant="ghost" onClick={() => printInv(Number(r.id), true).catch((e) => toast(e.message, 'err'))}>
+            <Button variant="ghost" onClick={() => printInv(String(r.id), true).catch((e) => toast(e.message, 'err'))}>
               {t('exportPdf')}
             </Button>
           </>
@@ -787,8 +921,8 @@ export function InvoicesPage() {
             onClick={async () => {
               const parsed = invoiceSchema.safeParse({
                 ...form,
-                client_id: form.client_id ? Number(form.client_id) : undefined,
-                case_id: form.case_id ? Number(form.case_id) : undefined,
+                client_id: form.client_id ? String(form.client_id) : undefined,
+                case_id: form.case_id ? String(form.case_id) : undefined,
                 items
               })
               if (!parsed.success) {
@@ -811,8 +945,8 @@ export function InvoicesPage() {
 export function CashboxPage() {
   const { t, i18n } = useTranslation()
   const { toast } = useApp()
-  const [boxes, setBoxes] = useState<{ id: number; name: string; type: string; current_balance: number }[]>([])
-  const [sel, setSel] = useState<number | null>(null)
+  const [boxes, setBoxes] = useState<{ id: string; name: string; type: string; current_balance: number }[]>([])
+  const [sel, setSel] = useState<string | null>(null)
   const [tx, setTx] = useState<{ rows: object[] }>({ rows: [] })
   const [move, setMove] = useState({ type: 'deposit', amount: 0, description: '' })
 
@@ -861,7 +995,7 @@ export function CashboxPage() {
           </div>
           <table className="w-full table-fixed border-collapse text-sm">
             <tbody>
-              {(tx.rows as { id: number; transaction_type: string; amount: number; description: string; created_at: string }[]).map(
+              {(tx.rows as { id: string; transaction_type: string; amount: number; description: string; created_at: string }[]).map(
                 (r) => (
                   <tr key={r.id} className="border-t">
                     <td className="px-2 py-1.5 text-start">{formatCell('transaction_type', r.transaction_type, i18n.language, t)}</td>

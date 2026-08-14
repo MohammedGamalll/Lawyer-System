@@ -40,7 +40,7 @@ describe('excel import preview', () => {
 describe.skipIf(!sqliteAvailable())('excel import commit and orphan file GC', () => {
   let dir: string
   const actor = {
-    id: 1,
+    id: 'admin-test',
     username: 'admin',
     fullName: 'مدير',
     roleCode: 'admin',

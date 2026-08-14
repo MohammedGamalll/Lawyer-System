@@ -8,6 +8,8 @@ import { useApp } from '../store'
 import { Button, Input, Field } from '../components/ui'
 import type { UserSession } from '@shared/types'
 import i18n from '../i18n'
+import { applyFontSize } from '../lib/uiPrefs'
+import brandLogo from '../assets/brand-logo.png'
 
 export function LoginPage() {
   const { t } = useTranslation()
@@ -27,6 +29,7 @@ export function LoginPage() {
       const settings = await invoke<Record<string, string>>('settings:get')
       if (settings.language) i18n.changeLanguage(settings.language)
       if (settings.theme === 'dark') document.documentElement.classList.add('dark')
+      applyFontSize(Number(settings.ui_font_size || 16))
     } catch (err) {
       toast((err as Error).message, 'err')
     } finally {
@@ -35,10 +38,17 @@ export function LoginPage() {
   })
 
   return (
-    <div className="flex h-full items-center justify-center bg-navy-950" dir={i18n.language === 'en' ? 'ltr' : 'rtl'}>
-      <form onSubmit={onSubmit} className="w-full max-w-md rounded-3xl bg-white p-8 shadow-2xl">
+    <div className="relative flex h-full items-center justify-center overflow-hidden bg-navy-950" dir={i18n.language === 'en' ? 'ltr' : 'rtl'}>
+      <img
+        src={brandLogo}
+        alt=""
+        className="pointer-events-none absolute left-1/2 top-1/2 h-[min(95vh,980px)] w-[min(95vh,980px)] -translate-x-1/2 -translate-y-1/2 object-contain opacity-50"
+      />
+      <div className="pointer-events-none absolute inset-0 bg-navy-950/40" />
+      <form onSubmit={onSubmit} className="relative z-10 w-full max-w-md rounded-3xl bg-white/95 p-8 shadow-2xl backdrop-blur-sm">
         <div className="mb-6 text-center">
-          <div className="text-gold-500">Law Office Management</div>
+          <img src={brandLogo} alt="مؤسسة آل عبدالرازق للمحاماة والاستشارات القانونية" className="mx-auto mb-3 h-36 w-36 object-contain drop-shadow" />
+          <div className="text-gold-600">مؤسسة آل عبدالرازق</div>
           <h1 className="mt-1 text-2xl font-extrabold text-navy-900">{t('appName')}</h1>
           <p className="mt-2 text-sm text-navy-500">{t('loginHint')}</p>
         </div>

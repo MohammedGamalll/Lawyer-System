@@ -1,5 +1,8 @@
 import ExcelJS from 'exceljs'
 import { getDb } from '../db/database'
+import { nowIso } from '../utils/time'
+import { notDeleted } from '../db/ids'
+import { recordLocalChange } from '../sync/queue'
 import { createClient } from './clients'
 import { createCase } from './cases'
 import type { AuthedUser } from '../ipc/helpers'
@@ -19,7 +22,7 @@ export async function buildTemplate(kind: 'clients' | 'cases'): Promise<Buffer> 
 
 export async function previewImport(kind: 'clients' | 'cases', buffer: Buffer) {
   const wb = new ExcelJS.Workbook()
-  await wb.xlsx.load(buffer)
+  await wb.xlsx.load(buffer as never)
   const ws = wb.worksheets[0]
   const rows: { index: number; data: Record<string, string>; errors: string[] }[] = []
   ws.eachRow((row, i) => {
@@ -80,15 +83,19 @@ export async function commitImport(
       }
       if (kind === 'clients') {
         const existing = db
-          .prepare('SELECT id FROM clients WHERE full_name = ? AND (phone = ? OR national_id = ?)')
-          .get(row.data.full_name, row.data.phone || '---', row.data.national_id || '---') as { id: number } | undefined
+          .prepare(
+            `SELECT id FROM clients WHERE ${notDeleted()} AND full_name = ? AND (phone = ? OR national_id = ?)`
+          )
+          .get(row.data.full_name, row.data.phone || '---', row.data.national_id || '---') as { id: string } | undefined
         if (existing && updateOnDuplicate) {
-          db.prepare('UPDATE clients SET phone=?, address=?, notes=? WHERE id=?').run(
+          db.prepare('UPDATE clients SET phone=?, address=?, notes=?, updated_at=? WHERE id=?').run(
             row.data.phone || null,
             row.data.address || null,
             row.data.notes || null,
+            nowIso(),
             existing.id
           )
+          recordLocalChange('clients', existing.id, 'UPDATE')
           updated++
         } else if (existing) {
           skipped++
@@ -98,13 +105,15 @@ export async function commitImport(
         }
       } else {
         const client = db
-          .prepare('SELECT id FROM clients WHERE client_number = ? OR full_name = ?')
-          .get(row.data.client_ref, row.data.client_ref) as { id: number } | undefined
+          .prepare(`SELECT id FROM clients WHERE ${notDeleted()} AND (client_number = ? OR full_name = ?)`)
+          .get(row.data.client_ref, row.data.client_ref) as { id: string } | undefined
         if (!client) {
           skipped++
           continue
         }
-        const type = db.prepare('SELECT id FROM case_types WHERE name_ar = ?').get(row.data.case_type) as { id: number } | undefined
+        const type = db.prepare(`SELECT id FROM case_types WHERE name_ar = ? AND ${notDeleted()}`).get(row.data.case_type) as
+          | { id: string }
+          | undefined
         createCase(actor, {
           title: row.data.title,
           client_id: client.id,
