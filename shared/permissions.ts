@@ -1,8 +1,9 @@
 export const PERMISSIONS = [
-  { code: 'clients.view', nameAr: 'مشاهدة العملاء', nameEn: 'View clients', module: 'clients' },
-  { code: 'clients.create', nameAr: 'إضافة عميل', nameEn: 'Create client', module: 'clients' },
-  { code: 'clients.update', nameAr: 'تعديل عميل', nameEn: 'Update client', module: 'clients' },
-  { code: 'clients.delete', nameAr: 'حذف عميل', nameEn: 'Delete client', module: 'clients' },
+  { code: 'clients.view', nameAr: 'مشاهدة الموكلين', nameEn: 'View clients', module: 'clients' },
+  { code: 'clients.create', nameAr: 'إضافة موكل', nameEn: 'Create client', module: 'clients' },
+  { code: 'clients.update', nameAr: 'تعديل موكل', nameEn: 'Update client', module: 'clients' },
+  { code: 'clients.delete', nameAr: 'حذف موكل', nameEn: 'Delete client', module: 'clients' },
+  { code: 'clients.unmask_contact', nameAr: 'إظهار هاتف وإيميل الموكل', nameEn: 'Unmask client contact', module: 'clients' },
   { code: 'cases.view', nameAr: 'مشاهدة القضايا', nameEn: 'View cases', module: 'cases' },
   { code: 'cases.create', nameAr: 'إضافة قضية', nameEn: 'Create case', module: 'cases' },
   { code: 'cases.update', nameAr: 'تعديل قضية', nameEn: 'Update case', module: 'cases' },
@@ -48,6 +49,12 @@ export const PERMISSIONS = [
   { code: 'appointments.manage', nameAr: 'إدارة المواعيد', nameEn: 'Manage appointments', module: 'appointments' }
 ] as const
 
+export function shouldMaskClientContact(roleCode?: string, permissions: string[] = []): boolean {
+  if (!roleCode) return false
+  if (roleCode === 'admin') return false
+  return !permissions.includes('clients.unmask_contact')
+}
+
 export type PermissionCode = (typeof PERMISSIONS)[number]['code']
 
 export const ROLES = [
@@ -65,6 +72,7 @@ export const ROLE_PERMISSIONS: Record<string, PermissionCode[]> = {
     'clients.view',
     'clients.create',
     'clients.update',
+    'clients.unmask_contact',
     'cases.view',
     'cases.create',
     'cases.update',
@@ -144,6 +152,50 @@ export const ROLE_PERMISSIONS: Record<string, PermissionCode[]> = {
   custom: []
 }
 
+export function canAccessPage(page: string, roleCode: string, permissions: string[]): boolean {
+  if (roleCode === 'admin') return true
+  const need = PAGE_ACCESS[page]
+  if (need === undefined) return false
+  if (Array.isArray(need) && need.length === 0) return true
+  const list = Array.isArray(need) ? need : [need]
+  return list.some((code) => permissions.includes(code))
+}
+
+export const PAGE_ACCESS: Record<string, PermissionCode | PermissionCode[] | []> = {
+  home: [],
+  dashboard: [],
+  clients: 'clients.view',
+  clientProfile: 'clients.view',
+  cases: 'cases.view',
+  caseProfile: 'cases.view',
+  hearings: 'hearings.view',
+  calendar: 'calendar.view',
+  tasks: 'tasks.view',
+  reminders: 'reminders.view',
+  documents: 'documents.view',
+  poa: 'poa.view',
+  contracts: 'contracts.view',
+  opponents: 'opponents.view',
+  lawyers: 'lawyers.view',
+  lawyerProfile: 'lawyers.view',
+  employees: 'employees.view',
+  employeeProfile: 'employees.view',
+  staffForm: ['users.manage', 'employees.manage', 'lawyers.view', 'employees.view'],
+  consultations: 'consultations.view',
+  correspondence: 'correspondence.view',
+  accounts: 'accounts.view',
+  cashbox: 'cashbox.view',
+  expenses: ['accounts.view', 'accounts.expense'],
+  invoices: 'invoices.view',
+  reports: 'reports.view',
+  archive: 'archive.view',
+  users: 'users.manage',
+  audit: 'audit.view',
+  settings: ['settings.manage', 'backup.manage'],
+  appointments: 'appointments.view',
+  search: 'cases.view'
+}
+
 export const NAV_ITEMS: { id: string; permission?: PermissionCode; icon?: string }[] = [
   { id: 'home' },
   { id: 'dashboard' },
@@ -151,6 +203,7 @@ export const NAV_ITEMS: { id: string; permission?: PermissionCode; icon?: string
   { id: 'cases', permission: 'cases.view' },
   { id: 'hearings', permission: 'hearings.view' },
   { id: 'calendar', permission: 'calendar.view' },
+  { id: 'appointments', permission: 'appointments.view' },
   { id: 'tasks', permission: 'tasks.view' },
   { id: 'reminders', permission: 'reminders.view' },
   { id: 'documents', permission: 'documents.view' },
@@ -164,6 +217,7 @@ export const NAV_ITEMS: { id: string; permission?: PermissionCode; icon?: string
   { id: 'accounts', permission: 'accounts.view' },
   { id: 'cashbox', permission: 'cashbox.view' },
   { id: 'expenses', permission: 'accounts.expense' },
+  { id: 'invoices', permission: 'invoices.view' },
   { id: 'reports', permission: 'reports.view' },
   { id: 'archive', permission: 'archive.view' },
   { id: 'users', permission: 'users.manage' },

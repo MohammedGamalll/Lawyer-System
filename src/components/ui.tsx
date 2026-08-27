@@ -102,9 +102,15 @@ export function Badge({ children, tone = 'navy' }: { children: React.ReactNode; 
   return <span className={cn('inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold', map[tone])}>{children}</span>
 }
 
-export function Card({ children, className }: { children: React.ReactNode; className?: string }) {
+export function Card({ children, className, ...rest }: React.HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={cn('rounded-xl border border-navy-100 bg-white p-4 text-start shadow-card dark:bg-navy-900 dark:border-navy-800', className)}>
+    <div
+      className={cn(
+        'rounded-xl border border-navy-100 bg-white p-4 text-start shadow-card dark:bg-navy-900 dark:border-navy-800',
+        className
+      )}
+      {...rest}
+    >
       {children}
     </div>
   )
@@ -205,51 +211,62 @@ export function MiniTable({
   rows,
   keys,
   labels,
-  onRowClick
+  onRowClick,
+  maxRows = 80
 }: {
   rows?: object[]
   keys: string[]
   labels?: string[]
   onRowClick?: (row: Record<string, unknown>) => void
+  maxRows?: number
 }) {
   const { t, i18n } = useTranslation()
   if (!rows?.length) return <div className="text-sm text-navy-400">{t('noData')}</div>
-  const cols = `repeat(${keys.length}, minmax(0, 1fr))`
-  const cell = 'min-w-0 px-3 py-2 text-start align-middle leading-relaxed text-navy-900 dark:text-white'
+  const shown = rows.length > maxRows ? rows.slice(0, maxRows) : rows
+  const cell = 'whitespace-nowrap px-3 py-2 text-start align-middle leading-relaxed text-navy-900 dark:text-white'
   return (
-    <div dir={i18n.language === 'en' ? 'ltr' : 'rtl'} className="data-table-wrap mt-2 overflow-x-hidden rounded-lg border border-navy-100 text-start dark:border-navy-800">
-      <div className="data-grid grid w-full text-sm" style={{ gridTemplateColumns: cols }}>
-        {keys.map((k, i) => (
-          <div
-            key={`h-${k}`}
-            className={cn(cell, 'border-b border-navy-100 bg-navy-50 font-semibold text-navy-600 dark:border-navy-800 dark:bg-navy-800 dark:text-navy-200')}
-          >
-            {labels?.[i] || t(`fields.${k}`)}
-          </div>
-        ))}
-        {rows.map((r, ri) =>
-          keys.map((k) => {
+    <div dir={i18n.language === 'en' ? 'ltr' : 'rtl'} className="data-table-wrap mt-2 overflow-x-auto rounded-lg border border-navy-100 text-start dark:border-navy-800">
+      <table className="border-collapse text-sm">
+        <thead>
+          <tr>
+            {keys.map((k, i) => (
+              <th
+                key={`h-${k}`}
+                className={cn(cell, 'border-b border-navy-100 bg-navy-50 font-semibold text-navy-600 dark:border-navy-800 dark:bg-navy-800 dark:text-navy-200')}
+              >
+                {labels?.[i] || t(`fields.${k}`)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {shown.map((r, ri) => {
             const rec = r as Record<string, unknown>
             return (
-              <div
-                key={`${ri}-${k}`}
-                className={cn(
-                  cell,
-                  'border-b border-navy-50 dark:border-navy-800',
-                  onRowClick && 'cursor-pointer hover:bg-navy-50 dark:hover:bg-navy-800'
-                )}
+              <tr
+                key={String(rec.id ?? ri)}
+                className={cn(onRowClick && 'cursor-pointer hover:bg-navy-50 dark:hover:bg-navy-800')}
                 onClick={() => onRowClick?.(rec)}
               >
-                {k === 'status' ? (
-                  <StatusBadge value={String(rec[k] ?? '')} />
-                ) : (
-                  formatCell(k, rec[k], i18n.language, t)
-                )}
-              </div>
+                {keys.map((k) => (
+                  <td key={k} className={cn(cell, 'border-b border-navy-50 dark:border-navy-800')}>
+                    {k === 'status' ? (
+                      <StatusBadge value={String(rec[k] ?? '')} />
+                    ) : (
+                      formatCell(k, rec[k], i18n.language, t)
+                    )}
+                  </td>
+                ))}
+              </tr>
             )
-          })
-        )}
-      </div>
+          })}
+        </tbody>
+      </table>
+      {rows.length > shown.length ? (
+        <div className="px-3 py-2 text-xs text-navy-500">
+          {shown.length} / {rows.length}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -341,7 +358,7 @@ export function UiTabs({
       </TabsPrimitive.List>
       {tabs.map((t) => (
         <TabsPrimitive.Content key={t.id} value={t.id}>
-          {t.body}
+          {active === t.id ? t.body : null}
         </TabsPrimitive.Content>
       ))}
     </TabsPrimitive.Root>

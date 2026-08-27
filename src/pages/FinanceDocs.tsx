@@ -8,19 +8,12 @@ import { DatePicker } from '../components/DateTimePicker'
 import { EntitySelect } from '../components/EntitySelect'
 import { CrudPage } from '../components/CrudPage'
 import { formatCell, formatDateTime } from '../lib/datetime'
+import { downloadBytes } from '../lib/bytes'
 import { onDataChanged } from '../lib/bus'
-
-function downloadBytes(name: string, data: number[]) {
-  const blob = new Blob([new Uint8Array(data)])
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = name
-  a.click()
-}
 
 export function DocumentsPage() {
   const { t, i18n } = useTranslation()
-  const { toast, can } = useApp()
+  const { toast, can, setPage } = useApp()
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState<Record<string, unknown>>({ category: 'other' })
   const [file, setFile] = useState<{ name: string; data: number[] } | null>(null)
@@ -54,12 +47,21 @@ export function DocumentsPage() {
         updateChannel="documents:update"
         removeChannel="documents:remove"
         createPerm="documents.upload"
+        updatePerm="documents.upload"
         deletePerm="documents.delete"
         columns={[
           { key: 'title', label: t('fields.title') },
           { key: 'category', label: t('fields.category') },
-          { key: 'client_name', label: t('fields.client_name') },
-          { key: 'case_number', label: t('fields.case_number') },
+          {
+            key: 'client_name',
+            label: t('fields.client_name'),
+            onCellClick: (r) => r.client_id && setPage('clientProfile', { id: r.client_id })
+          },
+          {
+            key: 'case_number',
+            label: t('fields.case_number'),
+            onCellClick: (r) => r.case_id && setPage('caseProfile', { id: r.case_id })
+          },
           { key: 'file_name', label: t('fields.file_name') },
           { key: 'current_version', label: t('fields.current_version') }
         ]}
@@ -528,7 +530,7 @@ function PaymentBalance({
 
 export function AccountsPage() {
   const { t } = useTranslation()
-  const { toast } = useApp()
+  const { toast, setPage } = useApp()
   return (
     <div className="space-y-8">
       <CrudPage
@@ -537,11 +539,20 @@ export function AccountsPage() {
         createChannel="payments:create"
         removeChannel="payments:remove"
         createPerm="accounts.payment"
+        deletePerm="accounts.payment"
         schema={paymentSchema}
         columns={[
           { key: 'payment_number', label: t('fields.payment_number') },
-          { key: 'client_name', label: t('fields.client_name') },
-          { key: 'case_number', label: t('fields.case_number') },
+          {
+            key: 'client_name',
+            label: t('fields.client_name'),
+            onCellClick: (r) => r.client_id && setPage('clientProfile', { id: r.client_id })
+          },
+          {
+            key: 'case_number',
+            label: t('fields.case_number'),
+            onCellClick: (r) => r.case_id && setPage('caseProfile', { id: r.case_id })
+          },
           { key: 'amount', label: t('fields.amount'), money: true },
           { key: 'payment_type', label: t('fields.payment_type') },
           { key: 'payment_method', label: t('fields.payment_method') },
@@ -580,6 +591,7 @@ export function AccountsPage() {
             }}
           />
         )}
+        onRowOpen={(r) => r.case_id && setPage('caseProfile', { id: r.case_id })}
         rowActions={(r) => (
           <>
             <Button variant="ghost" onClick={() => doPrint('print:receipt', String(r.id), false).catch((e) => toast(e.message, 'err'))}>
@@ -687,6 +699,7 @@ export function ExpensesPage() {
         createChannel="expenses:create"
         removeChannel="expenses:remove"
         createPerm="accounts.expense"
+        deletePerm="accounts.expense"
         schema={expenseSchema}
         columns={[
           { key: 'expense_number', label: t('fields.expense_number') },
@@ -729,7 +742,7 @@ export function ExpensesPage() {
 
 export function InvoicesPage() {
   const { t, i18n } = useTranslation()
-  const { toast } = useApp()
+  const { toast, can } = useApp()
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState<Record<string, unknown>>({
     items: [{ description: t('types.fees'), quantity: 1, unit_price: 0 }]
@@ -792,6 +805,7 @@ export function InvoicesPage() {
         listChannel="invoices:list"
         removeChannel="invoices:remove"
         createPerm="invoices.manage"
+        deletePerm="invoices.manage"
         columns={[
           { key: 'invoice_number', label: t('fields.invoice_number') },
           { key: 'client_name', label: t('fields.client_name') },
@@ -803,6 +817,7 @@ export function InvoicesPage() {
         ]}
         fields={[{ name: 'notes', label: t('fields.notes'), type: 'textarea' }]}
         extraActions={
+          can('invoices.manage') ? (
           <Button
             variant="gold"
             onClick={() => {
@@ -814,6 +829,7 @@ export function InvoicesPage() {
           >
             {t('finance.newInvoice')}
           </Button>
+          ) : null
         }
         rowActions={(r) => (
           <>
@@ -944,7 +960,7 @@ export function InvoicesPage() {
 
 export function CashboxPage() {
   const { t, i18n } = useTranslation()
-  const { toast } = useApp()
+  const { toast, can } = useApp()
   const [boxes, setBoxes] = useState<{ id: string; name: string; type: string; current_balance: number }[]>([])
   const [sel, setSel] = useState<string | null>(null)
   const [tx, setTx] = useState<{ rows: object[] }>({ rows: [] })
@@ -976,6 +992,7 @@ export function CashboxPage() {
       </div>
       {sel && (
         <Card>
+          {can('accounts.payment') && (
           <div className="mb-3 flex gap-2">
             <Select value={move.type} onChange={(e) => setMove({ ...move, type: e.target.value })}>
               <option value="deposit">{t('finance.deposit')}</option>
@@ -993,6 +1010,7 @@ export function CashboxPage() {
               {t('save')}
             </Button>
           </div>
+          )}
           <table className="w-full table-fixed border-collapse text-sm">
             <tbody>
               {(tx.rows as { id: string; transaction_type: string; amount: number; description: string; created_at: string }[]).map(

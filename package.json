@@ -1,6 +1,6 @@
 {
   "name": "law-office-management",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Law Office Management System",
   "main": "./out/main/index.js",
   "author": "Law Office Management",
@@ -19,7 +19,9 @@
     "dist": "npm run build && electron-builder --win nsis --publish never",
     "dist:publish": "npm run build && electron-builder --win nsis --publish always",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "import:saljas": "python scripts/import_saljas.py",
+    "upload:saljas": "esbuild scripts/bulk-upload-saljas.ts --bundle --platform=node --format=cjs --external:better-sqlite3 --external:@supabase/supabase-js --outfile=scripts/bulk-upload-saljas.cjs"
   },
   "dependencies": {
     "@fontsource/cairo": "^5.3.0",

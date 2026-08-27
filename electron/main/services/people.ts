@@ -803,8 +803,8 @@ export function createOpponent(actor: AuthedUser, data: Record<string, unknown>)
   const ts = nowIso()
   getDb()
     .prepare(
-      `INSERT INTO opponents (id, full_name, national_id, phone, address, lawyer_name, extra_data, notes, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`
+      `INSERT INTO opponents (id, full_name, national_id, phone, address, lawyer_name, lawyer_phone, extra_data, notes, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`
     )
     .run(
       id,
@@ -813,6 +813,7 @@ export function createOpponent(actor: AuthedUser, data: Record<string, unknown>)
       data.phone ?? null,
       data.address ?? null,
       data.lawyer_name ?? null,
+      data.lawyer_phone ?? null,
       data.extra_data ?? null,
       data.notes ?? null,
       ts,
@@ -828,7 +829,7 @@ export function createOpponent(actor: AuthedUser, data: Record<string, unknown>)
 export function updateOpponent(actor: AuthedUser, id: string, data: Record<string, unknown>) {
   getDb()
     .prepare(
-      `UPDATE opponents SET full_name=?, national_id=?, phone=?, address=?, lawyer_name=?, extra_data=?, notes=?, updated_at=? WHERE id=?`
+      `UPDATE opponents SET full_name=?, national_id=?, phone=?, address=?, lawyer_name=?, lawyer_phone=?, extra_data=?, notes=?, updated_at=? WHERE id=?`
     )
     .run(
       data.full_name,
@@ -836,6 +837,7 @@ export function updateOpponent(actor: AuthedUser, id: string, data: Record<strin
       data.phone ?? null,
       data.address ?? null,
       data.lawyer_name ?? null,
+      data.lawyer_phone ?? null,
       data.extra_data ?? null,
       data.notes ?? null,
       nowIso(),

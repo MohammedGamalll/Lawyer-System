@@ -1,13 +1,13 @@
 import { useTranslation } from 'react-i18next'
-import { NAV_ITEMS } from '@shared/permissions'
+import { NAV_ITEMS, canAccessPage } from '@shared/permissions'
 import { useApp } from '../store'
 import { NAV_ICONS } from '../lib/navIcons'
 import { LayoutDashboard } from 'lucide-react'
 
 export function HomePage() {
   const { t } = useTranslation()
-  const { setPage, can } = useApp()
-  const items = NAV_ITEMS.filter((n) => n.id !== 'home' && (!n.permission || can(n.permission)))
+  const { setPage, user } = useApp()
+  const items = NAV_ITEMS.filter((n) => n.id !== 'home' && canAccessPage(n.id, user?.roleCode || '', user?.permissions || []))
 
   return (
     <div className="space-y-5">

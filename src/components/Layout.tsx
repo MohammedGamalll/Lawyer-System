@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LayoutDashboard, Search, Bell, Cloud, CloudOff, CloudCog } from 'lucide-react'
-import { NAV_ITEMS } from '@shared/permissions'
+import { NAV_ITEMS, canAccessPage } from '@shared/permissions'
 import { useApp } from '../store'
 import { useSyncStore } from '../store/sync'
 import { Input } from './ui'
@@ -12,7 +12,7 @@ import { NAV_ICONS } from '../lib/navIcons'
 
 export function Layout({ children }: { children: ReactNode }) {
   const { t, i18n } = useTranslation()
-  const { page, setPage, user, can, theme, setTheme } = useApp()
+  const { page, setPage, goBack, navStack, user, can, theme, setTheme } = useApp()
   const sync = useSyncStore()
   const [q, setQ] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
@@ -111,7 +111,7 @@ export function Layout({ children }: { children: ReactNode }) {
           )}
         </div>
         <nav className="flex-1 overflow-auto py-1">
-          {NAV_ITEMS.filter((n) => !n.permission || can(n.permission)).map((n, i) => {
+          {NAV_ITEMS.filter((n) => canAccessPage(n.id, user?.roleCode || '', user?.permissions || [])).map((n, i) => {
             const Icon = NAV_ICONS[n.id] ?? LayoutDashboard
             const active = page === n.id
             const stripe = i % 2 === 0 ? 'bg-navy-800' : 'bg-[#6b7280]'
@@ -145,12 +145,21 @@ export function Layout({ children }: { children: ReactNode }) {
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center gap-3 border-b border-navy-100 bg-white px-5 py-3 text-navy-800 dark:bg-navy-900 dark:border-navy-800 dark:text-navy-50">
+          <button
+            className="rounded-lg px-2 py-1 text-sm hover:bg-navy-50 dark:hover:bg-navy-800"
+            onClick={() => goBack()}
+            disabled={navStack.length === 0 && page === 'home'}
+          >
+            {t('back')}
+          </button>
           <Search size={18} className="text-navy-400" />
           <Input placeholder={t('search')} value={q} onChange={(e) => runSearch(e.target.value)} className="max-w-md" />
           <div className="flex-1" />
           <button
             className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm hover:bg-navy-50 dark:hover:bg-navy-800 ${syncColor}`}
-            onClick={() => go('settings')}
+            onClick={() => {
+              if (canAccessPage('settings', user?.roleCode || '', user?.permissions || [])) go('settings')
+            }}
             title={syncTitle}
           >
             <SyncIcon size={18} />
@@ -161,6 +170,7 @@ export function Layout({ children }: { children: ReactNode }) {
               </span>
             ) : null}
           </button>
+          {can('reminders.view') && (
           <button
             className="relative rounded-lg p-2 hover:bg-navy-50 dark:hover:bg-navy-800"
             onClick={() => go('reminders')}
@@ -173,15 +183,20 @@ export function Layout({ children }: { children: ReactNode }) {
               </span>
             )}
           </button>
+          )}
+          {can('cases.view') && (
           <button className="rounded-lg px-2 py-1 text-sm hover:bg-navy-50 dark:hover:bg-navy-800" onClick={() => go('search')}>
             {t('advancedSearch')}
           </button>
+          )}
           <button className="rounded-lg px-2 py-1 text-sm hover:bg-navy-50 dark:hover:bg-navy-800" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
             {theme === 'light' ? t('dark') : t('light')}
           </button>
+          {canAccessPage('settings', user?.roleCode || '', user?.permissions || []) && (
           <button className="rounded-lg px-2 py-1 text-sm hover:bg-navy-50 dark:hover:bg-navy-800" onClick={() => go('settings')}>
             {user?.username}
           </button>
+          )}
         </header>
         <main className="relative flex-1 overflow-auto bg-[#f4f1eb] p-5 text-navy-900 dark:bg-[#07111c] dark:text-navy-50">
           {searchOpen && (
@@ -196,8 +211,8 @@ export function Layout({ children }: { children: ReactNode }) {
                         className="block w-full px-2 py-1 text-right text-sm hover:bg-navy-50"
                         onClick={() => {
                           setSearchOpen(false)
-                          if (k === 'clients') go('clients', { id: r.id })
-                          else if (k === 'cases') go('cases', { id: r.id })
+                          if (k === 'clients') go('clientProfile', { id: r.id })
+                          else if (k === 'cases') go('caseProfile', { id: r.id })
                           else go(k === 'poa' ? 'poa' : k)
                         }}
                       >

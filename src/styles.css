@@ -118,21 +118,23 @@ label {
 }
 
 .data-table-wrap {
-  overflow-x: hidden;
+  overflow-x: auto;
   overflow-y: auto;
 }
 
 .data-table-wrap table {
   table-layout: auto;
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
 }
 
 .data-table-wrap th,
-.data-table-wrap td,
-.data-grid > * {
-  white-space: normal;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+.data-table-wrap td {
+  white-space: nowrap;
+  overflow: visible;
+  overflow-wrap: normal;
+  word-break: normal;
   vertical-align: middle;
 }
 

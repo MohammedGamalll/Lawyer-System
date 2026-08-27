@@ -1,6 +1,6 @@
 import type { IpcMain, IpcMainInvokeEvent } from 'electron'
 import type { IpcResult } from '@shared/ipc'
-import { getSession, hasPermission } from './session'
+import { getSession, hasAnyPermission } from './session'
 import { writeQueue } from '../queue/writeQueue'
 import { ValidationError } from '@shared/schemas'
 import { mapDbError } from '../utils/errors'
@@ -28,7 +28,7 @@ export function handle(
   channel: string,
   options: {
     auth?: boolean
-    permission?: string
+    permission?: string | string[]
     write?: boolean
   },
   fn: (event: IpcMainInvokeEvent, user: AuthedUser | null, ...args: unknown[]) => unknown
@@ -39,7 +39,7 @@ export function handle(
       if (options.auth !== false) {
         user = getSession(event)
         if (!user) return fail('يجب تسجيل الدخول أولاً')
-        if (options.permission && !hasPermission(user, options.permission)) {
+        if (options.permission && !hasAnyPermission(user, options.permission)) {
           return fail('ليست لديك صلاحية تنفيذ هذا الإجراء')
         }
       }

@@ -9,6 +9,7 @@ import { useApp } from '../store'
 import { Button, Field, Input, Select, Textarea, Modal, PageHeader, StatusBadge, ConfirmBar, RowMenu } from './ui'
 import { DatePicker, DateTimePicker, TimePicker } from './DateTimePicker'
 import { EntitySelect } from './EntitySelect'
+import { LookupCombo } from './LookupCombo'
 import { formatCell } from '../lib/datetime'
 import type { LookupKind } from '../lib/lookups'
 import { emailSchema, msg, nationalIdSchema, phoneSchema } from '@shared/schemas'
@@ -17,9 +18,11 @@ import { onDataChanged } from '../lib/bus'
 export type FieldDef = {
   name: string
   label: string
-  type?: 'text' | 'textarea' | 'select' | 'date' | 'time' | 'number' | 'password' | 'datetime-local'
+  type?: 'text' | 'textarea' | 'select' | 'date' | 'time' | 'number' | 'password' | 'datetime-local' | 'combo'
   required?: boolean
   options?: { value: string | number; label: string }[]
+  comboKind?: string
+  quickAdd?: boolean
   lookup?:
     | 'clients'
     | 'cases'
@@ -82,12 +85,29 @@ export function FormFields({
               {f.type === 'textarea' ? (
                 <Textarea {...reg} value={String(val)} onChange={(e) => { reg.onChange?.(e); onChange(f.name, e.target.value) }} />
               ) : f.lookup ? (
-                <EntitySelect
-                  kind={f.lookup as LookupKind}
-                  value={val}
-                  clientId={f.lookup === 'cases' ? (values.client_id as string | number | undefined) : undefined}
-                  onChange={(v) => onChange(f.name, v === '' ? '' : v)}
-                />
+                <div className="flex items-center gap-2">
+                  <div className="min-w-0 flex-1">
+                    <EntitySelect
+                      kind={f.lookup as LookupKind}
+                      value={val}
+                      clientId={f.lookup === 'cases' ? (values.client_id as string | number | undefined) : undefined}
+                      onChange={(v) => onChange(f.name, v === '' ? '' : v)}
+                    />
+                  </div>
+                  {f.quickAdd ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-9 w-9 shrink-0 px-0 text-lg"
+                      title="+"
+                      onClick={() => onChange('__quick_client', !values.__quick_client)}
+                    >
+                      +
+                    </Button>
+                  ) : null}
+                </div>
+              ) : f.type === 'combo' && f.comboKind ? (
+                <LookupCombo kind={f.comboKind} value={String(val)} onChange={(v) => onChange(f.name, v)} />
               ) : f.type === 'select' ? (
                 <Select {...reg} value={String(val)} onChange={(e) => { reg.onChange?.(e); onChange(f.name, e.target.value) }}>
                   <option value="">—</option>
@@ -126,7 +146,14 @@ export function FormFields({
   )
 }
 
-export type Column = { key: string; label: string; status?: boolean; money?: boolean }
+export type Column = {
+  key: string
+  label: string
+  status?: boolean
+  money?: boolean
+  render?: (row: Record<string, unknown>) => React.ReactNode
+  onCellClick?: (row: Record<string, unknown>) => void
+}
 
 export function CrudPage({
   title,
@@ -148,7 +175,8 @@ export function CrudPage({
   extraActions,
   rowActions,
   formExtra,
-  formExtraAfter
+  formExtraAfter,
+  defaults
 }: {
   title: string
   listChannel: string
@@ -170,9 +198,10 @@ export function CrudPage({
   rowActions?: (row: Record<string, unknown>, reload: () => Promise<void>) => React.ReactNode
   formExtra?: (form: Record<string, unknown>, setField: (name: string, value: unknown) => void) => React.ReactNode
   formExtraAfter?: string
+  defaults?: Record<string, unknown>
 }) {
   const { t, i18n } = useTranslation()
-  const { toast, can } = useApp()
+  const { toast, can, pageMeta, page: appPage, setPage: setAppPage } = useApp()
   const [q, setQ] = useState('')
   const [page, setPage] = useState(1)
   const [data, setData] = useState<{ rows: Record<string, unknown>[]; total: number; pageSize: number }>({ rows: [], total: 0, pageSize: 20 })
@@ -208,16 +237,47 @@ export function CrudPage({
     load().catch(() => undefined)
   }), [listChannel, page, q, JSON.stringify(listFilters)])
 
-  const startCreate = () => {
+  useEffect(() => {
+    if (!pageMeta.edit_id) return
+    const editId = String(pageMeta.edit_id)
+    const row = data.rows.find((r) => String(r.id) === editId)
+    if (!row) return
+    startEdit(row)
+    const rest = { ...pageMeta }
+    delete rest.edit_id
+    setAppPage(appPage, rest, { replace: true })
+  }, [pageMeta.edit_id, data.rows])
+
+  useEffect(() => {
+    if (!pageMeta.create) return
+    const prefill: Record<string, unknown> = {}
+    if (pageMeta.case_id) prefill.case_id = pageMeta.case_id
+    if (pageMeta.client_id) prefill.client_id = pageMeta.client_id
+    if (pageMeta.prefill && typeof pageMeta.prefill === 'object') Object.assign(prefill, pageMeta.prefill)
+    startCreate(prefill)
+    const rest = { ...pageMeta }
+    delete rest.create
+    setAppPage(appPage, rest, { replace: true })
+  }, [pageMeta.create])
+
+  const startCreate = (prefill: Record<string, unknown> = {}) => {
     setEditing(null)
-    setForm({})
-    rhf.reset({})
+    const next = { ...(defaults || {}), ...prefill }
+    setForm(next)
+    rhf.reset(next)
     setOpen(true)
   }
   const startEdit = (row: Record<string, unknown>) => {
     setEditing(row)
     const next: Record<string, unknown> = { ...row, password: '' }
     delete next.password_hash
+    if (!next.office_case_number && typeof next.case_number === 'string') {
+      const m = String(next.case_number).match(/^(.*)\/(\d{4})$/)
+      if (m && !String(next.case_number).startsWith('CS-')) {
+        next.office_case_number = m[1]
+        if (!next.case_year) next.case_year = m[2]
+      }
+    }
     setForm(next)
     rhf.reset(next)
     setOpen(true)
@@ -314,7 +374,7 @@ export function CrudPage({
           <>
             {extraActions}
             {createChannel && (!createPerm || can(createPerm)) && (
-              <Button variant="gold" onClick={startCreate}>
+              <Button variant="gold" onClick={() => startCreate()}>
                 {t('add')}
               </Button>
             )}
@@ -325,12 +385,12 @@ export function CrudPage({
         <Input placeholder={t('search')} value={q} onChange={(e) => { setPage(1); setQ(e.target.value) }} className="max-w-sm" />
         {extraFilters}
       </div>
-      <div className="data-table-wrap overflow-y-auto overflow-x-hidden rounded-xl border border-navy-100 bg-white dark:bg-navy-900 dark:border-navy-800">
-        <table className="w-full border-collapse text-sm">
+      <div className="data-table-wrap overflow-y-auto overflow-x-auto rounded-xl border border-navy-100 bg-white dark:bg-navy-900 dark:border-navy-800">
+        <table className="border-collapse text-sm">
           <thead className="bg-navy-800 text-white">
             <tr>
               {columns.map((c) => (
-                <th key={c.key} className="px-3 py-2 text-start font-semibold">
+                <th key={c.key} className="whitespace-nowrap px-3 py-2 text-start font-semibold">
                   <button type="button" className="inline-flex items-center gap-1" onClick={() => toggleSort(c.key)}>
                     {c.label}
                     <span className="text-[10px] opacity-80">
@@ -364,10 +424,29 @@ export function CrudPage({
               </tr>
             )}
             {displayRows.map((row) => (
-              <tr key={String(row.id)} className="border-t border-navy-50 hover:bg-navy-50/60 dark:border-navy-800 dark:hover:bg-navy-800/60">
+              <tr
+                key={String(row.id)}
+                className="cursor-pointer border-t border-navy-50 hover:bg-navy-50/60 dark:border-navy-800 dark:hover:bg-navy-800/60"
+                onClick={(e) => {
+                  const el = e.target as HTMLElement
+                  if (el.closest('button, a, input, textarea, select, [data-no-row]')) return
+                  if (onRowOpen) onRowOpen(row)
+                  else if (updateChannel && (!updatePerm || can(updatePerm))) startEdit(row)
+                }}
+              >
                 {columns.map((c) => (
-                  <td key={c.key} className="px-3 py-2 text-start align-middle leading-relaxed text-navy-900 dark:text-white">
-                    {c.status ? (
+                  <td
+                    key={c.key}
+                    className={`whitespace-nowrap px-3 py-2 text-start align-middle leading-relaxed text-navy-900 dark:text-white ${c.onCellClick ? 'cursor-pointer underline decoration-navy-300' : ''}`}
+                    onClick={(e) => {
+                      if (!c.onCellClick) return
+                      e.stopPropagation()
+                      c.onCellClick(row)
+                    }}
+                  >
+                    {c.render ? (
+                      c.render(row)
+                    ) : c.status ? (
                       <StatusBadge value={String(row[c.key] ?? '')} />
                     ) : c.money ? (
                       Number(row[c.key] ?? 0).toLocaleString(i18n.language === 'en' ? 'en-EG' : 'ar-EG')
@@ -376,7 +455,7 @@ export function CrudPage({
                     )}
                   </td>
                 ))}
-                <td className="w-12 px-1 py-2 text-center align-middle">
+                <td className="w-12 px-1 py-2 text-center align-middle" data-no-row onClick={(e) => e.stopPropagation()}>
                   <RowMenu
                     items={[
                       ...(onRowOpen ? [{ label: t('details'), onClick: () => onRowOpen(row) }] : []),

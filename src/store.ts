@@ -3,14 +3,18 @@ import { toast as sonner } from 'sonner'
 import type { UserSession } from '@shared/types'
 import { invoke } from './lib/api'
 
+type NavEntry = { page: string; pageMeta: Record<string, unknown> }
+
 type AppState = {
   user: UserSession | null
   page: string
   pageMeta: Record<string, unknown>
+  navStack: NavEntry[]
   theme: 'light' | 'dark'
   lang: 'ar' | 'en'
   updateReady: string | null
-  setPage: (page: string, meta?: Record<string, unknown>) => void
+  setPage: (page: string, meta?: Record<string, unknown>, opts?: { replace?: boolean }) => void
+  goBack: () => void
   toast: (text: string, type?: 'ok' | 'err') => void
   setUser: (u: UserSession | null) => void
   applyTheme: (t: 'light' | 'dark') => void
@@ -25,10 +29,32 @@ export const useApp = create<AppState>((set, get) => ({
   user: null,
   page: 'home',
   pageMeta: {},
+  navStack: [],
   theme: 'light',
   lang: 'ar',
   updateReady: null,
-  setPage: (page, meta = {}) => set({ page, pageMeta: meta }),
+  setPage: (page, meta = {}, opts) => {
+    if (opts?.replace) {
+      set({ page, pageMeta: meta })
+      return
+    }
+    const cur = get()
+    if (cur.page === page && JSON.stringify(cur.pageMeta) === JSON.stringify(meta)) return
+    set({
+      page,
+      pageMeta: meta,
+      navStack: [...cur.navStack, { page: cur.page, pageMeta: cur.pageMeta }]
+    })
+  },
+  goBack: () => {
+    const stack = [...get().navStack]
+    const prev = stack.pop()
+    if (!prev) {
+      set({ page: 'home', pageMeta: {}, navStack: [] })
+      return
+    }
+    set({ page: prev.page, pageMeta: prev.pageMeta, navStack: stack })
+  },
   toast: (text, type = 'ok') => {
     if (type === 'err') sonner.error(text)
     else sonner.success(text)

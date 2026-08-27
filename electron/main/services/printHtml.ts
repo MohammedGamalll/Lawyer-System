@@ -11,8 +11,10 @@ export function buildPrintHtml(opts: {
   logo?: string
   printedAt?: string
 }): string {
-  const width = opts.kind === 'receipt' || opts.kind === 'voucher' ? '72mm' : '190mm'
-  const fontSize = opts.kind === 'receipt' || opts.kind === 'voucher' ? '13px' : '14px'
+  const isTicket = opts.kind === 'receipt' || opts.kind === 'voucher'
+  const isReport = opts.kind === 'report'
+  const width = isTicket ? '72mm' : isReport ? 'auto' : '190mm'
+  const fontSize = isTicket ? '13px' : isReport ? '11px' : '14px'
   return `<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -21,14 +23,15 @@ export function buildPrintHtml(opts: {
 <style>
   ${opts.fontFace || ''}
   * { box-sizing: border-box; }
-  body { font-family: Cairo, Tahoma, sans-serif; direction: rtl; text-align: right; width: ${width}; margin: 12px auto; color: #122f4d; font-size: ${fontSize}; unicode-bidi: isolate; }
-  h1 { font-size: 20px; margin: 0 0 4px; }
-  .muted { color: #5b6b7c; font-size: 12px; }
-  table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-  th, td { border: 1px solid #cfd8e3; padding: 6px 8px; text-align: right; }
+  @page { size: ${isReport ? 'A4 landscape' : 'A4'}; margin: ${isReport ? '8mm' : '12mm'}; }
+  body { font-family: Cairo, Tahoma, sans-serif; direction: rtl; text-align: right; width: ${width}; max-width: 100%; margin: ${isReport ? '0' : '12px auto'}; color: #122f4d; font-size: ${fontSize}; unicode-bidi: isolate; }
+  h1 { font-size: ${isReport ? '16px' : '20px'}; margin: 0 0 4px; }
+  .muted { color: #5b6b7c; font-size: 11px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; table-layout: fixed; }
+  th, td { border: 1px solid #cfd8e3; padding: ${isReport ? '4px 5px' : '6px 8px'}; text-align: right; vertical-align: top; overflow-wrap: anywhere; word-break: break-word; font-size: ${isReport ? '10px' : 'inherit'}; }
   th { background: #122f4d; color: #fff; }
   .head { display:flex; justify-content:space-between; align-items:center; border-bottom: 3px solid #c9a227; padding-bottom: 8px; margin-bottom: 12px; }
-  .head img.logo, .logo { height: 96px; width: auto; max-width: 220px; object-fit: contain; display: block; margin-bottom: 6px; }
+  .head img.logo, .logo { height: ${isReport ? '64px' : '96px'}; width: auto; max-width: 180px; object-fit: contain; display: block; margin-bottom: 6px; }
   .gold { color: #c9a227; font-weight: 700; }
   .total { font-weight: 700; font-size: 16px; margin-top: 12px; }
 </style>

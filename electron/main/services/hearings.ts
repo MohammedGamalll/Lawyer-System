@@ -7,6 +7,7 @@ import { createReminder } from './reminders'
 import type { AuthedUser } from '../ipc/helpers'
 import type { ListQuery } from '@shared/types'
 import { hearingSchema, parseSchema } from '@shared/schemas'
+import { rememberLookup } from './lookups'
 
 export function listHearings(query: ListQuery = {}) {
   const db = getDb()
@@ -45,7 +46,7 @@ export function listHearings(query: ListQuery = {}) {
   ).c
   const rows = db
     .prepare(
-      `SELECT h.*, cs.title as case_title, cs.case_number, cs.court, cs.circuit, cl.full_name as client_name,
+      `SELECT h.*, cs.title as case_title, cs.case_number, cs.court, cs.circuit, cs.client_id, cl.full_name as client_name,
               l.full_name as lawyer_name
        FROM hearings h
        JOIN cases cs ON cs.id = h.case_id
@@ -100,15 +101,19 @@ export function createHearing(actor: AuthedUser, data: Record<string, unknown>) 
   const id = newId()
   db.prepare(
     `INSERT INTO hearings (
-        id, case_id, hearing_date, hearing_time, hearing_type, lawyer_id, status, result, court_decision,
+        id, case_id, hearing_date, hearing_time, hearing_type, previous_decision, hall, floor, venue, lawyer_id, status, result, court_decision,
         postponement_reason, next_hearing_date, what_happened, required_documents, next_actions, notes, created_at, updated_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).run(
     id,
     caseId,
     data.hearing_date,
     data.hearing_time ?? null,
     data.hearing_type ?? null,
+    data.previous_decision ?? null,
+    data.hall ?? null,
+    data.floor ?? null,
+    data.venue ?? null,
     asIdOrNull(data.lawyer_id),
     data.status ?? 'upcoming',
     data.result ?? null,
@@ -123,6 +128,8 @@ export function createHearing(actor: AuthedUser, data: Record<string, unknown>) 
     ts
   )
   recordLocalChange('hearings', id, 'INSERT')
+  rememberLookup('hearing_type', data.hearing_type)
+  rememberLookup('venue', data.venue)
   attachHearingReminder(id, caseId, String(data.hearing_date), data.hearing_time as string | undefined)
   audit(actor, 'create', 'hearings', id, `تم إنشاء جلسة للقضية بتاريخ ${data.hearing_date}`)
   return { id }
@@ -140,13 +147,17 @@ export function updateHearing(actor: AuthedUser, id: string, data: Record<string
     | undefined
   if (!old) throw new Error('الجلسة غير موجودة')
   db.prepare(
-    `UPDATE hearings SET hearing_date=?, hearing_time=?, hearing_type=?, lawyer_id=?, status=?, result=?,
+    `UPDATE hearings SET hearing_date=?, hearing_time=?, hearing_type=?, previous_decision=?, hall=?, floor=?, venue=?, lawyer_id=?, status=?, result=?,
       court_decision=?, postponement_reason=?, next_hearing_date=?, what_happened=?, required_documents=?,
       next_actions=?, notes=?, updated_at=? WHERE id=?`
   ).run(
     data.hearing_date,
     data.hearing_time ?? null,
     data.hearing_type ?? null,
+    data.previous_decision ?? null,
+    data.hall ?? null,
+    data.floor ?? null,
+    data.venue ?? null,
     asIdOrNull(data.lawyer_id),
     data.status ?? 'upcoming',
     data.result ?? null,
@@ -161,6 +172,8 @@ export function updateHearing(actor: AuthedUser, id: string, data: Record<string
     id
   )
   recordLocalChange('hearings', id, 'UPDATE')
+  rememberLookup('hearing_type', data.hearing_type)
+  rememberLookup('venue', data.venue)
   if (data.status === 'postponed' && data.next_hearing_date && old.status !== 'postponed') {
     createHearing(actor, {
       case_id: old.case_id,

@@ -4,13 +4,13 @@ import { nowIso } from '../utils/time'
 import { audit } from './audit'
 import { newId, asId, notDeleted } from '../db/ids'
 import { recordLocalChange, softDelete } from '../sync/queue'
-import { loadPermissions } from '../ipc/session'
+import { loadPermissions, hasAnyPermission } from '../ipc/session'
 import type { AuthedUser } from '../ipc/helpers'
 import type { ListQuery } from '@shared/types'
-import { PERMISSIONS } from '@shared/permissions'
+import { PERMISSIONS, ROLE_PERMISSIONS } from '@shared/permissions'
 import { userCreateSchema, userUpdateSchema, parseSchema } from '@shared/schemas'
 
-export function listUsers(query: ListQuery = {}) {
+export function listUsers(query: ListQuery = {}, actor?: AuthedUser | null) {
   const db = getDb()
   const page = query.page ?? 1
   const pageSize = query.pageSize ?? 20
@@ -33,7 +33,15 @@ export function listUsers(query: ListQuery = {}) {
        ${where} ORDER BY u.created_at DESC LIMIT ? OFFSET ?`
     )
     .all(...params, pageSize, (page - 1) * pageSize)
-  return { rows, total, page, pageSize }
+  const safe =
+    actor && !hasAnyPermission(actor, ['users.manage', 'employees.manage'])
+      ? (rows as Record<string, unknown>[]).map((r) => ({
+          id: r.id,
+          username: r.username,
+          full_name: r.full_name
+        }))
+      : rows
+  return { rows: safe, total, page, pageSize }
 }
 
 export function getUser(id: string) {
@@ -139,38 +147,56 @@ export function removeUser(actor: AuthedUser, id: string) {
 
 export function setUserPermissions(actor: AuthedUser, userId: string, codes: string[]) {
   const db = getDb()
-  const user = db.prepare(`SELECT username FROM users WHERE id = ? AND ${notDeleted()}`).get(userId) as
-    | { username: string }
-    | undefined
+  const user = db
+    .prepare(
+      `SELECT u.username, r.code as role_code FROM users u
+       JOIN roles r ON r.id = u.role_id
+       WHERE u.id = ? AND ${notDeleted('u')}`
+    )
+    .get(userId) as { username: string; role_code: string } | undefined
   if (!user) throw new Error('المستخدم غير موجود')
   const ts = nowIso()
-  const perm = db.prepare(`SELECT id FROM permissions WHERE code = ? AND ${notDeleted()}`)
-  const wanted: string[] = []
-  for (const code of codes) {
-    const p = perm.get(code) as { id: string } | undefined
-    if (p) wanted.push(p.id)
-  }
-  const wantedSet = new Set(wanted)
+  const wantedSet = new Set(codes)
+  const roleSet = new Set(
+    user.role_code === 'admin' ? PERMISSIONS.map((p) => p.code) : ROLE_PERMISSIONS[user.role_code] || []
+  )
+  const permRows = db.prepare(`SELECT id, code FROM permissions WHERE ${notDeleted()}`).all() as { id: string; code: string }[]
+  const permByCode = new Map(permRows.map((p) => [p.code, p.id]))
   const existing = db
-    .prepare('SELECT id, permission_id, deleted_at FROM user_permissions WHERE user_id = ?')
-    .all(userId) as { id: string; permission_id: string; deleted_at: string | null }[]
-  for (const row of existing) {
-    if (!row.deleted_at && !wantedSet.has(row.permission_id)) softDelete('user_permissions', row.id)
-  }
+    .prepare('SELECT id, permission_id, granted, deleted_at FROM user_permissions WHERE user_id = ?')
+    .all(userId) as { id: string; permission_id: string; granted: number; deleted_at: string | null }[]
   const byPerm = new Map(existing.map((r) => [r.permission_id, r]))
-  for (const pid of wanted) {
-    const row = byPerm.get(pid)
-    if (row && !row.deleted_at) continue
+
+  const upsert = (permissionId: string, granted: number) => {
+    const row = byPerm.get(permissionId)
+    if (row && !row.deleted_at && Number(row.granted) === granted) return
     if (row) {
-      db.prepare('UPDATE user_permissions SET deleted_at = NULL, granted = 1, updated_at = ? WHERE id = ?').run(ts, row.id)
+      db.prepare(
+        'UPDATE user_permissions SET deleted_at = NULL, granted = ?, updated_at = ? WHERE id = ?'
+      ).run(granted, ts, row.id)
       recordLocalChange('user_permissions', row.id, 'UPDATE')
+      byPerm.set(permissionId, { ...row, deleted_at: null, granted })
     } else {
       const id = newId()
       db.prepare(
-        'INSERT INTO user_permissions (id, user_id, permission_id, granted, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)'
-      ).run(id, userId, pid, ts, ts)
+        'INSERT INTO user_permissions (id, user_id, permission_id, granted, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(id, userId, permissionId, granted, ts, ts)
       recordLocalChange('user_permissions', id, 'INSERT')
+      byPerm.set(permissionId, { id, permission_id: permissionId, granted, deleted_at: null })
     }
+  }
+
+  for (const p of PERMISSIONS) {
+    const pid = permByCode.get(p.code)
+    if (!pid) continue
+    const wanted = wantedSet.has(p.code)
+    const inRole = roleSet.has(p.code)
+    const row = byPerm.get(pid)
+    if (wanted === inRole) {
+      if (row && !row.deleted_at) softDelete('user_permissions', row.id)
+      continue
+    }
+    upsert(pid, wanted ? 1 : 0)
   }
   audit(actor, 'update', 'users', userId, `تم تحديث صلاحيات ${user.username}`)
 }

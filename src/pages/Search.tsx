@@ -11,6 +11,7 @@ export function SearchPage() {
   const { t } = useTranslation()
   const { toast, setPage } = useApp()
   const [filters, setFilters] = useState({
+    q: '',
     case_type_id: '',
     status: '',
     lawyer_id: '',
@@ -22,6 +23,7 @@ export function SearchPage() {
   const run = async () => {
     try {
       const data = await invoke<Record<string, unknown>[]>('search:advanced', {
+        q: filters.q || undefined,
         case_type_id: filters.case_type_id || undefined,
         status: filters.status || undefined,
         lawyer_id: filters.lawyer_id || undefined,
@@ -39,6 +41,14 @@ export function SearchPage() {
       <PageHeader title={t('searchPage.title')} />
       <Card>
         <div className="grid gap-3 md:grid-cols-5">
+          <Field label={t('searchPage.query')}>
+            <input
+              className="w-full rounded border px-2 py-2 dark:bg-navy-800"
+              value={filters.q}
+              onChange={(e) => setFilters({ ...filters, q: e.target.value })}
+              placeholder={t('searchPage.queryHint')}
+            />
+          </Field>
           <Field label={t('searchPage.caseType')}>
             <EntitySelect
               kind="caseTypes"
@@ -94,14 +104,24 @@ export function SearchPage() {
               </tr>
             )}
             {rows.map((r) => (
-              <tr key={String(r.id)} className="border-t">
+              <tr
+                key={String(r.id)}
+                className="cursor-pointer border-t hover:bg-navy-50/60 dark:hover:bg-navy-800/60"
+                onClick={() => setPage('caseProfile', { id: r.id })}
+              >
                 <td className="min-w-0 px-3 py-2 text-start align-middle leading-relaxed text-navy-900 dark:text-white">
-                  <button className="text-navy-800 underline dark:text-gold-300" onClick={() => setPage('caseProfile', { id: r.id })}>
-                    {String(r.case_number)}
-                  </button>
+                  {String(r.case_number)}
                 </td>
                 <td className="min-w-0 px-3 py-2 text-start align-middle leading-relaxed text-navy-900 dark:text-white">{String(r.title)}</td>
-                <td className="min-w-0 px-3 py-2 text-start align-middle leading-relaxed text-navy-900 dark:text-white">{String(r.client_name)}</td>
+                <td
+                  className="min-w-0 cursor-pointer px-3 py-2 text-start align-middle leading-relaxed text-navy-900 underline decoration-navy-300 dark:text-white"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (r.client_id) setPage('clientProfile', { id: r.client_id })
+                  }}
+                >
+                  {String(r.client_name)}
+                </td>
                 <td className="min-w-0 px-3 py-2 text-start align-middle leading-relaxed">
                   <StatusBadge value={String(r.status)} />
                 </td>

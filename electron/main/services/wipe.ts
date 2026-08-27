@@ -24,7 +24,6 @@ function wipeExceptAdminTx(): number {
   const tables = db
     .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`)
     .all() as { name: string }[]
-  db.exec('PRAGMA foreign_keys = OFF')
   let n = 0
   for (const t of tables) {
     if (KEEP.has(t.name)) continue
@@ -47,13 +46,18 @@ function wipeExceptAdminTx(): number {
   } catch {
     /* sqlite_sequence may not exist with UUID PKs */
   }
-  db.exec('PRAGMA foreign_keys = ON')
   return n
 }
 
 export function wipeBusinessData(actor: AuthedUser): { tables: number } {
   const db = getDb()
-  const count = db.transaction(() => wipeExceptAdminTx())()
+  db.exec('PRAGMA foreign_keys = OFF')
+  let count = 0
+  try {
+    count = db.transaction(() => wipeExceptAdminTx())()
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON')
+  }
   garbageCollectOrphans(actor)
   audit(actor, 'wipe', 'system', null, 'تم مسح بيانات العمل مع الإبقاء على حساب الأدمن والإعدادات')
   return { tables: count }
@@ -63,10 +67,15 @@ export function wipeBusinessData(actor: AuthedUser): { tables: number } {
 export function ensureAdminOnlyReset(): void {
   if (getSetting('keep_admin_reset_done') === '1') return
   const db = getDb()
-  db.transaction(() => {
-    wipeExceptAdminTx()
-    setSettingSilent('keep_admin_reset_done', '1')
-  })()
+  db.exec('PRAGMA foreign_keys = OFF')
+  try {
+    db.transaction(() => {
+      wipeExceptAdminTx()
+      setSettingSilent('keep_admin_reset_done', '1')
+    })()
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON')
+  }
   try {
     garbageCollectOrphans(null)
   } catch {

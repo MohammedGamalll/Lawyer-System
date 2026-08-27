@@ -1,8 +1,10 @@
 import { getDb } from '../db/database'
 import { addDays } from '../utils/time'
 import { notDeleted } from '../db/ids'
+import type { AuthedUser } from '../ipc/helpers'
+import { hasAnyPermission } from '../ipc/session'
 
-export function dashboardStats() {
+export function dashboardStats(actor?: AuthedUser | null) {
   const db = getDb()
   const today = new Date().toISOString().slice(0, 10)
   const tomorrow = addDays(today, 1).slice(0, 10)
@@ -87,14 +89,14 @@ export function dashboardStats() {
   const activity = db.prepare(`SELECT * FROM audit_logs WHERE ${notDeleted()} ORDER BY created_at DESC LIMIT 12`).all()
   const todayHearingList = db
     .prepare(
-      `SELECT h.*, cs.case_number, cs.title as case_title, cl.full_name as client_name
+      `SELECT h.*, cs.case_number, cs.title as case_title, cs.id as case_id, cl.full_name as client_name
        FROM hearings h JOIN cases cs ON cs.id = h.case_id JOIN clients cl ON cl.id = cs.client_id
        WHERE h.hearing_date = ? AND ${notDeleted('h')} AND ${notDeleted('cs')} AND ${notDeleted('cl')}
        ORDER BY h.hearing_time`
     )
     .all(today)
 
-  return {
+  const base = {
     clients,
     newClients,
     cases,
@@ -121,4 +123,16 @@ export function dashboardStats() {
     activity,
     todayHearingList
   }
+  if (!actor || !hasAnyPermission(actor, 'accounts.view')) {
+    return {
+      ...base,
+      income: 0,
+      expenses: 0,
+      profit: 0,
+      due: 0,
+      incomeByMonth: [],
+      expenseByMonth: []
+    }
+  }
+  return base
 }

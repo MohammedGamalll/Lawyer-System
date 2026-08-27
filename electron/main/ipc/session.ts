@@ -2,6 +2,7 @@ import type { IpcMainInvokeEvent } from 'electron'
 import { randomUUID } from 'crypto'
 import { getDb } from '../db/database'
 import { nowIso } from '../utils/time'
+import { notDeleted } from '../db/ids'
 import type { AuthedUser } from '../ipc/helpers'
 import type { UserSession } from '@shared/types'
 
@@ -73,14 +74,14 @@ export function loadPermissions(userId: string, roleCode: string): string[] {
       `SELECT p.code FROM permissions p
        JOIN role_permissions rp ON rp.permission_id = p.id
        JOIN users u ON u.role_id = rp.role_id
-       WHERE u.id = ?`
+       WHERE u.id = ? AND ${notDeleted('p')} AND ${notDeleted('rp')}`
     )
     .all(userId) as { code: string }[]
   const overrides = db
     .prepare(
       `SELECT p.code, up.granted FROM user_permissions up
        JOIN permissions p ON p.id = up.permission_id
-       WHERE up.user_id = ?`
+       WHERE up.user_id = ? AND ${notDeleted('up')} AND ${notDeleted('p')}`
     )
     .all(userId) as { code: string; granted: number }[]
 
@@ -96,9 +97,14 @@ export function loadPermissions(userId: string, roleCode: string): string[] {
   return [...set]
 }
 
-export function hasPermission(user: AuthedUser, code: string): boolean {
+export function hasAnyPermission(user: AuthedUser, codes: string | string[]): boolean {
   if (user.roleCode === 'admin') return true
-  return user.permissions.includes(code)
+  const list = Array.isArray(codes) ? codes : [codes]
+  return list.some((code) => user.permissions.includes(code))
+}
+
+export function hasPermission(user: AuthedUser, code: string): boolean {
+  return hasAnyPermission(user, code)
 }
 
 export function toPublicSession(user: AuthedUser): UserSession {

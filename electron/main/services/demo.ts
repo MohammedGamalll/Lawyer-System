@@ -4,11 +4,38 @@ import { nowIso, addDays } from '../utils/time'
 import { getDocumentsDir } from '../paths'
 import { newId, notDeleted } from '../db/ids'
 import { recordLocalChange } from '../sync/queue'
+import { runWithoutLocalQueue } from '../sync/origin'
+import { setSettingSilent } from './settings'
 import fs from 'fs'
 import path from 'path'
 export { wipeBusinessData } from './wipe'
 
+const LOOKUPS: Record<string, string[]> = {
+  hearing_type: ['مرافعة', 'حكم', 'استجواب', 'تأجيل', 'ندب خبير'],
+  case_subject: ['تعويض', 'إيجار', 'شيك', 'عمالي', 'أحوال شخصية', 'تجاري', 'جنائي', 'إداري', 'جنحة مباني', 'ضرب', 'خيانة أمانة'],
+  admin_action: ['توكيل', 'صورة رسمية', 'شهادة من الجدول', 'إعلان', 'استخراج حكم'],
+  venue: ['محكمة جنوب القاهرة', 'محكمة شمال القاهرة', 'محكمة الجيزة', 'الشهر العقاري', 'مكتب الشهر']
+}
+
+function seedLookups(db: ReturnType<typeof getDb>, ts: string) {
+  const ins = db.prepare('INSERT INTO lookup_values (id, kind, value, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+  for (const [kind, values] of Object.entries(LOOKUPS)) {
+    for (const value of values) {
+      ins.run(newId(), kind, value, ts, ts)
+    }
+  }
+}
+
 export function seedDemoData(): { ok: true } {
+  return runWithoutLocalQueue(() => seedDemoDataInner())
+}
+
+export function disableLocalSync(): void {
+  setSettingSilent('sync_disabled', '1')
+  getDb().exec('DELETE FROM local_sync_queue')
+}
+
+function seedDemoDataInner(): { ok: true } {
   const db = getDb()
   const existing = db.prepare(`SELECT COUNT(*) as c FROM clients WHERE client_number LIKE 'CL-%' AND ${notDeleted()}`).get() as {
     c: number
@@ -16,6 +43,7 @@ export function seedDemoData(): { ok: true } {
   if (existing.c >= 10) return { ok: true }
 
   const ts = nowIso()
+  seedLookups(db, ts)
   const today = ts.slice(0, 10)
   const lawyerRole = db.prepare(`SELECT id FROM roles WHERE code='lawyer' AND ${notDeleted()}`).get() as { id: string }
   const accRole = db.prepare(`SELECT id FROM roles WHERE code='accountant' AND ${notDeleted()}`).get() as { id: string }
@@ -78,9 +106,9 @@ export function seedDemoData(): { ok: true } {
     const num = nextNumber(db, 'client')
     const id = newId()
     db.prepare(
-      `INSERT INTO clients (id, client_number, full_name, phone, national_id, client_type, governorate, address, created_at, updated_at, created_by)
-         VALUES (?,?,?,?,?,?,'القاهرة','وسط البلد',?,?,?)`
-    ).run(id, num, c.n, c.p, c.nid || null, c.t, ts, ts, admin.id)
+      `INSERT INTO clients (id, client_number, full_name, phone, whatsapp, email, national_id, client_type, governorate, address, created_at, updated_at, created_by)
+         VALUES (?,?,?,?,?,?,?,?,'القاهرة','وسط البلد',?,?,?)`
+    ).run(id, num, c.n, c.p, c.p, c.t === 'company' ? 'info@demo.local' : null, c.nid || (c.t === 'company' ? '***' : null), c.t, ts, ts, admin.id)
     recordLocalChange('clients', id, 'INSERT')
     clientIds.push(id)
     if (c.t === 'company') {
@@ -111,8 +139,8 @@ export function seedDemoData(): { ok: true } {
     const num = nextNumber(db, 'case')
     const id = newId()
     db.prepare(
-      `INSERT INTO cases (id, case_number, internal_file_number, title, client_id, primary_lawyer_id, case_type_id, court, circuit, governorate, status, opponent_name, description, received_date, created_at, updated_at, created_by)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      `INSERT INTO cases (id, case_number, internal_file_number, title, client_id, primary_lawyer_id, case_type_id, category, court, circuit, governorate, status, opponent_name, description, received_date, created_at, updated_at, created_by)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       id,
       num,
@@ -121,6 +149,7 @@ export function seedDemoData(): { ok: true } {
       clientIds[i],
       lawyerIds[i % lawyerIds.length],
       types[i % types.length].id,
+      LOOKUPS.case_subject[i % LOOKUPS.case_subject.length],
       'محكمة جنوب القاهرة',
       'دائرة ' + (i + 1),
       'القاهرة',
@@ -134,6 +163,12 @@ export function seedDemoData(): { ok: true } {
     )
     recordLocalChange('cases', id, 'INSERT')
     caseIds.push(id)
+    const ccid = newId()
+    db.prepare(
+      `INSERT INTO case_clients (id, case_id, client_id, is_primary, capacity_first, sort_order, created_at, updated_at)
+       VALUES (?,?,?,1,'مدعي',0,?,?)`
+    ).run(ccid, id, clientIds[i], ts, ts)
+    recordLocalChange('case_clients', ccid, 'INSERT')
     const fid = newId()
     db.prepare(
       `INSERT INTO case_fees (id, case_id, total_fees, paid, remaining, due_date, installment_count, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)`
@@ -144,14 +179,18 @@ export function seedDemoData(): { ok: true } {
   for (let i = 0; i < 10; i++) {
     const hid = newId()
     db.prepare(
-      `INSERT INTO hearings (id, case_id, hearing_date, hearing_time, hearing_type, lawyer_id, status, notes, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`
+      `INSERT INTO hearings (id, case_id, hearing_date, hearing_time, hearing_type, previous_decision, hall, floor, venue, lawyer_id, status, notes, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       hid,
       caseIds[i],
       i < 3 ? today : addDays(today, i).slice(0, 10),
       '10:00',
-      'مرافعة',
+      LOOKUPS.hearing_type[i % LOOKUPS.hearing_type.length],
+      i === 0 ? '' : 'تأجيل للنطق',
+      String((i % 8) + 1),
+      String((i % 4) + 1),
+      LOOKUPS.venue[i % LOOKUPS.venue.length],
       lawyerIds[i % lawyerIds.length],
       'upcoming',
       'جلسة تجريبية',
@@ -162,12 +201,14 @@ export function seedDemoData(): { ok: true } {
 
     const tid = newId()
     db.prepare(
-      `INSERT INTO tasks (id, title, description, assignee_id, case_id, client_id, due_date, priority, status, progress, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+      `INSERT INTO tasks (id, title, description, venue, case_subject, assignee_id, case_id, client_id, due_date, priority, status, progress, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       tid,
-      'مهمة ' + (i + 1),
+      LOOKUPS.admin_action[i % LOOKUPS.admin_action.length],
       'إعداد مذكرة للدفاع',
+      LOOKUPS.venue[i % LOOKUPS.venue.length],
+      LOOKUPS.case_subject[i % LOOKUPS.case_subject.length],
       lawyerUserIds[i % lawyerUserIds.length] || admin.id,
       caseIds[i],
       clientIds[i],
@@ -226,9 +267,14 @@ export function seedDemoData(): { ok: true } {
   for (let i = 0; i < 5; i++) {
     const oid = newId()
     db.prepare(
-      `INSERT INTO opponents (id, full_name, phone, address, lawyer_name, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`
-    ).run(oid, 'خصم تجريبي ' + (i + 1), '0110000000' + i, 'الجيزة', 'محامي الخصم', ts, ts)
+      `INSERT INTO opponents (id, full_name, phone, address, lawyer_name, lawyer_phone, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)`
+    ).run(oid, 'خصم تجريبي ' + (i + 1), '0110000000' + i, 'الجيزة', 'محامي الخصم', '0120000000' + i, ts, ts)
     recordLocalChange('opponents', oid, 'INSERT')
+    const coid = newId()
+    db.prepare(
+      'INSERT INTO case_opponents (id, case_id, opponent_id, created_at, updated_at) VALUES (?,?,?,?,?)'
+    ).run(coid, caseIds[i], oid, ts, ts)
+    recordLocalChange('case_opponents', coid, 'INSERT')
   }
 
   return { ok: true }

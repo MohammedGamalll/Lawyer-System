@@ -5,9 +5,11 @@ import { newId, notDeleted } from '../db/ids'
 import { recordLocalChange, softDelete } from '../sync/queue'
 import type { AuthedUser } from '../ipc/helpers'
 import type { ListQuery } from '@shared/types'
+import { shouldMaskClientContact } from '@shared/permissions'
 import { clientSchema, parseSchema } from '@shared/schemas'
+import { rememberLookup } from './lookups'
 
-export function listClients(query: ListQuery = {}) {
+export function listClients(query: ListQuery = {}, actor?: AuthedUser | null) {
   const db = getDb()
   const page = query.page ?? 1
   const pageSize = query.pageSize ?? 20
@@ -26,13 +28,13 @@ export function listClients(query: ListQuery = {}) {
   const rows = db
     .prepare(`SELECT * FROM clients ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
     .all(...params, pageSize, (page - 1) * pageSize)
-  return { rows, total, page, pageSize }
+  return { rows: maskClientRows(rows, actor), total, page, pageSize }
 }
 
-export function searchClients(term: string) {
+export function searchClients(term: string, actor?: AuthedUser | null) {
   const db = getDb()
   const s = `%${term}%`
-  return db
+  const rows = db
     .prepare(
       `SELECT DISTINCT c.* FROM clients c
        LEFT JOIN cases cs ON cs.client_id = c.id AND ${notDeleted('cs')}
@@ -41,19 +43,21 @@ export function searchClients(term: string) {
        LIMIT 50`
     )
     .all(s, s, s, s, s)
+  return maskClientRows(rows, actor)
 }
 
-export function getClient(id: string) {
+export function getClient(id: string, actor?: AuthedUser | null) {
   const db = getDb()
   const client = db.prepare(`SELECT * FROM clients WHERE id = ? AND ${notDeleted()}`).get(id)
   if (!client) throw new Error('العميل غير موجود')
   const contacts = db.prepare(`SELECT * FROM client_contacts WHERE client_id = ? AND ${notDeleted()}`).all(id)
-  return { ...(client as object), contacts }
+  const masked = maskClientRows([client], actor)[0] as Record<string, unknown>
+  return { ...masked, contacts: shouldMask(actor) ? maskContacts(contacts) : contacts }
 }
 
-export function clientProfile(id: string) {
+export function clientProfile(id: string, actor?: AuthedUser | null) {
   const db = getDb()
-  const client = getClient(id)
+  const client = getClient(id, actor)
   const cases = db
     .prepare(
       `SELECT c.*, COALESCE(cf.total_fees,0) as total_fees, COALESCE(cf.paid,0) as paid, COALESCE(cf.remaining,0) as remaining
@@ -123,6 +127,7 @@ export function createClient(actor: AuthedUser, data: Record<string, unknown>) {
     actor.id
   )
   recordLocalChange('clients', id, 'INSERT')
+  rememberClientLookups(data)
   const contacts = (data.contacts as { name: string; position?: string; phone?: string; email?: string }[]) ?? []
   for (const c of contacts) {
     if (!c.name) continue
@@ -139,8 +144,9 @@ export function createClient(actor: AuthedUser, data: Record<string, unknown>) {
 export function updateClient(actor: AuthedUser, id: string, data: Record<string, unknown>) {
   data = parseSchema(clientSchema, data) as Record<string, unknown>
   const db = getDb()
-  const old = db.prepare(`SELECT * FROM clients WHERE id = ? AND ${notDeleted()}`).get(id)
+  const old = db.prepare(`SELECT * FROM clients WHERE id = ? AND ${notDeleted()}`).get(id) as Record<string, unknown> | undefined
   if (!old) throw new Error('العميل غير موجود')
+  const keepContact = shouldMask(actor)
   db.prepare(
     `UPDATE clients SET full_name=?, trade_name=?, national_id=?, phone=?, phone2=?, whatsapp=?, email=?,
       address=?, governorate=?, district=?, client_type=?, profession=?, birth_date=?, extra_data=?, notes=?,
@@ -149,10 +155,10 @@ export function updateClient(actor: AuthedUser, id: string, data: Record<string,
     data.full_name,
     data.trade_name ?? null,
     data.national_id ?? null,
-    data.phone ?? null,
-    data.phone2 ?? null,
-    data.whatsapp ?? null,
-    data.email ?? null,
+    keepContact ? old.phone : data.phone ?? null,
+    keepContact ? old.phone2 : data.phone2 ?? null,
+    keepContact ? old.whatsapp : data.whatsapp ?? null,
+    keepContact ? old.email : data.email ?? null,
     data.address ?? null,
     data.governorate ?? null,
     data.district ?? null,
@@ -168,6 +174,7 @@ export function updateClient(actor: AuthedUser, id: string, data: Record<string,
     id
   )
   recordLocalChange('clients', id, 'UPDATE')
+  rememberClientLookups(data)
   if (Array.isArray(data.contacts)) {
     const oldContacts = db
       .prepare(`SELECT id FROM client_contacts WHERE client_id = ? AND ${notDeleted()}`)
@@ -200,3 +207,54 @@ export function removeClient(actor: AuthedUser, id: string) {
   softDelete('clients', id)
   audit(actor, 'delete', 'clients', id, `تم حذف العميل ${old.full_name}`)
 }
+
+function rememberClientLookups(data: Record<string, unknown>) {
+  rememberLookup('capacity', data.trade_name)
+  rememberLookup('governorate', data.governorate)
+  rememberLookup('district', data.district)
+  rememberLookup('profession', data.profession)
+}
+
+function shouldMask(user?: AuthedUser | null) {
+  if (!user) return false
+  return shouldMaskClientContact(user.roleCode, user.permissions)
+}
+
+function maskPhone(v: unknown) {
+  const s = String(v ?? '')
+  if (!s) return s
+  if (s.length <= 4) return '****'
+  return `${s.slice(0, 3)}****${s.slice(-2)}`
+}
+
+function maskEmail(v: unknown) {
+  const s = String(v ?? '')
+  const at = s.indexOf('@')
+  if (!s) return s
+  if (at < 1) return '****'
+  return `${s[0]}***${s.slice(at)}`
+}
+
+export function maskClientContactFields(rows: unknown[], actor?: AuthedUser | null) {
+  if (!shouldMask(actor)) return rows
+  return (rows as Record<string, unknown>[]).map((r) => ({
+    ...r,
+    phone: maskPhone(r.phone),
+    phone2: maskPhone(r.phone2),
+    whatsapp: maskPhone(r.whatsapp),
+    email: maskEmail(r.email)
+  }))
+}
+
+function maskClientRows(rows: unknown[], actor?: AuthedUser | null) {
+  return maskClientContactFields(rows, actor)
+}
+
+function maskContacts(rows: unknown[]) {
+  return (rows as Record<string, unknown>[]).map((r) => ({
+    ...r,
+    phone: maskPhone(r.phone),
+    email: maskEmail(r.email)
+  }))
+}
+

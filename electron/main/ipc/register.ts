@@ -25,9 +25,27 @@ import * as demo from '../services/demo'
 import * as wipe from '../services/wipe'
 import { getInvoice } from '../services/finance'
 import { wrapHtml } from '../services/print'
+import * as lookups from '../services/lookups'
 import { getSyncState, runSyncCycle } from '../sync/service'
 
 export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): void {
+  const saveExcelBuffer = async (buf: Buffer, defaultName: string) => {
+    const win = getWin()
+    const save = win
+      ? await dialog.showSaveDialog(win, {
+          defaultPath: defaultName,
+          filters: [{ name: 'Excel', extensions: ['xlsx'] }]
+        })
+      : await dialog.showSaveDialog({
+          defaultPath: defaultName,
+          filters: [{ name: 'Excel', extensions: ['xlsx'] }]
+        })
+    if (save.canceled || !save.filePath) return { canceled: true as const }
+    fs.writeFileSync(save.filePath, buf)
+    await shell.openPath(save.filePath)
+    return { canceled: false as const, file: save.filePath }
+  }
+
   handle(ipc, IPC.auth.login, { auth: false, write: true }, (event, _u, username, password) => {
     const session = auth.login(String(username), String(password), event.sender.id, 'Windows Desktop')
     return ok(session)
@@ -50,7 +68,9 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
     return ok(true)
   })
 
-  handle(ipc, IPC.users.list, {}, (_e, _u, q) => ok(users.listUsers(q as never)))
+  handle(ipc, IPC.users.list, { permission: ['users.manage', 'employees.manage', 'tasks.view'] }, (_e, user, q) =>
+    ok(users.listUsers(q as never, user))
+  )
   handle(ipc, IPC.users.get, { permission: 'users.manage' }, (_e, _u, id) => ok(users.getUser(String(id))))
   handle(ipc, IPC.users.create, { permission: 'users.manage', write: true }, (_e, user, data) => ok(users.createUser(user!, data as never)))
   handle(ipc, IPC.users.update, { permission: 'users.manage', write: true }, (_e, user, id, data) => ok(users.updateUser(user!, String(id), data as never)))
@@ -62,10 +82,10 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
     users.setUserPermissions(user!, String(id), codes as string[])
     return ok(true)
   })
-  handle(ipc, IPC.users.permissions, { permission: 'users.manage' }, () =>
+  handle(ipc, IPC.users.permissions, { permission: ['users.manage', 'employees.manage'] }, () =>
     ok({ roles: users.listRoles(), permissions: users.listPermissions() })
   )
-  handle(ipc, IPC.users.roles, {}, () => ok(users.listRoles()))
+  handle(ipc, IPC.users.roles, { permission: ['users.manage', 'employees.manage'] }, () => ok(users.listRoles()))
 
   handle(ipc, IPC.settings.get, {}, () => ok(settings.getPublicSettings()))
   handle(ipc, IPC.settings.set, { permission: 'settings.manage', write: true }, (_e, user, values) =>
@@ -77,10 +97,10 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
     return ok({ path: dest })
   })
 
-  handle(ipc, IPC.clients.list, { permission: 'clients.view' }, (_e, _u, q) => ok(clients.listClients(q as never)))
-  handle(ipc, IPC.clients.get, { permission: 'clients.view' }, (_e, _u, id) => ok(clients.getClient(String(id))))
-  handle(ipc, IPC.clients.profile, { permission: 'clients.view' }, (_e, _u, id) => ok(clients.clientProfile(String(id))))
-  handle(ipc, IPC.clients.search, { permission: 'clients.view' }, (_e, _u, term) => ok(clients.searchClients(String(term))))
+  handle(ipc, IPC.clients.list, { permission: 'clients.view' }, (_e, user, q) => ok(clients.listClients(q as never, user)))
+  handle(ipc, IPC.clients.get, { permission: 'clients.view' }, (_e, user, id) => ok(clients.getClient(String(id), user)))
+  handle(ipc, IPC.clients.profile, { permission: 'clients.view' }, (_e, user, id) => ok(clients.clientProfile(String(id), user)))
+  handle(ipc, IPC.clients.search, { permission: 'clients.view' }, (_e, user, term) => ok(clients.searchClients(String(term), user)))
   handle(ipc, IPC.clients.create, { permission: 'clients.create', write: true }, (_e, user, data) => ok(clients.createClient(user!, data as never)))
   handle(ipc, IPC.clients.update, { permission: 'clients.update', write: true }, (_e, user, id, data) => ok(clients.updateClient(user!, String(id), data as never)))
   handle(ipc, IPC.clients.remove, { permission: 'clients.delete', write: true }, (_e, user, id) => {
@@ -88,7 +108,7 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
     return ok(true)
   })
   handle(ipc, IPC.clients.importTemplate, { permission: 'clients.create' }, async () =>
-    ok(Array.from(await importer.buildTemplate('clients')))
+    ok(await saveExcelBuffer(await importer.buildTemplate('clients'), 'clients-template.xlsx'))
   )
   handle(ipc, IPC.clients.importPreview, { permission: 'clients.create' }, async (_e, _u, buf) =>
     ok(await importer.previewImport('clients', Buffer.from(buf as ArrayBuffer)))
@@ -105,7 +125,7 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
   })
 
   handle(ipc, IPC.cases.list, { permission: 'cases.view' }, (_e, _u, q) => ok(cases.listCases(q as never, Number((q as { archived?: number })?.archived ?? 0))))
-  handle(ipc, IPC.cases.get, { permission: 'cases.view' }, (_e, _u, id) => ok(cases.getCase(String(id))))
+  handle(ipc, IPC.cases.get, { permission: 'cases.view' }, (_e, user, id) => ok(cases.getCase(String(id), user)))
   handle(ipc, IPC.cases.create, { permission: 'cases.create', write: true }, (_e, user, data) => ok(cases.createCase(user!, data as never)))
   handle(ipc, IPC.cases.update, { permission: 'cases.update', write: true }, (_e, user, id, data) => ok(cases.updateCase(user!, String(id), data as never)))
   handle(ipc, IPC.cases.remove, { permission: 'cases.delete', write: true }, (_e, user, id) => {
@@ -126,7 +146,7 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
     return ok(true)
   })
   handle(ipc, IPC.cases.importTemplate, { permission: 'cases.create' }, async () =>
-    ok(Array.from(await importer.buildTemplate('cases')))
+    ok(await saveExcelBuffer(await importer.buildTemplate('cases'), 'cases-template.xlsx'))
   )
   handle(ipc, IPC.cases.importPreview, { permission: 'cases.create' }, async (_e, _u, buf) =>
     ok(await importer.previewImport('cases', Buffer.from(buf as ArrayBuffer)))
@@ -153,12 +173,12 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
   handle(ipc, IPC.hearings.postpone, { permission: 'hearings.update', write: true }, (_e, user, id, date, time, reason) =>
     ok(hearings.postponeHearing(user!, String(id), String(date), time as string, reason as string))
   )
-  handle(ipc, IPC.hearings.remove, { permission: 'hearings.update', write: true }, (_e, user, id) => {
+  handle(ipc, IPC.hearings.remove, { permission: 'hearings.delete', write: true }, (_e, user, id) => {
     hearings.removeHearing(user!, String(id))
     return ok(true)
   })
 
-  handle(ipc, IPC.dashboard.stats, {}, () => ok(dashboard.dashboardStats()))
+  handle(ipc, IPC.dashboard.stats, {}, (_e, user) => ok(dashboard.dashboardStats(user)))
 
   handle(ipc, IPC.lawyers.list, { permission: 'lawyers.view' }, (_e, _u, q) => ok(people.listLawyers(q as never)))
   handle(ipc, IPC.lawyers.get, { permission: 'lawyers.view' }, (_e, _u, id) => ok(people.getLawyer(String(id))))
@@ -169,7 +189,7 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
     return ok(true)
   })
   handle(ipc, IPC.lawyers.dashboard, { permission: 'lawyers.view' }, (_e, _u, id) => ok(people.getLawyer(String(id))))
-  handle(ipc, IPC.lawyers.saveStaff, { write: true }, (_e, user, data) =>
+  handle(ipc, IPC.lawyers.saveStaff, { permission: ['users.manage', 'employees.manage'], write: true }, (_e, user, data) =>
     ok(people.saveStaff(user!, data as never))
   )
   handle(ipc, IPC.lawyers.savePhoto, { permission: 'users.manage', write: true }, (_e, user, lawyerId, file) => {
@@ -180,7 +200,7 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
 
   handle(ipc, IPC.employees.list, { permission: 'employees.view' }, (_e, _u, q) => ok(people.listEmployees(q as never)))
   handle(ipc, IPC.employees.get, { permission: 'employees.view' }, (_e, _u, id) => ok(people.getEmployee(String(id))))
-  handle(ipc, IPC.employees.staff, {}, (_e, _u, opts) =>
+  handle(ipc, IPC.employees.staff, { permission: ['employees.view', 'lawyers.view', 'users.manage', 'employees.manage'] }, (_e, _u, opts) =>
     ok(people.getStaff((opts as { employeeId?: string; lawyerId?: string; userId?: string }) || {}))
   )
   handle(ipc, IPC.employees.savePhoto, { permission: 'employees.manage', write: true }, (_e, user, ids, file) => {
@@ -221,12 +241,12 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
   handle(ipc, IPC.reminders.list, { permission: 'reminders.view' }, (_e, _u, q) => ok(schedule.listReminders(q as never)))
   handle(ipc, IPC.reminders.get, { permission: 'reminders.view' }, (_e, _u, id) => ok(schedule.getReminder(String(id))))
   handle(ipc, IPC.reminders.create, { permission: 'reminders.view', write: true }, (_e, user, data) => ok(schedule.createReminderRecord(user!, data as never)))
-  handle(ipc, IPC.reminders.update, { write: true }, (_e, user, id, data) => ok(schedule.updateReminder(user!, String(id), data as never)))
-  handle(ipc, IPC.reminders.dismiss, { write: true }, (_e, _u, id) => {
+  handle(ipc, IPC.reminders.update, { permission: 'reminders.view', write: true }, (_e, user, id, data) => ok(schedule.updateReminder(user!, String(id), data as never)))
+  handle(ipc, IPC.reminders.dismiss, { permission: 'reminders.view', write: true }, (_e, _u, id) => {
     schedule.dismissReminder(String(id))
     return ok(true)
   })
-  handle(ipc, IPC.reminders.remove, { write: true }, (_e, user, id) => {
+  handle(ipc, IPC.reminders.remove, { permission: 'reminders.view', write: true }, (_e, user, id) => {
     schedule.removeReminder(user!, String(id))
     return ok(true)
   })
@@ -241,7 +261,7 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
   })
 
   handle(ipc, IPC.calendar.events, { permission: 'calendar.view' }, (_e, _u, from, to) => ok(schedule.calendarEvents(String(from), String(to))))
-  handle(ipc, IPC.calendar.move, { permission: 'calendar.view', write: true }, (_e, _u, kind, id, date, time) => {
+  handle(ipc, IPC.calendar.move, { permission: ['hearings.update', 'tasks.manage', 'appointments.manage'], write: true }, (_e, _u, kind, id, date, time) => {
     schedule.moveCalendarEvent(String(kind), String(id), String(date), time as string)
     return ok(true)
   })
@@ -320,8 +340,8 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
     return ok(true)
   })
 
-  handle(ipc, IPC.payments.list, { permission: 'accounts.view' }, (_e, _u, q) => ok(finance.listPayments(q as never)))
-  handle(ipc, IPC.payments.balance, { permission: 'accounts.view' }, (_e, _u, clientId, caseId) =>
+  handle(ipc, IPC.payments.list, { permission: ['accounts.view', 'accounts.payment'] }, (_e, _u, q) => ok(finance.listPayments(q as never)))
+  handle(ipc, IPC.payments.balance, { permission: ['accounts.view', 'accounts.payment'] }, (_e, _u, clientId, caseId) =>
     ok(finance.paymentBalance(clientId ? String(clientId) : undefined, caseId ? String(caseId) : undefined))
   )
   handle(ipc, IPC.payments.create, { permission: 'accounts.payment', write: true }, (_e, user, data) => ok(finance.createPayment(user!, data as never)))
@@ -329,13 +349,13 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
     finance.removePayment(user!, String(id))
     return ok(true)
   })
-  handle(ipc, IPC.expenses.list, { permission: 'accounts.view' }, (_e, _u, q) => ok(finance.listExpenses(q as never)))
+  handle(ipc, IPC.expenses.list, { permission: ['accounts.view', 'accounts.expense'] }, (_e, _u, q) => ok(finance.listExpenses(q as never)))
   handle(ipc, IPC.expenses.create, { permission: 'accounts.expense', write: true }, (_e, user, data) => ok(finance.createExpense(user!, data as never)))
   handle(ipc, IPC.expenses.remove, { permission: 'accounts.expense', write: true }, (_e, user, id) => {
     finance.removeExpense(user!, String(id))
     return ok(true)
   })
-  handle(ipc, IPC.expenses.categories, { permission: 'accounts.view' }, () => ok(finance.expenseCategories()))
+  handle(ipc, IPC.expenses.categories, { permission: ['accounts.view', 'accounts.expense'] }, () => ok(finance.expenseCategories()))
   handle(ipc, IPC.expenses.staff, { permission: 'accounts.expense' }, () => ok(people.listPayrollEmployees()))
 
   handle(ipc, IPC.invoices.list, { permission: 'invoices.view' }, (_e, _u, q) => ok(finance.listInvoices(q as never)))
@@ -348,15 +368,15 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
   })
 
   handle(ipc, IPC.cashbox.list, { permission: 'cashbox.view' }, () => ok(finance.listCashboxes()))
-  handle(ipc, IPC.cashbox.create, { permission: 'accounts.view', write: true }, (_e, user, data) => ok(finance.createCashbox(user!, data as never)))
-  handle(ipc, IPC.cashbox.update, { permission: 'accounts.view', write: true }, (_e, _u, id, data) => ok(finance.updateCashbox(String(id), data as never)))
+  handle(ipc, IPC.cashbox.create, { permission: 'settings.manage', write: true }, (_e, user, data) => ok(finance.createCashbox(user!, data as never)))
+  handle(ipc, IPC.cashbox.update, { permission: 'settings.manage', write: true }, (_e, _u, id, data) => ok(finance.updateCashbox(String(id), data as never)))
   handle(ipc, IPC.cashbox.transactions, { permission: 'cashbox.view' }, (_e, _u, id, q) => ok(finance.cashboxTransactions(String(id), q as never)))
   handle(ipc, IPC.cashbox.move, { permission: 'accounts.payment', write: true }, (_e, user, data) => ok(finance.moveCash(user!, data as never)))
 
   handle(ipc, IPC.reports.run, { permission: 'reports.view' }, (_e, _u, q) => ok(reports.runReport(q as never)))
   handle(ipc, IPC.reports.export, { permission: 'reports.view' }, async (_e, _u, q, format) => {
-    const r = await reports.exportReport(q as never, format as 'xlsx' | 'csv')
     const ext = format === 'csv' ? 'csv' : 'xlsx'
+    const buf = await reports.exportReport(q as never, format as 'xlsx' | 'csv')
     const win = getWin()
     const save = win
       ? await dialog.showSaveDialog(win, {
@@ -368,15 +388,20 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
           filters: [{ name: ext.toUpperCase(), extensions: [ext] }]
         })
     if (save.canceled || !save.filePath) return ok({ canceled: true })
-    fs.copyFileSync(r.file, save.filePath)
+    fs.writeFileSync(save.filePath, buf)
     await shell.openPath(save.filePath)
     return ok({ canceled: false, file: save.filePath })
   })
-  handle(ipc, IPC.search.global, {}, (_e, _u, term) => ok(reports.globalSearch(String(term))))
+  handle(ipc, IPC.search.global, {}, (_e, user, term) => ok(reports.globalSearch(String(term), user)))
   handle(ipc, IPC.search.advanced, { permission: 'cases.view' }, (_e, _u, f) => ok(reports.advancedSearch(f as never)))
+  handle(ipc, IPC.search.legacy, { permission: 'archive.view' }, (_e, _u, term) => ok(reports.searchLegacyArchive(String(term))))
+  handle(ipc, IPC.lookups.list, {}, (_e, _u, kind) => ok(lookups.listLookups(String(kind))))
+  handle(ipc, IPC.lookups.remember, { write: true }, (_e, _u, kind, value) => {
+    lookups.rememberLookup(String(kind), value)
+    return ok(true)
+  })
   handle(ipc, IPC.audit.list, { permission: 'audit.view' }, (_e, _u, q) => ok(reports.listAudit(q as never)))
-  handle(ipc, IPC.audit.remove, { permission: 'audit.delete', write: true }, (_e, user, ids) => {
-    if (user!.roleCode !== 'admin') return fail('حذف سجل العمليات متاح للمدير فقط')
+  handle(ipc, IPC.audit.remove, { permission: 'audit.delete', write: true }, (_e, _user, ids) => {
     const list = Array.isArray(ids) ? (ids as string[]) : [String(ids)]
     reports.deleteAudit(list)
     return ok(true)
@@ -396,6 +421,12 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
     const p = res.filePaths[0]
     const buf = fs.readFileSync(p)
     return ok({ name: p.split(/[/\\]/).pop(), data: Array.from(buf), mime: '' })
+  })
+  handle(ipc, IPC.files.openUrl, {}, async (_e, _u, url) => {
+    const s = String(url || '')
+    if (!/^(https?:|mailto:)/i.test(s)) return fail('رابط غير صالح')
+    await shell.openExternal(s)
+    return ok(true)
   })
 
   handle(ipc, IPC.print.printers, {}, async () => ok(await print.listPrinters(getWin())))
@@ -433,6 +464,12 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
   handle(ipc, IPC.updater.install, { auth: false }, () => ok(updater.installUpdate()))
   handle(ipc, IPC.demo.seed, { permission: 'settings.manage', write: true }, (_e, user, mode) => {
     if (String(mode || '') === 'wipe') return ok(wipe.wipeBusinessData(user!))
+    if (String(mode || '') === 'trial') {
+      wipe.wipeBusinessData(user!)
+      demo.seedDemoData()
+      demo.disableLocalSync()
+      return ok({ ok: true, sync: 'disabled' })
+    }
     return ok(demo.seedDemoData())
   })
   handle(ipc, IPC.demo.wipe, { permission: 'settings.manage', write: true }, (_e, user) => ok(wipe.wipeBusinessData(user!)))

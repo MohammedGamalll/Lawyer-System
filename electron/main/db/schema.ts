@@ -211,6 +211,7 @@ CREATE TABLE IF NOT EXISTS opponents (
   phone TEXT,
   address TEXT,
   lawyer_name TEXT,
+  lawyer_phone TEXT,
   extra_data TEXT,
   notes TEXT,
   created_at TEXT NOT NULL,
@@ -232,6 +233,8 @@ CREATE TABLE IF NOT EXISTS case_types (
 CREATE TABLE IF NOT EXISTS cases (
   id TEXT PRIMARY KEY,
   case_number TEXT NOT NULL UNIQUE,
+  office_case_number TEXT,
+  case_year TEXT,
   internal_file_number TEXT,
   title TEXT NOT NULL,
   client_id TEXT NOT NULL REFERENCES clients(id),
@@ -245,6 +248,14 @@ CREATE TABLE IF NOT EXISTS cases (
   court_address TEXT,
   circuit_number TEXT,
   litigation_degree TEXT,
+  first_instance_number TEXT,
+  first_instance_year TEXT,
+  appeal_number TEXT,
+  appeal_year TEXT,
+  cassation_number TEXT,
+  cassation_year TEXT,
+  extra_ref_type TEXT,
+  extra_ref_number TEXT,
   filing_date TEXT,
   received_date TEXT,
   status TEXT NOT NULL DEFAULT 'new',
@@ -287,12 +298,31 @@ CREATE TABLE IF NOT EXISTS case_opponents (
   UNIQUE (case_id, opponent_id)
 );
 
+CREATE TABLE IF NOT EXISTS case_clients (
+  id TEXT PRIMARY KEY,
+  case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  is_primary INTEGER NOT NULL DEFAULT 0,
+  capacity_first TEXT,
+  capacity_appeal TEXT,
+  capacity_cassation TEXT,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT,
+  UNIQUE (case_id, client_id)
+);
+
 CREATE TABLE IF NOT EXISTS hearings (
   id TEXT PRIMARY KEY,
   case_id TEXT NOT NULL REFERENCES cases(id),
   hearing_date TEXT NOT NULL,
   hearing_time TEXT,
   hearing_type TEXT,
+  previous_decision TEXT,
+  hall TEXT,
+  floor TEXT,
+  venue TEXT,
   lawyer_id TEXT REFERENCES lawyers(id),
   status TEXT NOT NULL DEFAULT 'upcoming',
   result TEXT,
@@ -333,6 +363,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   description TEXT,
+  venue TEXT,
+  case_subject TEXT,
   assignee_id TEXT REFERENCES users(id),
   case_id TEXT REFERENCES cases(id),
   client_id TEXT REFERENCES clients(id),
@@ -651,6 +683,59 @@ CREATE TABLE IF NOT EXISTS local_sync_queue (
 CREATE INDEX IF NOT EXISTS idx_sync_queue_created ON local_sync_queue(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, is_read);
+
+CREATE TABLE IF NOT EXISTS legacy_import_rows (
+  id TEXT PRIMARY KEY,
+  batch_id TEXT NOT NULL,
+  source_file TEXT NOT NULL,
+  source_row INTEGER NOT NULL,
+  entity_hint TEXT,
+  payload_json TEXT NOT NULL,
+  mapped_table TEXT,
+  mapped_id TEXT,
+  link_status TEXT NOT NULL DEFAULT 'linked',
+  created_at TEXT NOT NULL,
+  UNIQUE (source_file, source_row)
+);
+
+CREATE INDEX IF NOT EXISTS idx_legacy_import_batch ON legacy_import_rows(batch_id);
+CREATE INDEX IF NOT EXISTS idx_legacy_import_mapped ON legacy_import_rows(mapped_table, mapped_id);
+
+CREATE TABLE IF NOT EXISTS legacy_import_entities (
+  id TEXT PRIMARY KEY,
+  batch_id TEXT NOT NULL,
+  table_name TEXT NOT NULL,
+  record_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE (batch_id, table_name, record_id)
+);
+
+CREATE TABLE IF NOT EXISTS legal_indexes (
+  id TEXT PRIMARY KEY,
+  codes TEXT,
+  number TEXT,
+  year TEXT,
+  entity TEXT,
+  classification TEXT,
+  subject TEXT,
+  source_row INTEGER,
+  payload_json TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_legal_indexes_number ON legal_indexes(number);
+
+CREATE TABLE IF NOT EXISTS lookup_values (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  value TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT,
+  UNIQUE (kind, value)
+);
 `
 
 export const SYNC_TABLES = [
@@ -672,6 +757,7 @@ export const SYNC_TABLES = [
   'cases',
   'case_links',
   'case_opponents',
+  'case_clients',
   'hearings',
   'appointments',
   'tasks',
@@ -693,7 +779,8 @@ export const SYNC_TABLES = [
   'expense_categories',
   'expenses',
   'cashbox_transactions',
-  'audit_logs'
+  'audit_logs',
+  'lookup_values'
 ] as const
 
 export const NUMBERED_TABLES: Record<string, string> = {

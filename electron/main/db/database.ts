@@ -7,6 +7,7 @@ import { nowIso } from '../utils/time'
 import { assertNetworkDriverConfigured, getDriverName } from './adapter'
 import { newId } from './ids'
 import { migrateToUuidIfNeeded } from './migrateToUuid'
+import { patchSchema } from './patch'
 import log from 'electron-log'
 
 let db: Database.Database | null = null
@@ -35,6 +36,7 @@ export function initDatabase(dbPath = getDbPath()): Database.Database {
   }
   db.pragma('foreign_keys = ON')
   db.exec(SCHEMA_SQL)
+  patchSchema(db)
   dedupeSyncQueue(db)
   seedIfEmpty(db)
   ensureSetting(db, 'ui_font_size', '16')

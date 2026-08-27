@@ -39,7 +39,7 @@ export function ReportsPage() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [rows, setRows] = useState<object[]>([])
-  const headerKeys = rows[0] ? Object.keys(rows[0]).slice(0, 8) : []
+  const headerKeys = rows[0] ? Object.keys(rows[0] as object) : []
   const colLabel = (k: string) => t(`fields.${k}`, { defaultValue: t(`reports.${k}`, { defaultValue: k }) })
   const cell = (k: string, v: unknown) => (typeof v === 'object' && v !== null ? '' : formatCell(k, v, i18n.language, t))
 
@@ -86,8 +86,8 @@ export function ReportsPage() {
         </div>
       </Card>
       <Card>
-        <div className="data-table-wrap overflow-x-hidden">
-          <table className="w-full border-collapse text-sm">
+        <div className="data-table-wrap overflow-x-auto">
+          <table className="w-max min-w-full border-collapse text-sm">
             <thead>
               <tr>
                 {headerKeys.map((k) => (
@@ -117,13 +117,23 @@ export function ReportsPage() {
 
 export function ArchivePage() {
   const { t } = useTranslation()
-  const { toast } = useApp()
+  const { toast, setPage } = useApp()
   const [rows, setRows] = useState<{ rows: { id: string; case_number: string; title: string }[] }>({ rows: [] })
+  const [q, setQ] = useState('')
+  const [legacy, setLegacy] = useState<{
+    cases: Record<string, unknown>[]
+    indexes: Record<string, unknown>[]
+    rows: Record<string, unknown>[]
+  }>({ cases: [], indexes: [], rows: [] })
   useEffect(() => {
     invoke<typeof rows>('cases:list', { pageSize: 50, archived: 1 }).then(setRows).catch((e) => toast(e.message, 'err'))
   }, [])
+  const runLegacy = () =>
+    invoke<typeof legacy>('search:legacy', q)
+      .then(setLegacy)
+      .catch((e) => toast((e as Error).message, 'err'))
   return (
-    <div>
+    <div className="space-y-4">
       <PageHeader title={t('nav.archive')} />
       <Card>
         {rows.rows.map((r) => (
@@ -143,13 +153,39 @@ export function ArchivePage() {
           </div>
         ))}
       </Card>
+      <Card>
+        <h3 className="mb-3 font-bold">{t('searchPage.legacyTitle')}</h3>
+        <div className="mb-3 flex gap-2">
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('searchPage.legacyHint')} />
+          <Button onClick={() => runLegacy()}>{t('searchPage.run')}</Button>
+        </div>
+        {(legacy.cases || []).map((r) => (
+          <button
+            key={String(r.id)}
+            className="block w-full border-b py-2 text-start"
+            onClick={() => setPage('caseProfile', { id: r.id })}
+          >
+            {String(r.case_number)} — {String(r.title)}
+          </button>
+        ))}
+        {(legacy.indexes || []).map((r) => (
+          <div key={String(r.id)} className="border-b py-2 text-sm">
+            {String(r.number || '')}/{String(r.year || '')} — {String(r.subject || r.entity || '')}
+          </div>
+        ))}
+        {(legacy.rows || []).map((r) => (
+          <div key={String(r.id)} className="border-b py-2 text-xs text-navy-600">
+            {String(r.source_file)} #{String(r.source_row)} {String(r.entity_hint || '')}
+          </div>
+        ))}
+      </Card>
     </div>
   )
 }
 
 export function UsersPage() {
   const { t } = useTranslation()
-  const { toast, setPage } = useApp()
+  const { toast, setPage, refreshMe } = useApp()
   const [permOpen, setPermOpen] = useState<{ id: string; username: string; full_name: string } | null>(null)
   const [all, setAll] = useState<{ code: string; name_ar: string }[]>([])
   const [selected, setSelected] = useState<string[]>([])
@@ -169,6 +205,7 @@ export function UsersPage() {
         title={t('nav.users')}
         listChannel="users:list"
         removeChannel="users:remove"
+        deletePerm="users.manage"
         extraActions={
           <Button variant="gold" onClick={() => setPage('staffForm', { hideType: true, back: 'users' })}>
             {t('hr.addUser')}
@@ -192,9 +229,22 @@ export function UsersPage() {
           })
         }
         rowActions={(r) => (
-          <Button variant="ghost" onClick={() => openPerms(r).catch((e) => toast((e as Error).message, 'err'))}>
-            {t('users.perms')}
-          </Button>
+          <>
+            <Button variant="ghost" onClick={() => openPerms(r).catch((e) => toast((e as Error).message, 'err'))}>
+              {t('users.perms')}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={async () => {
+                const next = window.prompt(t('users.newPasswordPrompt'))
+                if (!next) return
+                await invoke('auth:resetPassword', r.id, next)
+                toast(t('savedOk'))
+              }}
+            >
+              {t('resetPassword')}
+            </Button>
+          </>
         )}
       />
       {permOpen && (
@@ -220,6 +270,7 @@ export function UsersPage() {
             className="mt-3"
             onClick={async () => {
               await invoke('users:setPermissions', permOpen.id, selected)
+              await refreshMe().catch(() => undefined)
               toast(t('savedOk'))
               setPermOpen(null)
             }}
@@ -254,7 +305,7 @@ export function AuditPage() {
 
 export function SettingsPage() {
   const { t } = useTranslation()
-  const { toast, setUser, user } = useApp()
+  const { toast, setUser, user, can } = useApp()
   const [s, setS] = useState<Record<string, string>>({})
   const [pw, setPw] = useState({ current: '', next: '' })
   const [types, setTypes] = useState<{ id: string; name_ar: string }[]>([])
@@ -284,13 +335,16 @@ export function SettingsPage() {
       <PageHeader
         title={t('nav.settings')}
         actions={
+          can('settings.manage') ? (
           <Button onClick={() => save().catch((e) => toast(e.message, 'err'))}>{t('save')}</Button>
+          ) : undefined
         }
       />
+      {can('settings.manage') && (
       <Card>
         <h3 className="mb-3 font-bold">{t('settings.office')}</h3>
         <div className="grid gap-3 md:grid-cols-2">
-          {['office_name', 'office_address', 'office_phone', 'office_email', 'currency'].map((k) => (
+          {['office_name', 'office_address', 'office_phone', 'office_phone2', 'office_phone3', 'office_email', 'currency'].map((k) => (
             <Field key={k} label={t(`settings.${k}`)}>
               <Input value={s[k] || ''} onChange={(e) => setS({ ...s, [k]: e.target.value })} />
             </Field>
@@ -321,6 +375,20 @@ export function SettingsPage() {
             </Button>
           </Field>
         </div>
+      </Card>
+      )}
+      {can('settings.manage') && (
+      <>
+      <Card>
+        <h3 className="mb-3 font-bold">{t('settings.caseSequence')}</h3>
+        <p className="mb-2 text-sm text-navy-500">{t('settings.caseSequenceHint', { next: s.case_sequence_next || '—' })}</p>
+        <Field label={t('settings.caseSequenceCurrent')}>
+          <Input
+            type="number"
+            value={s.case_sequence_current || ''}
+            onChange={(e) => setS({ ...s, case_sequence_current: e.target.value })}
+          />
+        </Field>
       </Card>
       <Card>
         <h3 className="mb-3">{t('settings.appearance')}</h3>
@@ -504,6 +572,8 @@ export function SettingsPage() {
           ))}
         </ul>
       </Card>
+      </>
+      )}
       <Card>
         <h3 className="mb-3 font-bold">{t('settings.password')}</h3>
         <div className="grid gap-3 md:grid-cols-2">
@@ -534,7 +604,7 @@ export function SettingsPage() {
           {t('logout')} ({user?.username})
         </Button>
       </Card>
-      <BackupRestore />
+      {can('backup.manage') && <BackupRestore />}
     </div>
   )
 }

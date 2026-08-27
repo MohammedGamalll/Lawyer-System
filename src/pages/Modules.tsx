@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { CrudPage, FieldDef } from '../components/CrudPage'
+import { CaseFormExtras } from '../components/CaseFormExtras'
+import { ContactActions } from '../components/ContactActions'
 import { Button, Select } from '../components/ui'
 import { invoke } from '../lib/api'
 import { useApp } from '../store'
@@ -32,7 +34,8 @@ function f(t: (k: string) => string, name: string, extra: Partial<FieldDef> = {}
 
 export function ClientsPage() {
   const { t } = useTranslation()
-  const { setPage } = useApp()
+  const { setPage, can } = useApp()
+  const showContact = can('clients.unmask_contact')
   return (
     <CrudPage
       title={t('nav.clients')}
@@ -46,24 +49,47 @@ export function ClientsPage() {
       schema={clientSchema}
       columns={[
         { key: 'client_number', label: t('fields.client_number') },
-        { key: 'full_name', label: t('fields.full_name') },
-        { key: 'phone', label: t('fields.phone') },
+        {
+          key: 'full_name',
+          label: t('fields.full_name'),
+          onCellClick: (r) => setPage('clientProfile', { id: r.id })
+        },
+        {
+          key: 'phone',
+          label: t('fields.phone'),
+          render: (r) => (
+            <span className="inline-flex items-center gap-1">
+              <span dir="ltr">{String(r.phone ?? '')}</span>
+              {showContact ? <ContactActions phone={String(r.phone || '')} whatsapp={String(r.whatsapp || '')} /> : null}
+            </span>
+          )
+        },
+        {
+          key: 'email',
+          label: t('fields.email'),
+          render: (r) => (
+            <span className="inline-flex items-center gap-1">
+              <span dir="ltr">{String(r.email ?? '')}</span>
+              {showContact ? <ContactActions email={String(r.email || '')} /> : null}
+            </span>
+          )
+        },
         { key: 'client_type', label: t('fields.client_type'), status: true },
         { key: 'governorate', label: t('fields.governorate') }
       ]}
       fields={[
         f(t, 'full_name', { required: true }),
-        f(t, 'trade_name'),
+        f(t, 'trade_name', { type: 'combo', comboKind: 'capacity' }),
         f(t, 'national_id'),
         f(t, 'phone'),
         f(t, 'phone2'),
         f(t, 'whatsapp'),
         f(t, 'email'),
         f(t, 'address'),
-        f(t, 'governorate'),
-        f(t, 'district'),
+        f(t, 'governorate', { type: 'combo', comboKind: 'governorate' }),
+        f(t, 'district', { type: 'combo', comboKind: 'district' }),
         f(t, 'client_type', { type: 'select', options: CLIENT_TYPES.map((v) => ({ value: v, label: t(`status.${v}`) })) }),
-        f(t, 'profession'),
+        f(t, 'profession', { type: 'combo', comboKind: 'profession' }),
         f(t, 'birth_date', { type: 'date' }),
         f(t, 'commercial_register'),
         f(t, 'tax_id'),
@@ -91,25 +117,40 @@ export function CasesPage() {
       deletePerm="cases.delete"
       schema={caseSchema}
       columns={[
-        { key: 'case_number', label: t('fields.case_number') },
-        { key: 'title', label: t('fields.title') },
-        { key: 'client_name', label: t('fields.client_name') },
+        { key: 'case_number', label: t('fields.case_number'), onCellClick: (r) => setPage('caseProfile', { id: r.id }) },
+        { key: 'case_year', label: t('fields.case_year') },
+        { key: 'title', label: t('fields.title'), onCellClick: (r) => setPage('caseProfile', { id: r.id }) },
+        {
+          key: 'client_name',
+          label: t('fields.client_name'),
+          onCellClick: (r) => r.client_id && setPage('clientProfile', { id: r.client_id })
+        },
         { key: 'lawyer_name', label: t('fields.lawyer_id') },
         { key: 'case_type_name', label: t('fields.case_type_name') },
         { key: 'status', label: t('fields.status'), status: true }
       ]}
       fields={[
-        f(t, 'title', { required: true }),
-        f(t, 'client_id', { lookup: 'clients', required: true }),
+        f(t, 'office_case_number', { label: t('fields.case_number') }),
+        f(t, 'case_year'),
+        f(t, 'title', { required: true, type: 'combo', comboKind: 'case_title' }),
+        f(t, 'client_id', { lookup: 'clients', required: true, quickAdd: true }),
         f(t, 'primary_lawyer_id', { lookup: 'lawyers' }),
         f(t, 'assistant_lawyer_id', { lookup: 'lawyers' }),
         f(t, 'case_type_id', { lookup: 'caseTypes' }),
-        f(t, 'court'),
+        f(t, 'category', { type: 'combo', comboKind: 'case_subject', label: t('fields.case_subject') }),
+        f(t, 'court', { type: 'combo', comboKind: 'court' }),
         f(t, 'circuit'),
-        f(t, 'governorate'),
         f(t, 'court_address'),
         f(t, 'circuit_number'),
         f(t, 'litigation_degree'),
+        f(t, 'first_instance_number'),
+        f(t, 'first_instance_year'),
+        f(t, 'appeal_number'),
+        f(t, 'appeal_year'),
+        f(t, 'cassation_number'),
+        f(t, 'cassation_year'),
+        f(t, 'extra_ref_type', { type: 'combo', comboKind: 'extra_ref_type' }),
+        f(t, 'extra_ref_number'),
         f(t, 'filing_date', { type: 'date' }),
         f(t, 'received_date', { type: 'date' }),
         f(t, 'status', { type: 'select', options: st(t, CASE_STATUSES) }),
@@ -142,12 +183,36 @@ export function CasesPage() {
       ]}
       onRowOpen={(r) => setPage('caseProfile', { id: r.id })}
       extraActions={<ImportButton kind="cases" />}
+      defaults={{
+        received_date: new Date().toISOString().slice(0, 10),
+        case_year: String(new Date().getFullYear()),
+        extra_opponents: [{ opponent_id: '', full_name: '', lawyer_name: '', lawyer_phone: '' }]
+      }}
+      formExtraAfter="client_id"
+      formExtra={(form, setField) => <CaseFormExtras form={form} setField={setField} />}
     />
   )
 }
 
 export function HearingsPage() {
   const { t } = useTranslation()
+  const { setPage, toast, pageMeta } = useApp()
+  const caseId = String(pageMeta.case_id || '')
+  const printList = async () => {
+    const data = await invoke<{ rows: Record<string, unknown>[] }>('hearings:list', {
+      page: 1,
+      pageSize: 200,
+      filters: caseId ? { case_id: caseId } : {}
+    })
+    const keys = ['hearing_date', 'case_number', 'client_name', 'hearing_type', 'venue', 'previous_decision', 'hall', 'floor', 'notes', 'status']
+    const body = `<table><thead><tr>${keys.map((k) => `<th>${t(`fields.${k}`)}</th>`).join('')}</tr></thead><tbody>${(data.rows || [])
+      .map(
+        (r) =>
+          `<tr>${keys.map((k) => `<td>${String(r[k] ?? '')}</td>`).join('')}</tr>`
+      )
+      .join('')}</tbody></table>`
+    await invoke('print:print', 'report', t('nav.hearings'), body)
+  }
   return (
     <CrudPage
       title={t('nav.hearings')}
@@ -157,20 +222,37 @@ export function HearingsPage() {
       removeChannel="hearings:remove"
       createPerm="hearings.create"
       updatePerm="hearings.update"
+      deletePerm="hearings.delete"
       schema={hearingSchema}
       columns={[
         { key: 'hearing_date', label: t('fields.hearing_date') },
-        { key: 'hearing_time', label: t('fields.hearing_time') },
-        { key: 'case_number', label: t('fields.case_number') },
-        { key: 'client_name', label: t('fields.client_name') },
+        {
+          key: 'case_number',
+          label: t('fields.case_number'),
+          onCellClick: (r) => r.case_id && setPage('caseProfile', { id: r.case_id })
+        },
+        {
+          key: 'client_name',
+          label: t('fields.client_name'),
+          onCellClick: (r) => r.client_id && setPage('clientProfile', { id: r.client_id })
+        },
+        { key: 'hearing_type', label: t('fields.hearing_type') },
+        { key: 'venue', label: t('fields.venue') },
+        { key: 'previous_decision', label: t('fields.previous_decision') },
+        { key: 'hall', label: t('fields.hall') },
+        { key: 'floor', label: t('fields.floor') },
+        { key: 'notes', label: t('fields.notes') },
         { key: 'court', label: t('fields.court') },
         { key: 'status', label: t('fields.status'), status: true }
       ]}
       fields={[
         f(t, 'case_id', { lookup: 'cases', required: true }),
         f(t, 'hearing_date', { type: 'date', required: true }),
-        f(t, 'hearing_time', { type: 'time' }),
-        f(t, 'hearing_type'),
+        f(t, 'hearing_type', { type: 'combo', comboKind: 'hearing_type' }),
+        f(t, 'venue', { type: 'combo', comboKind: 'venue' }),
+        f(t, 'previous_decision'),
+        f(t, 'hall'),
+        f(t, 'floor'),
         f(t, 'lawyer_id', { lookup: 'lawyers' }),
         f(t, 'status', { type: 'select', options: st(t, HEARING_STATUSES) }),
         f(t, 'result'),
@@ -182,12 +264,29 @@ export function HearingsPage() {
         f(t, 'next_actions', { type: 'textarea' }),
         f(t, 'notes', { type: 'textarea' })
       ]}
+      listFilters={caseId ? { case_id: caseId } : undefined}
+      extraActions={
+        <Button
+          variant="outline"
+          onClick={() => printList().catch((e) => toast((e as Error).message, 'err'))}
+        >
+          {t('print')}
+        </Button>
+      }
+      rowActions={(r) =>
+        r.client_id ? (
+          <Button variant="ghost" onClick={() => setPage('clientProfile', { id: r.client_id })}>
+            {t('nav.clients')}
+          </Button>
+        ) : null
+      }
     />
   )
 }
 
 export function TasksPage() {
   const { t } = useTranslation()
+  const { setPage } = useApp()
   const [view, setView] = useState('all')
   const [lawyerId, setLawyerId] = useState('')
   const [lawyers, setLawyers] = useState<{ id: string; user_id: string | null; full_name: string }[]>([])
@@ -232,6 +331,18 @@ export function TasksPage() {
         listFilters={filters}
         columns={[
           { key: 'title', label: t('fields.title') },
+          {
+            key: 'case_number',
+            label: t('fields.case_number'),
+            onCellClick: (r) => r.case_id && setPage('caseProfile', { id: r.case_id })
+          },
+          {
+            key: 'client_name',
+            label: t('fields.client_name'),
+            onCellClick: (r) => r.client_id && setPage('clientProfile', { id: r.client_id })
+          },
+          { key: 'case_subject', label: t('fields.case_subject') },
+          { key: 'venue', label: t('fields.venue') },
           { key: 'assignee_name', label: t('fields.assignee_name') },
           { key: 'due_date', label: t('fields.due_date') },
           { key: 'priority', label: t('fields.priority'), status: true },
@@ -239,7 +350,9 @@ export function TasksPage() {
           { key: 'progress', label: t('fields.progress') }
         ]}
         fields={[
-          f(t, 'title', { required: true }),
+          f(t, 'title', { required: true, type: 'combo', comboKind: 'admin_action' }),
+          f(t, 'case_subject', { type: 'combo', comboKind: 'case_subject' }),
+          f(t, 'venue', { type: 'combo', comboKind: 'venue' }),
           f(t, 'description', { type: 'textarea' }),
           f(t, 'assignee_id', { lookup: 'users' }),
           f(t, 'case_id', { lookup: 'cases' }),
@@ -264,6 +377,9 @@ export function RemindersPage() {
       createChannel="reminders:create"
       updateChannel="reminders:update"
       removeChannel="reminders:remove"
+      createPerm="reminders.view"
+      updatePerm="reminders.view"
+      deletePerm="reminders.view"
       schema={reminderSchema}
       columns={[
         { key: 'title', label: t('fields.title') },
@@ -301,16 +417,19 @@ export function RemindersPage() {
 
 export function LawyersPage() {
   const { t } = useTranslation()
-  const { setPage } = useApp()
+  const { setPage, can } = useApp()
   return (
     <CrudPage
       title={t('nav.lawyers')}
       listChannel="lawyers:list"
       removeChannel="lawyers:remove"
+      deletePerm="users.manage"
       extraActions={
+        can('users.manage') ? (
         <Button variant="gold" onClick={() => setPage('staffForm', { lockRole: 'lawyer', back: 'lawyers' })}>
           {t('hr.addLawyer')}
         </Button>
+        ) : null
       }
       columns={[
         { key: 'full_name', label: t('fields.full_name') },
@@ -338,16 +457,19 @@ export function LawyerProfilePage() {
 
 export function EmployeesPage() {
   const { t } = useTranslation()
-  const { setPage } = useApp()
+  const { setPage, can } = useApp()
   return (
     <CrudPage
       title={t('nav.employees')}
       listChannel="employees:list"
       removeChannel="employees:remove"
+      deletePerm="employees.manage"
       extraActions={
+        can('employees.manage') ? (
         <Button variant="gold" onClick={() => setPage('staffForm', { back: 'employees' })}>
           {t('hr.addStaff')}
         </Button>
+        ) : null
       }
       columns={[
         { key: 'full_name', label: t('fields.full_name') },
@@ -376,12 +498,15 @@ export function OpponentsPage() {
       updateChannel="opponents:update"
       removeChannel="opponents:remove"
       createPerm="opponents.manage"
+      updatePerm="opponents.manage"
+      deletePerm="opponents.manage"
       schema={opponentSchema}
       columns={[
         { key: 'full_name', label: t('fields.full_name') },
         { key: 'national_id', label: t('fields.national_id') },
         { key: 'phone', label: t('fields.phone') },
-        { key: 'lawyer_name', label: t('fields.lawyer_name') }
+        { key: 'lawyer_name', label: t('fields.lawyer_name') },
+        { key: 'lawyer_phone', label: t('fields.lawyer_phone') }
       ]}
       fields={[
         f(t, 'full_name', { required: true }),
@@ -389,6 +514,7 @@ export function OpponentsPage() {
         f(t, 'phone'),
         f(t, 'address'),
         f(t, 'lawyer_name'),
+        f(t, 'lawyer_phone'),
         f(t, 'case_id', { lookup: 'cases' }),
         f(t, 'notes', { type: 'textarea' })
       ]}
@@ -406,6 +532,8 @@ export function PoaPage() {
       updateChannel="poa:update"
       removeChannel="poa:remove"
       createPerm="poa.manage"
+      updatePerm="poa.manage"
+      deletePerm="poa.manage"
       schema={poaSchema}
       columns={[
         { key: 'poa_number', label: t('fields.poa_number') },
@@ -438,6 +566,8 @@ export function ContractsPage() {
       updateChannel="contracts:update"
       removeChannel="contracts:remove"
       createPerm="contracts.manage"
+      updatePerm="contracts.manage"
+      deletePerm="contracts.manage"
       schema={contractSchema}
       columns={[
         { key: 'contract_number', label: t('fields.contract_number') },
@@ -472,6 +602,8 @@ export function ConsultationsPage() {
       updateChannel="consultations:update"
       removeChannel="consultations:remove"
       createPerm="consultations.manage"
+      updatePerm="consultations.manage"
+      deletePerm="consultations.manage"
       schema={consultationSchema}
       columns={[
         { key: 'subject', label: t('fields.subject') },
@@ -505,6 +637,8 @@ export function CorrespondencePage() {
       updateChannel="correspondence:update"
       removeChannel="correspondence:remove"
       createPerm="correspondence.manage"
+      updatePerm="correspondence.manage"
+      deletePerm="correspondence.manage"
       schema={correspondenceSchema}
       columns={[
         { key: 'correspondence_number', label: t('fields.correspondence_number') },
@@ -529,6 +663,7 @@ export function CorrespondencePage() {
 
 export function AppointmentsPage() {
   const { t } = useTranslation()
+  const { setPage } = useApp()
   return (
     <CrudPage
       title={t('nav.appointments')}
@@ -537,11 +672,17 @@ export function AppointmentsPage() {
       updateChannel="appointments:update"
       removeChannel="appointments:remove"
       createPerm="appointments.manage"
+      updatePerm="appointments.manage"
+      deletePerm="appointments.manage"
       schema={appointmentSchema}
       columns={[
         { key: 'title', label: t('fields.title') },
         { key: 'appointment_type', label: t('fields.appointment_type') },
-        { key: 'client_name', label: t('fields.client_name') },
+        {
+          key: 'client_name',
+          label: t('fields.client_name'),
+          onCellClick: (r) => r.client_id && setPage('clientProfile', { id: r.client_id })
+        },
         { key: 'date', label: t('fields.date') },
         { key: 'time', label: t('fields.time') },
         { key: 'status', label: t('fields.status'), status: true }
@@ -569,12 +710,8 @@ function ImportButton({ kind }: { kind: 'clients' | 'cases' }) {
   const { t } = useTranslation()
   const { toast } = useApp()
   const download = async () => {
-    const buf = await invoke<number[]>(`${kind}:importTemplate`)
-    const blob = new Blob([new Uint8Array(buf)])
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = kind === 'clients' ? 'clients-template.xlsx' : 'cases-template.xlsx'
-    a.click()
+    const r = await invoke<{ canceled?: boolean }>(`${kind}:importTemplate`)
+    if (!r?.canceled) toast(t('savedOk'))
   }
   const pick = async () => {
     const file = await invoke<{ name: string; data: number[] }>('files:pick')
@@ -585,7 +722,7 @@ function ImportButton({ kind }: { kind: 'clients' | 'cases' }) {
   }
   return (
     <>
-      <Button variant="outline" onClick={download}>
+      <Button variant="outline" onClick={() => download().catch((e) => toast(e.message, 'err'))}>
         {t('excelTemplate')}
       </Button>
       <Button variant="outline" onClick={() => pick().catch((e) => toast(e.message, 'err'))}>

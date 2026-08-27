@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { Toaster } from 'sonner'
 import { useApp } from './store'
+import { canAccessPage } from '@shared/permissions'
 import { Layout } from './components/Layout'
 import { LoginPage } from './pages/Login'
 import { DashboardPage } from './pages/Dashboard'
@@ -23,7 +24,7 @@ import {
   AppointmentsPage
 } from './pages/Modules'
 import { CalendarPage } from './pages/Calendar'
-import { DocumentsPage, AccountsPage, ExpensesPage, CashboxPage } from './pages/FinanceDocs'
+import { DocumentsPage, AccountsPage, ExpensesPage, CashboxPage, InvoicesPage } from './pages/FinanceDocs'
 import { ReportsPage, ArchivePage, UsersPage, AuditPage, SettingsPage } from './pages/Admin'
 import { SearchPage } from './pages/Search'
 import { StaffFormPage } from './pages/StaffForm'
@@ -37,6 +38,7 @@ import { UpdateBanner } from './components/UpdateBanner'
 
 export default function App() {
   const { user, page, toast, setUpdateReady } = useApp()
+  const allowed = user ? canAccessPage(page, user.roleCode, user.permissions) : false
 
   useEffect(() => {
     if (!window.api?.on) return
@@ -49,7 +51,7 @@ export default function App() {
       toast(i18n.t('updateAvailable'))
     })
     const offProg =
-      window.api.onUpdateProgress?.((p) => updater.setProgress(p.percent)) ||
+      window.api.onUpdateProgress?.((p: { percent: number }) => updater.setProgress(p.percent)) ||
       window.api.on('updater:progress', (p: unknown) => {
         updater.setProgress(Number((p as { percent?: number })?.percent || 0))
       })
@@ -106,6 +108,10 @@ export default function App() {
       <Toaster richColors position="bottom-left" />
       <UpdateBanner />
       <Layout>
+        {!allowed ? (
+          <div className="p-10 text-lg text-navy-700 dark:text-white">{i18n.t('forbidden')}</div>
+        ) : (
+          <>
         {page === 'home' && <HomePage />}
         {page === 'dashboard' && <DashboardPage />}
         {page === 'clients' && <ClientsPage />}
@@ -130,6 +136,7 @@ export default function App() {
         {page === 'accounts' && <AccountsPage />}
         {page === 'cashbox' && <CashboxPage />}
         {page === 'expenses' && <ExpensesPage />}
+        {page === 'invoices' && <InvoicesPage />}
         {page === 'reports' && <ReportsPage />}
         {page === 'archive' && <ArchivePage />}
         {page === 'users' && <UsersPage />}
@@ -137,6 +144,8 @@ export default function App() {
         {page === 'audit' && <AuditPage />}
         {page === 'appointments' && <AppointmentsPage />}
         {page === 'search' && <SearchPage />}
+          </>
+        )}
       </Layout>
     </>
   )

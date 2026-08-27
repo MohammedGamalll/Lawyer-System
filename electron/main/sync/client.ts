@@ -6,6 +6,12 @@ let lastKey = ''
 
 export function getSupabase(): SupabaseClient | null {
   const s = getSettings()
+  const disabled = s.sync_disabled === '1' || s.sync_disabled === 'true'
+  if (disabled) {
+    client = null
+    lastKey = ''
+    return null
+  }
   const url = String(s.supabase_url || process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim()
   const key = String(
     s.supabase_anon_key ||

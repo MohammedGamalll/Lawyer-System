@@ -7,6 +7,7 @@ import { createReminder } from './reminders'
 import type { AuthedUser } from '../ipc/helpers'
 import type { ListQuery } from '@shared/types'
 import { parseSchema, reminderSchema, taskSchema } from '@shared/schemas'
+import { rememberLookup } from './lookups'
 
 export function listTasks(query: ListQuery = {}, userId?: string) {
   const db = getDb()
@@ -66,13 +67,15 @@ export function createTask(actor: AuthedUser, data: Record<string, unknown>) {
   const id = newId()
   getDb()
     .prepare(
-      `INSERT INTO tasks (id, title, description, assignee_id, case_id, client_id, start_date, due_date, priority, status, progress, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      `INSERT INTO tasks (id, title, description, venue, case_subject, assignee_id, case_id, client_id, start_date, due_date, priority, status, progress, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     )
     .run(
       id,
       data.title,
       data.description ?? null,
+      data.venue ?? null,
+      data.case_subject ?? null,
       asIdOrNull(data.assignee_id),
       asIdOrNull(data.case_id),
       asIdOrNull(data.client_id),
@@ -85,6 +88,9 @@ export function createTask(actor: AuthedUser, data: Record<string, unknown>) {
       ts
     )
   recordLocalChange('tasks', id, 'INSERT')
+  rememberLookup('admin_action', data.title)
+  rememberLookup('venue', data.venue)
+  rememberLookup('case_subject', data.case_subject)
   if (data.due_date) {
     createReminder({
       reminder_type: 'task',
@@ -104,12 +110,14 @@ export function createTask(actor: AuthedUser, data: Record<string, unknown>) {
 export function updateTask(actor: AuthedUser, id: string, data: Record<string, unknown>) {
   getDb()
     .prepare(
-      `UPDATE tasks SET title=?, description=?, assignee_id=?, case_id=?, client_id=?, start_date=?, due_date=?,
+      `UPDATE tasks SET title=?, description=?, venue=?, case_subject=?, assignee_id=?, case_id=?, client_id=?, start_date=?, due_date=?,
         priority=?, status=?, progress=?, updated_at=? WHERE id=?`
     )
     .run(
       data.title,
       data.description ?? null,
+      data.venue ?? null,
+      data.case_subject ?? null,
       asIdOrNull(data.assignee_id),
       asIdOrNull(data.case_id),
       asIdOrNull(data.client_id),
@@ -122,6 +130,9 @@ export function updateTask(actor: AuthedUser, id: string, data: Record<string, u
       id
     )
   recordLocalChange('tasks', id, 'UPDATE')
+  rememberLookup('admin_action', data.title)
+  rememberLookup('venue', data.venue)
+  rememberLookup('case_subject', data.case_subject)
   audit(actor, 'update', 'tasks', id, `تم تعديل المهمة ${data.title}`)
   return { id }
 }

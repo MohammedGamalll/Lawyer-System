@@ -42,32 +42,44 @@ export const emailSchema = z.preprocess(
   z.string().email(msg.email).optional()
 )
 
-export const clientSchema = z.object({
-  full_name: reqStr,
-  trade_name: optStr,
-  national_id: nationalIdSchema,
-  phone: phoneSchema,
-  phone2: phoneSchema,
-  whatsapp: phoneSchema,
-  email: emailSchema,
-  address: optStr,
-  governorate: optStr,
-  district: optStr,
-  client_type: optStr,
-  profession: optStr,
-  birth_date: optStr,
-  extra_data: optStr,
-  notes: optStr,
-  commercial_register: optStr,
-  tax_id: optStr,
-  manager_name: optStr,
-  contacts: z.array(z.object({ name: reqStr, position: optStr, phone: phoneSchema, email: emailSchema })).optional()
-})
+export const clientSchema = z
+  .object({
+    full_name: reqStr,
+    trade_name: optStr,
+    national_id: optStr,
+    phone: phoneSchema,
+    phone2: phoneSchema,
+    whatsapp: phoneSchema,
+    email: emailSchema,
+    address: optStr,
+    governorate: optStr,
+    district: optStr,
+    client_type: optStr,
+    profession: optStr,
+    birth_date: optStr,
+    extra_data: optStr,
+    notes: optStr,
+    commercial_register: optStr,
+    tax_id: optStr,
+    manager_name: optStr,
+    contacts: z.array(z.object({ name: reqStr, position: optStr, phone: phoneSchema, email: emailSchema })).optional()
+  })
+  .superRefine((data, ctx) => {
+    const nid = String(data.national_id ?? '').trim()
+    if (!nid || nid === '***') return
+    const company = data.client_type === 'company' || data.client_type === 'institution'
+    if (company) return
+    if (!/^\d{14}$/.test(nid)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: msg.nationalId, path: ['national_id'] })
+    }
+  })
 
 export const clientUpdateSchema = clientSchema
 
 export const caseSchema = z.object({
   title: reqStr,
+  office_case_number: optStr,
+  case_year: optStr,
   client_id: reqId,
   primary_lawyer_id: optId,
   assistant_lawyer_id: optId,
@@ -79,6 +91,14 @@ export const caseSchema = z.object({
   court_address: optStr,
   circuit_number: optStr,
   litigation_degree: optStr,
+  first_instance_number: optStr,
+  first_instance_year: optStr,
+  appeal_number: optStr,
+  appeal_year: optStr,
+  cassation_number: optStr,
+  cassation_year: optStr,
+  extra_ref_type: optStr,
+  extra_ref_number: optStr,
   filing_date: optStr,
   received_date: optStr,
   status: optStr,
@@ -95,7 +115,30 @@ export const caseSchema = z.object({
   payment_method: optStr,
   installment_count: optNum,
   related_case_id: optId,
-  link_type: optStr
+  link_type: optStr,
+  extra_clients: z
+    .array(
+      z.object({
+        client_id: optId,
+        capacity_first: optStr,
+        capacity_appeal: optStr,
+        capacity_cassation: optStr
+      })
+    )
+    .optional(),
+  extra_opponents: z
+    .array(
+      z.object({
+        opponent_id: optId,
+        full_name: optStr,
+        lawyer_name: optStr,
+        lawyer_phone: optStr
+      })
+    )
+    .optional(),
+  capacity_first: optStr,
+  capacity_appeal: optStr,
+  capacity_cassation: optStr
 })
 
 export const hearingSchema = z.object({
@@ -103,6 +146,10 @@ export const hearingSchema = z.object({
   hearing_date: reqStr,
   hearing_time: optStr,
   hearing_type: optStr,
+  previous_decision: optStr,
+  hall: optStr,
+  floor: optStr,
+  venue: optStr,
   lawyer_id: optId,
   status: optStr,
   result: optStr,
@@ -118,6 +165,8 @@ export const hearingSchema = z.object({
 export const taskSchema = z.object({
   title: reqStr,
   description: optStr,
+  venue: optStr,
+  case_subject: optStr,
   assignee_id: optId,
   case_id: optId,
   client_id: optId,
@@ -306,6 +355,7 @@ export const opponentSchema = z.object({
   phone: phoneSchema,
   address: optStr,
   lawyer_name: optStr,
+  lawyer_phone: phoneSchema,
   extra_data: optStr,
   notes: optStr,
   case_id: optId

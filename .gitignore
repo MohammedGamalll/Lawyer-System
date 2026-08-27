@@ -10,3 +10,5 @@ coverage
 *.local
 .env
 data
+scripts/*.cjs
+scripts/saljas-import.log

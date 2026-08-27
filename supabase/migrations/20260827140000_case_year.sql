@@ -1,0 +1,2 @@
+ALTER TABLE cases ADD COLUMN IF NOT EXISTS office_case_number TEXT;
+ALTER TABLE cases ADD COLUMN IF NOT EXISTS case_year TEXT;

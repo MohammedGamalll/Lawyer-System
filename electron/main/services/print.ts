@@ -16,6 +16,9 @@ function pageOpts(kind: PrintKind) {
       marginsType: 1 as const
     }
   }
+  if (kind === 'report') {
+    return { pageSize: 'A4' as const, landscape: true, marginsType: 1 as const }
+  }
   return { pageSize: 'A4' as const, marginsType: 0 as const }
 }
 
@@ -62,14 +65,16 @@ function logoImg(): string {
 
 export function wrapHtml(title: string, body: string, kind: PrintKind): string {
   const office = getSetting('office_name', 'مكتب المحاماة')
-  const phone = getSetting('office_phone', '')
+  const phones = [getSetting('office_phone', ''), getSetting('office_phone2', ''), getSetting('office_phone3', '')]
+    .filter(Boolean)
+    .join(' — ')
   const address = getSetting('office_address', '')
   return buildPrintHtml({
     title,
     body,
     kind,
     office,
-    phone,
+    phone: phones,
     address,
     fontFace: cairoFace(),
     logo: logoImg(),
@@ -141,7 +146,8 @@ export async function printHtml(html: string, kind: PrintKind, parent?: BrowserW
           silent: Boolean(doSilent && match && !pdfLike),
           ...(match && !pdfLike ? { deviceName: match.name } : {}),
           printBackground: true,
-          pageSize: 'A4'
+          pageSize: 'A4',
+          landscape: kind === 'report'
         },
         (success, error) => {
           if (!success && error && !isCancel(error)) reject(new Error(error))

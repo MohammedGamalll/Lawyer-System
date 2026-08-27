@@ -47,6 +47,8 @@ export function StaffFormPage() {
   const pageMeta = useApp((s) => s.pageMeta)
   const setPage = useApp((s) => s.setPage)
   const toast = useApp((s) => s.toast)
+  const can = useApp((s) => s.can)
+  const canEdit = can('users.manage') || can('employees.manage')
 
   const lockRole = String(pageMeta.lockRole || (page === 'lawyerProfile' ? 'lawyer' : ''))
   const hideType = Boolean(pageMeta.hideType)
@@ -166,6 +168,7 @@ export function StaffFormPage() {
   }, [staffKey])
 
   const save = async () => {
+    if (!canEdit) return
     const parsed = staffSchema.safeParse({
       ...form,
       role_id: form.role_id ? String(form.role_id) : undefined,
@@ -223,9 +226,11 @@ export function StaffFormPage() {
         }
         actions={
           <>
+            {canEdit && (
             <Button type="button" onClick={() => save()} disabled={saving}>
               {saving ? t('saving') : t('save')}
             </Button>
+            )}
             <Button type="button" variant="outline" onClick={() => setPage(back)}>
               {t('back')}
             </Button>
@@ -443,8 +448,18 @@ export function StaffFormPage() {
       ) : null}
       {roleCode === 'lawyer' && (form.lawyer_id || lawyerId) ? (
         <>
-          <MiniTable rows={(extra.cases as object[]) || []} keys={['case_number', 'title', 'status']} />
-          <MiniTable rows={(extra.hearings as object[]) || []} keys={['hearing_date', 'case_number', 'status']} />
+          <MiniTable
+            rows={(extra.cases as object[]) || []}
+            keys={['case_number', 'title', 'status']}
+            onRowClick={(r) => r.id && setPage('caseProfile', { id: r.id })}
+          />
+          <MiniTable
+            rows={(extra.hearings as object[]) || []}
+            keys={['hearing_date', 'case_number', 'status']}
+            onRowClick={(r) => {
+              if (r.id) setPage('hearings', { edit_id: r.id, case_id: r.case_id })
+            }}
+          />
         </>
       ) : null}
     </div>

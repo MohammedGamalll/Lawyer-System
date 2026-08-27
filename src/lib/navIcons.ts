@@ -26,6 +26,8 @@ export const NAV_ICONS: Record<string, ComponentType<{ size?: number; className?
   cashbox: Landmark,
   expenses: Receipt,
   reports: BarChart3,
+  invoices: Receipt,
+  appointments: CalendarDays,
   archive: Archive,
   users: Shield,
   audit: ClipboardList,

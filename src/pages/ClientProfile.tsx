@@ -6,13 +6,14 @@ import { contactSchema } from '@shared/schemas'
 import { invoke } from '../lib/api'
 import { useApp } from '../store'
 import { Button, Card, Field, InfoGrid, Input, MiniTable, PageHeader, UiTabs } from '../components/ui'
+import { ContactActions } from '../components/ContactActions'
 import type { FieldDef } from '../components/CrudPage'
 import { formatCell } from '../lib/datetime'
 import { onDataChanged } from '../lib/bus'
 
 export function ClientProfilePage() {
   const { t, i18n } = useTranslation()
-  const { pageMeta, setPage, toast } = useApp()
+  const { pageMeta, goBack, toast, can } = useApp()
   const [p, setP] = useState<Record<string, unknown> | null>(null)
   const [contact, setContact] = useState({ name: '', position: '', phone: '', email: '' })
   const [saving, setSaving] = useState(false)
@@ -67,7 +68,7 @@ export function ClientProfilePage() {
       <PageHeader
         title={`${t('nav.clients')} — ${c.full_name}`}
         actions={
-          <Button variant="outline" onClick={() => setPage('clients')}>
+          <Button variant="outline" onClick={() => goBack()}>
             {t('back')}
           </Button>
         }
@@ -79,8 +80,15 @@ export function ClientProfilePage() {
         </Card>
         <Card className="min-w-0">
           <div className="text-xs text-navy-500">{t('phone')}</div>
-          <div className="overflow-hidden text-ellipsis whitespace-nowrap font-bold" dir="ltr">
-            {String(c.phone ?? '—')}
+          <div className="flex items-center gap-2 font-bold" dir="ltr">
+            <span>{String(c.phone ?? '—')}</span>
+            {can('clients.unmask_contact') ? (
+            <ContactActions
+              phone={String(c.phone || '')}
+              whatsapp={String(c.whatsapp || '')}
+              email={String(c.email || '')}
+            />
+            ) : null}
           </div>
         </Card>
         <Card className="min-w-0">
@@ -89,10 +97,12 @@ export function ClientProfilePage() {
             {t(`status.${c.client_type}`, { defaultValue: String(c.client_type) })}
           </div>
         </Card>
+        {can('accounts.view') && (
         <Card className="min-w-0">
           <div className="text-xs text-navy-500">{t('due')}</div>
           <div className="overflow-hidden text-ellipsis whitespace-nowrap font-bold tabular-nums">{Number(p.due).toLocaleString('ar-EG')}</div>
         </Card>
+        )}
       </div>
       <Card>
         <UiTabs
@@ -102,10 +112,37 @@ export function ClientProfilePage() {
               label: t('tabs.personal'),
               body: (
                 <InfoGrid
-                  items={personalFields.map((f) => ({
-                    label: f.label,
-                    value: formatCell(f.name, c[f.name], i18n.language, t)
-                  }))}
+                  items={personalFields.map((f) => {
+                    const text = formatCell(f.name, c[f.name], i18n.language, t)
+                    if (f.name === 'phone' || f.name === 'whatsapp') {
+                      return {
+                        label: f.label,
+                        value: (
+                          <span className="inline-flex items-center gap-2">
+                            <span dir="ltr">{text}</span>
+                            {can('clients.unmask_contact') ? (
+                            <ContactActions
+                              phone={String(c.phone || '')}
+                              whatsapp={String(c.whatsapp || c.phone || '')}
+                            />
+                            ) : null}
+                          </span>
+                        )
+                      }
+                    }
+                    if (f.name === 'email') {
+                      return {
+                        label: f.label,
+                        value: (
+                          <span className="inline-flex items-center gap-2">
+                            <span dir="ltr">{text}</span>
+                            {can('clients.unmask_contact') ? <ContactActions email={String(c.email || '')} /> : null}
+                          </span>
+                        )
+                      }
+                    }
+                    return { label: f.label, value: text }
+                  })}
                 />
               )
             },
@@ -116,20 +153,24 @@ export function ClientProfilePage() {
                 <MiniTable
                   rows={p.cases as object[]}
                   keys={['case_number', 'title', 'status']}
-                  onRowClick={(r) => setPage('caseProfile', { id: r.id })}
+                  onRowClick={(r) => useApp.getState().setPage('caseProfile', { id: r.id })}
                 />
               )
             },
-            {
-              id: 'finance',
-              label: t('tabs.finance'),
-              body: (
-                <div className="space-y-4">
-                  <MiniTable rows={p.payments as object[]} keys={['payment_number', 'amount', 'payment_date']} />
-                  <MiniTable rows={p.expenses as object[]} keys={['expense_number', 'amount']} />
-                </div>
-              )
-            },
+            ...(can('accounts.view')
+              ? [
+                  {
+                    id: 'finance',
+                    label: t('tabs.finance'),
+                    body: (
+                      <div className="space-y-4">
+                        <MiniTable rows={p.payments as object[]} keys={['payment_number', 'amount', 'payment_date']} />
+                        <MiniTable rows={p.expenses as object[]} keys={['expense_number', 'amount']} />
+                      </div>
+                    )
+                  }
+                ]
+              : []),
             {
               id: 'documents',
               label: t('tabs.documents'),
