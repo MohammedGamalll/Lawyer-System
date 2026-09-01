@@ -10,6 +10,7 @@ import { CrudPage } from '../components/CrudPage'
 import { formatCell, formatDateTime } from '../lib/datetime'
 import { downloadBytes } from '../lib/bytes'
 import { onDataChanged } from '../lib/bus'
+import { UploadSourceMenu, DocumentThumb, DocumentPreviewModal } from '../components/DocumentTools'
 
 export function DocumentsPage() {
   const { t, i18n } = useTranslation()
@@ -23,6 +24,7 @@ export function DocumentsPage() {
   const [versions, setVersions] = useState<{ id: string; version: number; file_name: string; created_at: string }[] | null>(null)
   const [versionDoc, setVersionDoc] = useState<string | null>(null)
   const [versionMeta, setVersionMeta] = useState<Record<string, unknown> | null>(null)
+  const [previewId, setPreviewId] = useState<string | null>(null)
 
   const pick = async () => {
     const f = await invoke<{ name: string; data: number[] }>('files:pick')
@@ -50,7 +52,13 @@ export function DocumentsPage() {
         updatePerm="documents.upload"
         deletePerm="documents.delete"
         columns={[
-          { key: 'title', label: t('fields.title') },
+          {
+            key: 'title',
+            label: t('fields.title'),
+            render: (r) => (
+              <DocumentThumb id={String(r.id)} title={String(r.title || '')} onOpen={() => setPreviewId(String(r.id))} />
+            )
+          },
           { key: 'category', label: t('fields.category') },
           {
             key: 'client_name',
@@ -77,9 +85,7 @@ export function DocumentsPage() {
             </Button>
           )
         }
-        onRowOpen={async (r) => {
-          await invoke('documents:open', r.id)
-        }}
+        onRowOpen={(r) => setPreviewId(String(r.id))}
         rowActions={(r) => (
           <>
             <Button
@@ -93,6 +99,12 @@ export function DocumentsPage() {
             </Button>
             <Button variant="ghost" onClick={() => setMoveRow(r)}>
               {t('move')}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => setPreviewId(String(r.id))}
+            >
+              {t('docs.preview')}
             </Button>
             <Button
               variant="ghost"
@@ -164,10 +176,14 @@ export function DocumentsPage() {
             />
           </Field>
         </div>
-        <div className="mt-3 flex gap-2">
-          <Button variant="outline" onClick={() => pick().catch((e) => toast(e.message, 'err'))}>
-            {file ? file.name : t('docs.pickFile')}
-          </Button>
+        <div className="mt-3 space-y-2">
+          <UploadSourceMenu
+            onFile={(f) => {
+              setFile(f)
+              if (!form.title) setForm({ ...form, title: f.name })
+            }}
+          />
+          {file ? <p className="text-sm text-navy-600">{file.name}</p> : null}
           <Button disabled={!file} onClick={() => save().catch((e) => toast(e.message, 'err'))}>
             {t('save')}
           </Button>
@@ -274,6 +290,7 @@ export function DocumentsPage() {
           </tbody>
         </table>
       </Modal>
+      <DocumentPreviewModal id={previewId} onClose={() => setPreviewId(null)} />
     </div>
   )
 }
@@ -530,7 +547,12 @@ function PaymentBalance({
 
 export function AccountsPage() {
   const { t } = useTranslation()
-  const { toast, setPage } = useApp()
+  const { toast, setPage, pageMeta, goBack } = useApp()
+  const caseId = String(pageMeta.case_id || '')
+  const clientId = String(pageMeta.client_id || '')
+  const listFilters: Record<string, unknown> = {}
+  if (caseId) listFilters.case_id = caseId
+  else if (clientId) listFilters.client_id = clientId
   return (
     <div className="space-y-8">
       <CrudPage
@@ -541,6 +563,15 @@ export function AccountsPage() {
         createPerm="accounts.payment"
         deletePerm="accounts.payment"
         schema={paymentSchema}
+        listFilters={Object.keys(listFilters).length ? listFilters : undefined}
+        defaults={{ case_id: caseId || undefined, client_id: clientId || undefined }}
+        extraActions={
+          caseId || clientId ? (
+            <Button variant="outline" onClick={() => goBack()}>
+              {t('back')}
+            </Button>
+          ) : undefined
+        }
         columns={[
           { key: 'payment_number', label: t('fields.payment_number') },
           {

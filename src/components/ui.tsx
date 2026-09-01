@@ -137,16 +137,28 @@ export function Modal({
         <Dialog.Overlay className="fixed inset-0 z-50 bg-navy-950/50" />
         <Dialog.Content
           dir={dir}
+          onPointerDownOutside={(e) => {
+            const t = e.target as HTMLElement | null
+            if (t?.closest?.('[data-floating-menu]')) e.preventDefault()
+          }}
+          onFocusOutside={(e) => {
+            const t = e.target as HTMLElement | null
+            if (t?.closest?.('[data-floating-menu]')) e.preventDefault()
+          }}
+          onInteractOutside={(e) => {
+            const t = e.target as HTMLElement | null
+            if (t?.closest?.('[data-floating-menu]')) e.preventDefault()
+          }}
           className={cn(
-            'fixed left-1/2 top-1/2 z-50 max-h-[90vh] -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-xl border bg-white p-5 text-start text-navy-900 shadow-xl dark:border-navy-700 dark:bg-navy-900 dark:text-navy-50',
-            wide ? 'w-[min(920px,94vw)]' : 'w-[min(520px,94vw)]'
+            'fixed left-1/2 top-1/2 z-50 flex max-h-[90vh] w-[min(520px,94vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-visible rounded-xl border bg-white p-5 text-start text-navy-900 shadow-xl dark:border-navy-700 dark:bg-navy-900 dark:text-navy-50',
+            wide && 'w-[min(920px,94vw)]'
           )}
         >
-          <div className="mb-4 flex items-center justify-between">
+          <div className="mb-4 flex shrink-0 items-center justify-between">
             <Dialog.Title className="text-lg font-bold text-navy-900 dark:text-white">{title}</Dialog.Title>
             <Dialog.Close className="text-navy-400 hover:text-navy-800">✕</Dialog.Close>
           </div>
-          {children}
+          <div className="min-h-0 flex-1 overflow-auto">{children}</div>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

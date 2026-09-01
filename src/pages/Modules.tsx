@@ -1,12 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { CrudPage, FieldDef } from '../components/CrudPage'
 import { CaseFormExtras } from '../components/CaseFormExtras'
 import { ContactActions } from '../components/ContactActions'
-import { Button, Select } from '../components/ui'
+import { AndOthers } from '../components/AndOthers'
+import { Button, Input, Select } from '../components/ui'
+import { formatCourtNumber, formatProgramCode } from '../lib/courtNumber'
 import { invoke } from '../lib/api'
 import { useApp } from '../store'
-import { CASE_STATUSES, CLIENT_TYPES, HEARING_STATUSES, REMINDER_TYPES, TASK_STATUSES } from '@shared/types'
+import { CASE_STATUSES, REMINDER_TYPES } from '@shared/types'
 import {
   appointmentSchema,
   caseSchema,
@@ -14,11 +16,10 @@ import {
   consultationSchema,
   contractSchema,
   correspondenceSchema,
-  hearingSchema,
+  lawyerSchema,
   opponentSchema,
   poaSchema,
-  reminderSchema,
-  taskSchema
+  reminderSchema
 } from '@shared/schemas'
 import { StaffFormPage } from './StaffForm'
 import { ClientProfilePage } from './ClientProfile'
@@ -64,31 +65,22 @@ export function ClientsPage() {
             </span>
           )
         },
-        {
-          key: 'email',
-          label: t('fields.email'),
-          render: (r) => (
-            <span className="inline-flex items-center gap-1">
-              <span dir="ltr">{String(r.email ?? '')}</span>
-              {showContact ? <ContactActions email={String(r.email || '')} /> : null}
-            </span>
-          )
-        },
-        { key: 'client_type', label: t('fields.client_type'), status: true },
+        { key: 'national_id', label: t('fields.national_id') },
+        { key: 'profession', label: t('fields.profession') },
+        ...(can('accounts.view') ? [{ key: 'due', label: t('due'), money: true as const }] : []),
         { key: 'governorate', label: t('fields.governorate') }
       ]}
       fields={[
         f(t, 'full_name', { required: true }),
-        f(t, 'trade_name', { type: 'combo', comboKind: 'capacity' }),
-        f(t, 'national_id'),
+        f(t, 'nickname'),
         f(t, 'phone'),
+        f(t, 'national_id'),
         f(t, 'phone2'),
         f(t, 'whatsapp'),
         f(t, 'email'),
         f(t, 'address'),
         f(t, 'governorate', { type: 'combo', comboKind: 'governorate' }),
         f(t, 'district', { type: 'combo', comboKind: 'district' }),
-        f(t, 'client_type', { type: 'select', options: CLIENT_TYPES.map((v) => ({ value: v, label: t(`status.${v}`) })) }),
         f(t, 'profession', { type: 'combo', comboKind: 'profession' }),
         f(t, 'birth_date', { type: 'date' }),
         f(t, 'commercial_register'),
@@ -105,6 +97,11 @@ export function ClientsPage() {
 export function CasesPage() {
   const { t } = useTranslation()
   const { setPage } = useApp()
+  const [draft, setDraft] = useState({ office_case_number: '', program_code: '', client_name: '', opponent_name: '' })
+  const [applied, setApplied] = useState(draft)
+  const runSearch = () => {
+    setApplied({ ...draft })
+  }
   return (
     <CrudPage
       title={t('nav.cases')}
@@ -116,49 +113,118 @@ export function CasesPage() {
       updatePerm="cases.update"
       deletePerm="cases.delete"
       schema={caseSchema}
+      hideQuickSearch
+      pageSize={200}
+      listFilters={applied}
+      extraFilters={
+        <div className="flex w-full flex-wrap items-end gap-2">
+          <Input
+            className="min-w-[10rem] flex-1"
+            autoFocus
+            placeholder={t('cases.searchCourtHint')}
+            value={draft.office_case_number}
+            onChange={(e) => setDraft({ ...draft, office_case_number: e.target.value })}
+            onKeyDown={(e) => e.key === 'Enter' && runSearch()}
+          />
+          <Input
+            className="min-w-[10rem] flex-1"
+            placeholder={t('fields.program_code')}
+            value={draft.program_code}
+            onChange={(e) => setDraft({ ...draft, program_code: e.target.value })}
+            onKeyDown={(e) => e.key === 'Enter' && runSearch()}
+          />
+          <Input
+            className="min-w-[10rem] flex-1"
+            placeholder={t('fields.client_name')}
+            value={draft.client_name}
+            onChange={(e) => setDraft({ ...draft, client_name: e.target.value })}
+            onKeyDown={(e) => e.key === 'Enter' && runSearch()}
+          />
+          <Input
+            className="min-w-[10rem] flex-1"
+            placeholder={t('fields.opponent_name')}
+            value={draft.opponent_name}
+            onChange={(e) => setDraft({ ...draft, opponent_name: e.target.value })}
+            onKeyDown={(e) => e.key === 'Enter' && runSearch()}
+          />
+          <Button type="button" onClick={runSearch}>
+            {t('search')}
+          </Button>
+        </div>
+      }
       columns={[
-        { key: 'case_number', label: t('fields.case_number'), onCellClick: (r) => setPage('caseProfile', { id: r.id }) },
-        { key: 'case_year', label: t('fields.case_year') },
-        { key: 'title', label: t('fields.title'), onCellClick: (r) => setPage('caseProfile', { id: r.id }) },
+        {
+          key: 'case_number',
+          label: t('fields.program_code'),
+          render: (r) => formatProgramCode(r),
+          onCellClick: (r) => setPage('caseProfile', { id: r.id })
+        },
+        {
+          key: 'office_case_number',
+          label: t('fields.court_number'),
+          render: (r) => (
+            <span dir="ltr" style={{ unicodeBidi: 'isolate' }}>
+              {formatCourtNumber(r)}
+            </span>
+          )
+        },
+        { key: 'title', label: t('fields.case_subject'), onCellClick: (r) => setPage('caseProfile', { id: r.id }) },
         {
           key: 'client_name',
           label: t('fields.client_name'),
+          render: (r) => (
+            <AndOthers
+              primary={String(r.client_name || '')}
+              extraNames={r.extra_client_names}
+              extraCount={r.extra_client_count}
+            />
+          ),
           onCellClick: (r) => r.client_id && setPage('clientProfile', { id: r.client_id })
+        },
+        {
+          key: 'opponent_name',
+          label: t('fields.opponent_name'),
+          render: (r) => {
+            const names = String(r.opponent_names || '')
+              .split(/[،,]/)
+              .map((s) => s.trim())
+              .filter(Boolean)
+            const primary = String(r.opponent_name || names[0] || '')
+            const extras = names.filter((n) => n !== primary)
+            return <AndOthers primary={primary} extraNames={extras.join('، ')} extraCount={extras.length} />
+          }
         },
         { key: 'lawyer_name', label: t('fields.lawyer_id') },
         { key: 'case_type_name', label: t('fields.case_type_name') },
         { key: 'status', label: t('fields.status'), status: true }
       ]}
+      compactForm
       fields={[
-        f(t, 'office_case_number', { label: t('fields.case_number') }),
-        f(t, 'case_year'),
-        f(t, 'title', { required: true, type: 'combo', comboKind: 'case_title' }),
-        f(t, 'client_id', { lookup: 'clients', required: true, quickAdd: true }),
+        f(t, 'title', { required: true, type: 'combo', comboKind: 'case_title', label: t('fields.case_subject') }),
+        f(t, 'case_type_id', { lookup: 'caseTypes' }),
+        f(t, 'category', { type: 'combo', comboKind: 'case_subject' }),
+        f(t, 'court', { type: 'combo', comboKind: 'court' }),
+        f(t, 'circuit', { size: 'sm' }),
+        f(t, 'session_place', { size: 'sm' }),
+        f(t, 'previous_circuit', { size: 'sm' }),
+        f(t, 'first_instance_number', { size: 'sm' }),
+        f(t, 'first_instance_year', { size: 'sm' }),
+        f(t, 'appeal_number', { size: 'sm' }),
+        f(t, 'appeal_year', { size: 'sm' }),
+        f(t, 'cassation_number', { size: 'sm' }),
+        f(t, 'cassation_year', { size: 'sm' }),
+        f(t, 'extra_ref_type', { type: 'combo', comboKind: 'extra_ref_type' }),
+        f(t, 'extra_ref_number', { size: 'sm' }),
+        f(t, 'extra_ref2_type', { type: 'combo', comboKind: 'extra_ref_type', label: t('fields.extra_ref_type') }),
+        f(t, 'extra_ref2_number', { size: 'sm', label: t('fields.extra_ref_number') }),
+        f(t, 'extra_ref3_type', { type: 'combo', comboKind: 'extra_ref_type', label: t('fields.extra_ref_type') }),
+        f(t, 'extra_ref3_number', { size: 'sm', label: t('fields.extra_ref_number') }),
+        f(t, 'received_date', { type: 'date' }),
+        f(t, 'filing_date', { type: 'date' }),
         f(t, 'primary_lawyer_id', { lookup: 'lawyers' }),
         f(t, 'assistant_lawyer_id', { lookup: 'lawyers' }),
-        f(t, 'case_type_id', { lookup: 'caseTypes' }),
-        f(t, 'category', { type: 'combo', comboKind: 'case_subject', label: t('fields.case_subject') }),
-        f(t, 'court', { type: 'combo', comboKind: 'court' }),
-        f(t, 'circuit'),
-        f(t, 'court_address'),
-        f(t, 'circuit_number'),
-        f(t, 'litigation_degree'),
-        f(t, 'first_instance_number'),
-        f(t, 'first_instance_year'),
-        f(t, 'appeal_number'),
-        f(t, 'appeal_year'),
-        f(t, 'cassation_number'),
-        f(t, 'cassation_year'),
-        f(t, 'extra_ref_type', { type: 'combo', comboKind: 'extra_ref_type' }),
-        f(t, 'extra_ref_number'),
-        f(t, 'filing_date', { type: 'date' }),
-        f(t, 'received_date', { type: 'date' }),
         f(t, 'status', { type: 'select', options: st(t, CASE_STATUSES) }),
         f(t, 'case_value', { type: 'number' }),
-        f(t, 'opponent_name'),
-        f(t, 'opponent_lawyer'),
-        f(t, 'opponent_case_number'),
-        f(t, 'internal_file_number'),
         f(t, 'total_fees', { type: 'number' }),
         f(t, 'fees_due_date', { type: 'date' }),
         f(t, 'payment_method', {
@@ -185,188 +251,15 @@ export function CasesPage() {
       extraActions={<ImportButton kind="cases" />}
       defaults={{
         received_date: new Date().toISOString().slice(0, 10),
-        case_year: String(new Date().getFullYear()),
-        extra_opponents: [{ opponent_id: '', full_name: '', lawyer_name: '', lawyer_phone: '' }]
+        extra_clients: [],
+        extra_opponents: []
       }}
-      formExtraAfter="client_id"
-      formExtra={(form, setField) => <CaseFormExtras form={form} setField={setField} />}
+      formPrefix={(form, setField) => <CaseFormExtras form={form} setField={setField} />}
     />
   )
 }
 
-export function HearingsPage() {
-  const { t } = useTranslation()
-  const { setPage, toast, pageMeta } = useApp()
-  const caseId = String(pageMeta.case_id || '')
-  const printList = async () => {
-    const data = await invoke<{ rows: Record<string, unknown>[] }>('hearings:list', {
-      page: 1,
-      pageSize: 200,
-      filters: caseId ? { case_id: caseId } : {}
-    })
-    const keys = ['hearing_date', 'case_number', 'client_name', 'hearing_type', 'venue', 'previous_decision', 'hall', 'floor', 'notes', 'status']
-    const body = `<table><thead><tr>${keys.map((k) => `<th>${t(`fields.${k}`)}</th>`).join('')}</tr></thead><tbody>${(data.rows || [])
-      .map(
-        (r) =>
-          `<tr>${keys.map((k) => `<td>${String(r[k] ?? '')}</td>`).join('')}</tr>`
-      )
-      .join('')}</tbody></table>`
-    await invoke('print:print', 'report', t('nav.hearings'), body)
-  }
-  return (
-    <CrudPage
-      title={t('nav.hearings')}
-      listChannel="hearings:list"
-      createChannel="hearings:create"
-      updateChannel="hearings:update"
-      removeChannel="hearings:remove"
-      createPerm="hearings.create"
-      updatePerm="hearings.update"
-      deletePerm="hearings.delete"
-      schema={hearingSchema}
-      columns={[
-        { key: 'hearing_date', label: t('fields.hearing_date') },
-        {
-          key: 'case_number',
-          label: t('fields.case_number'),
-          onCellClick: (r) => r.case_id && setPage('caseProfile', { id: r.case_id })
-        },
-        {
-          key: 'client_name',
-          label: t('fields.client_name'),
-          onCellClick: (r) => r.client_id && setPage('clientProfile', { id: r.client_id })
-        },
-        { key: 'hearing_type', label: t('fields.hearing_type') },
-        { key: 'venue', label: t('fields.venue') },
-        { key: 'previous_decision', label: t('fields.previous_decision') },
-        { key: 'hall', label: t('fields.hall') },
-        { key: 'floor', label: t('fields.floor') },
-        { key: 'notes', label: t('fields.notes') },
-        { key: 'court', label: t('fields.court') },
-        { key: 'status', label: t('fields.status'), status: true }
-      ]}
-      fields={[
-        f(t, 'case_id', { lookup: 'cases', required: true }),
-        f(t, 'hearing_date', { type: 'date', required: true }),
-        f(t, 'hearing_type', { type: 'combo', comboKind: 'hearing_type' }),
-        f(t, 'venue', { type: 'combo', comboKind: 'venue' }),
-        f(t, 'previous_decision'),
-        f(t, 'hall'),
-        f(t, 'floor'),
-        f(t, 'lawyer_id', { lookup: 'lawyers' }),
-        f(t, 'status', { type: 'select', options: st(t, HEARING_STATUSES) }),
-        f(t, 'result'),
-        f(t, 'court_decision', { type: 'textarea' }),
-        f(t, 'postponement_reason'),
-        f(t, 'next_hearing_date', { type: 'date' }),
-        f(t, 'what_happened', { type: 'textarea' }),
-        f(t, 'required_documents', { type: 'textarea' }),
-        f(t, 'next_actions', { type: 'textarea' }),
-        f(t, 'notes', { type: 'textarea' })
-      ]}
-      listFilters={caseId ? { case_id: caseId } : undefined}
-      extraActions={
-        <Button
-          variant="outline"
-          onClick={() => printList().catch((e) => toast((e as Error).message, 'err'))}
-        >
-          {t('print')}
-        </Button>
-      }
-      rowActions={(r) =>
-        r.client_id ? (
-          <Button variant="ghost" onClick={() => setPage('clientProfile', { id: r.client_id })}>
-            {t('nav.clients')}
-          </Button>
-        ) : null
-      }
-    />
-  )
-}
-
-export function TasksPage() {
-  const { t } = useTranslation()
-  const { setPage } = useApp()
-  const [view, setView] = useState('all')
-  const [lawyerId, setLawyerId] = useState('')
-  const [lawyers, setLawyers] = useState<{ id: string; user_id: string | null; full_name: string }[]>([])
-  useEffect(() => {
-    invoke<{ rows: typeof lawyers }>('lawyers:list', { pageSize: 200 })
-      .then((r) => setLawyers(r.rows))
-      .catch(() => undefined)
-  }, [])
-  const filters: Record<string, unknown> = {}
-  if (view === 'byLawyer' && lawyerId) filters.assignee_id = lawyerId
-  else if (view !== 'all' && view !== 'byLawyer') filters.view = view
-
-  return (
-    <div>
-      <div className="mb-3 flex flex-wrap gap-2">
-        {(['all', 'mine', 'overdue', 'today', 'upcoming', 'byLawyer'] as const).map((v) => (
-          <Button key={v} variant={view === v ? 'primary' : 'outline'} onClick={() => setView(v)}>
-            {t(`tasksViews.${v}`)}
-          </Button>
-        ))}
-        {view === 'byLawyer' && (
-          <Select value={lawyerId} onChange={(e) => setLawyerId(e.target.value)} className="max-w-xs">
-            <option value="">—</option>
-            {lawyers.map((l) => (
-              <option key={l.id} value={l.user_id || l.id}>
-                {l.full_name}
-              </option>
-            ))}
-          </Select>
-        )}
-      </div>
-      <CrudPage
-        title={t('nav.tasks')}
-        listChannel="tasks:list"
-        createChannel="tasks:create"
-        updateChannel="tasks:update"
-        removeChannel="tasks:remove"
-        createPerm="tasks.manage"
-        updatePerm="tasks.manage"
-        deletePerm="tasks.manage"
-        schema={taskSchema}
-        listFilters={filters}
-        columns={[
-          { key: 'title', label: t('fields.title') },
-          {
-            key: 'case_number',
-            label: t('fields.case_number'),
-            onCellClick: (r) => r.case_id && setPage('caseProfile', { id: r.case_id })
-          },
-          {
-            key: 'client_name',
-            label: t('fields.client_name'),
-            onCellClick: (r) => r.client_id && setPage('clientProfile', { id: r.client_id })
-          },
-          { key: 'case_subject', label: t('fields.case_subject') },
-          { key: 'venue', label: t('fields.venue') },
-          { key: 'assignee_name', label: t('fields.assignee_name') },
-          { key: 'due_date', label: t('fields.due_date') },
-          { key: 'priority', label: t('fields.priority'), status: true },
-          { key: 'status', label: t('fields.status'), status: true },
-          { key: 'progress', label: t('fields.progress') }
-        ]}
-        fields={[
-          f(t, 'title', { required: true, type: 'combo', comboKind: 'admin_action' }),
-          f(t, 'case_subject', { type: 'combo', comboKind: 'case_subject' }),
-          f(t, 'venue', { type: 'combo', comboKind: 'venue' }),
-          f(t, 'description', { type: 'textarea' }),
-          f(t, 'assignee_id', { lookup: 'users' }),
-          f(t, 'case_id', { lookup: 'cases' }),
-          f(t, 'client_id', { lookup: 'clients' }),
-          f(t, 'start_date', { type: 'date' }),
-          f(t, 'due_date', { type: 'date' }),
-          f(t, 'priority', { type: 'select', options: st(t, ['low', 'medium', 'high']) }),
-          f(t, 'status', { type: 'select', options: st(t, TASK_STATUSES) }),
-          f(t, 'progress', { type: 'number' })
-        ]}
-      />
-    </div>
-  )
-}
+export { HearingsPage, TasksPage } from './WorkPages'
 
 export function RemindersPage() {
   const { t } = useTranslation()
@@ -417,16 +310,22 @@ export function RemindersPage() {
 
 export function LawyersPage() {
   const { t } = useTranslation()
-  const { setPage, can } = useApp()
+  const { setPage, can, toast } = useApp()
   return (
     <CrudPage
       title={t('nav.lawyers')}
       listChannel="lawyers:list"
+      createChannel="lawyers:create"
+      updateChannel="lawyers:update"
       removeChannel="lawyers:remove"
+      createPerm="users.manage"
+      updatePerm="users.manage"
       deletePerm="users.manage"
+      schema={lawyerSchema}
+      pageSize={200}
       extraActions={
         can('users.manage') ? (
-        <Button variant="gold" onClick={() => setPage('staffForm', { lockRole: 'lawyer', back: 'lawyers' })}>
+        <Button variant="outline" onClick={() => setPage('staffForm', { lockRole: 'lawyer', back: 'lawyers' })}>
           {t('hr.addLawyer')}
         </Button>
         ) : null
@@ -438,14 +337,51 @@ export function LawyersPage() {
         { key: 'phone', label: t('fields.phone') },
         { key: 'status', label: t('fields.status'), status: true }
       ]}
-      fields={[]}
-      onRowOpen={(r) =>
-        setPage('staffForm', {
-          employeeId: r.employee_id,
-          lawyerId: r.id,
-          lockRole: 'lawyer',
-          back: 'lawyers'
-        })
+      fields={[
+        f(t, 'full_name', { required: true }),
+        f(t, 'phone'),
+        f(t, 'bar_number'),
+        f(t, 'specialization'),
+        f(t, 'status', { type: 'select', options: st(t, ['active', 'inactive']) })
+      ]}
+      rowActions={(r, reload) =>
+        can('users.manage') ? (
+          <>
+            <Button
+              variant="ghost"
+              onClick={() =>
+                invoke('lawyers:reorder', r.id, 'up')
+                  .then(() => reload())
+                  .catch((e) => toast((e as Error).message, 'err'))
+              }
+            >
+              {t('moveUp')}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() =>
+                invoke('lawyers:reorder', r.id, 'down')
+                  .then(() => reload())
+                  .catch((e) => toast((e as Error).message, 'err'))
+              }
+            >
+              {t('moveDown')}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() =>
+                setPage('staffForm', {
+                  employeeId: r.employee_id,
+                  lawyerId: r.id,
+                  lockRole: 'lawyer',
+                  back: 'lawyers'
+                })
+              }
+            >
+              {t('details')}
+            </Button>
+          </>
+        ) : null
       }
     />
   )
@@ -510,6 +446,7 @@ export function OpponentsPage() {
       ]}
       fields={[
         f(t, 'full_name', { required: true }),
+        f(t, 'nickname'),
         f(t, 'national_id'),
         f(t, 'phone'),
         f(t, 'address'),

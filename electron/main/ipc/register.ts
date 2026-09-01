@@ -26,6 +26,7 @@ import * as wipe from '../services/wipe'
 import { getInvoice } from '../services/finance'
 import { wrapHtml } from '../services/print'
 import * as lookups from '../services/lookups'
+import * as scan from '../services/scan'
 import { getSyncState, runSyncCycle } from '../sync/service'
 
 export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): void {
@@ -188,6 +189,9 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
     people.removeLawyer(user!, String(id))
     return ok(true)
   })
+  handle(ipc, IPC.lawyers.reorder, { permission: 'users.manage', write: true }, (_e, _u, id, direction) =>
+    ok(people.reorderLawyer(String(id), direction === 'down' ? 'down' : 'up'))
+  )
   handle(ipc, IPC.lawyers.dashboard, { permission: 'lawyers.view' }, (_e, _u, id) => ok(people.getLawyer(String(id))))
   handle(ipc, IPC.lawyers.saveStaff, { permission: ['users.manage', 'employees.manage'], write: true }, (_e, user, data) =>
     ok(people.saveStaff(user!, data as never))
@@ -307,6 +311,9 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
   handle(ipc, IPC.documents.download, { permission: 'documents.view' }, (_e, _u, id, versionId) =>
     ok(documents.downloadDocument(String(id), versionId ? String(versionId) : undefined))
   )
+  handle(ipc, IPC.documents.preview, { permission: 'documents.view' }, (_e, _u, id) =>
+    ok(documents.previewDocument(String(id)))
+  )
 
   handle(ipc, IPC.poa.list, { permission: 'poa.view' }, (_e, _u, q) => ok(legal.listPoa(q as never)))
   handle(ipc, IPC.poa.create, { permission: 'poa.manage', write: true }, (_e, user, data) => ok(legal.createPoa(user!, data as never)))
@@ -400,6 +407,10 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
     lookups.rememberLookup(String(kind), value)
     return ok(true)
   })
+  handle(ipc, IPC.lookups.remove, { write: true }, (_e, _u, kind, value) => {
+    lookups.removeLookup(String(kind), value)
+    return ok(true)
+  })
   handle(ipc, IPC.audit.list, { permission: 'audit.view' }, (_e, _u, q) => ok(reports.listAudit(q as never)))
   handle(ipc, IPC.audit.remove, { permission: 'audit.delete', write: true }, (_e, _user, ids) => {
     const list = Array.isArray(ids) ? (ids as string[]) : [String(ids)]
@@ -416,12 +427,16 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
 
   handle(ipc, IPC.files.gc, { permission: 'settings.manage', write: true }, (_e, user) => ok(documents.garbageCollectOrphans(user)))
   handle(ipc, IPC.files.pick, {}, async () => {
-    const res = await dialog.showOpenDialog({ properties: ['openFile'] })
+    const win = getWin()
+    const res = win
+      ? await dialog.showOpenDialog(win, { properties: ['openFile'], modal: true })
+      : await dialog.showOpenDialog({ properties: ['openFile'] })
     if (res.canceled || !res.filePaths[0]) return fail('تم الإلغاء')
     const p = res.filePaths[0]
     const buf = fs.readFileSync(p)
     return ok({ name: p.split(/[/\\]/).pop(), data: Array.from(buf), mime: '' })
   })
+  handle(ipc, IPC.files.scan, {}, async () => ok(await scan.acquireScan()))
   handle(ipc, IPC.files.openUrl, {}, async (_e, _u, url) => {
     const s = String(url || '')
     if (!/^(https?:|mailto:)/i.test(s)) return fail('رابط غير صالح')

@@ -138,14 +138,26 @@ export function CalendarPage() {
         {detail && (
           <div className="space-y-3">
             <InfoGrid
-              items={Object.entries(detail.data)
-                .filter(([k, v]) => !k.endsWith('_id') || k === 'case_id')
-                .filter(([, v]) => v !== null && v !== undefined && v !== '')
-                .slice(0, 16)
-                .map(([k, v]) => ({
-                  label: t(`fields.${k}`, { defaultValue: k }),
-                  value: formatCell(k, v, i18n.language, t)
-                }))}
+              items={(() => {
+                const d = { ...detail.data }
+                const caseLabel = String(d.case_title || d.title || '')
+                delete d.id
+                delete d.case_id
+                delete d.updated_at
+                delete d.created_at
+                const items = Object.entries(d)
+                  .filter(([k]) => !k.endsWith('_id') && k !== 'case_title')
+                  .filter(([, v]) => v !== null && v !== undefined && v !== '')
+                  .slice(0, 16)
+                  .map(([k, v]) => ({
+                    label: k === 'title' && detail.kind === 'hearing' ? t('fields.case_subject') : t(`fields.${k}`, { defaultValue: k }),
+                    value: formatCell(k, v, i18n.language, t)
+                  }))
+                if (detail.kind === 'hearing' && caseLabel) {
+                  items.unshift({ label: t('fields.case_subject'), value: caseLabel })
+                }
+                return items
+              })()}
             />
             <div className="flex justify-end gap-2">
               {detail.data.case_id ? (

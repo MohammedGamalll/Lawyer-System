@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Toaster } from 'sonner'
 import { useApp } from './store'
 import { canAccessPage } from '@shared/permissions'
@@ -38,6 +38,12 @@ import { UpdateBanner } from './components/UpdateBanner'
 
 export default function App() {
   const { user, page, toast, setUpdateReady } = useApp()
+  const [kept, setKept] = useState<Record<string, boolean>>({})
+  useEffect(() => {
+    if (page === 'cases' || page === 'hearings' || page === 'clients') {
+      setKept((m) => (m[page] ? m : { ...m, [page]: true }))
+    }
+  }, [page])
   const allowed = user ? canAccessPage(page, user.roleCode, user.permissions) : false
 
   useEffect(() => {
@@ -114,11 +120,23 @@ export default function App() {
           <>
         {page === 'home' && <HomePage />}
         {page === 'dashboard' && <DashboardPage />}
-        {page === 'clients' && <ClientsPage />}
+        {(kept.clients || page === 'clients') && (
+          <div className={page === 'clients' ? '' : 'hidden'}>
+            <ClientsPage />
+          </div>
+        )}
         {page === 'clientProfile' && <ClientProfilePage />}
-        {page === 'cases' && <CasesPage />}
+        {(kept.cases || page === 'cases') && (
+          <div className={page === 'cases' ? '' : 'hidden'}>
+            <CasesPage />
+          </div>
+        )}
         {page === 'caseProfile' && <CaseProfilePage />}
-        {page === 'hearings' && <HearingsPage />}
+        {(kept.hearings || page === 'hearings') && (
+          <div className={page === 'hearings' ? '' : 'hidden'}>
+            <HearingsPage />
+          </div>
+        )}
         {page === 'calendar' && <CalendarPage />}
         {page === 'tasks' && <TasksPage />}
         {page === 'reminders' && <RemindersPage />}

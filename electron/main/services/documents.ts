@@ -8,11 +8,12 @@ import { newId, asIdOrNull, notDeleted } from '../db/ids'
 import { recordLocalChange, softDelete } from '../sync/queue'
 import type { AuthedUser } from '../ipc/helpers'
 import type { ListQuery } from '@shared/types'
+import { clampPageSize, pageKind } from '../db/queryLimits'
 
 export function listDocuments(query: ListQuery = {}) {
   const db = getDb()
   const page = query.page ?? 1
-  const pageSize = query.pageSize ?? 20
+  const pageSize = clampPageSize(query.pageSize, pageKind(query))
   const params: unknown[] = []
   let where = `WHERE ${notDeleted('d')}`
   if (query.search) {
@@ -259,4 +260,30 @@ export function downloadDocument(id: string, versionId?: string) {
   if (!filePath || !fs.existsSync(filePath)) throw new Error('الملف غير موجود على القرص')
   const buf = fs.readFileSync(filePath)
   return { name: fileName || path.basename(filePath), data: Array.from(buf) }
+}
+
+const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'])
+
+export function previewDocument(id: string) {
+  const db = getDb()
+  const d = db.prepare(`SELECT file_path, file_name, mime_type FROM documents WHERE id = ? AND ${notDeleted()}`).get(id) as
+    | { file_path: string; file_name: string; mime_type: string | null }
+    | undefined
+  if (!d || !fs.existsSync(d.file_path)) throw new Error('الملف غير موجود على القرص')
+  const ext = path.extname(d.file_name || d.file_path).toLowerCase()
+  const mime = String(d.mime_type || '')
+  const buf = fs.readFileSync(d.file_path)
+  const isImage = IMAGE_EXT.has(ext) || mime.startsWith('image/')
+  const isPdf = ext === '.pdf' || mime === 'application/pdf'
+  if (isImage) {
+    const kind = mime.startsWith('image/') ? mime : `image/${ext.replace('.', '') === 'jpg' ? 'jpeg' : ext.replace('.', '')}`
+    if (buf.length > 2_500_000) {
+      return { kind: 'image_large' as const, name: d.file_name, mime: kind }
+    }
+    return { kind: 'image' as const, name: d.file_name, mime: kind, dataUrl: `data:${kind};base64,${buf.toString('base64')}` }
+  }
+  if (isPdf) {
+    return { kind: 'pdf' as const, name: d.file_name, data: Array.from(buf) }
+  }
+  return { kind: 'other' as const, name: d.file_name }
 }

@@ -1,6 +1,6 @@
 import { app, shell, BrowserWindow, ipcMain, nativeImage } from "electron";
 import { join } from "path";
-import { existsSync } from "fs";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { initDatabase } from "./db/database";
 import { persistSyncSettingsFromEnv } from "./services/settings";
 import { registerIpc } from "./ipc/register";
@@ -30,6 +30,69 @@ if (process.env.SECOND_INSTANCE === "true") {
 loadDotEnv();
 
 let mainWindow: BrowserWindow | null = null;
+
+const ZOOM_MIN = 0.7;
+const ZOOM_MAX = 2.5;
+const ZOOM_STEP = 0.1;
+
+function zoomPath() {
+  return join(app.getPath("userData"), "ui-zoom.json");
+}
+
+function loadZoomFactor() {
+  try {
+    const n = Number(JSON.parse(readFileSync(zoomPath(), "utf8")).factor);
+    if (Number.isFinite(n)) return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, n));
+  } catch {
+    /* default */
+  }
+  return 1;
+}
+
+function applyZoom(win: BrowserWindow, factor: number) {
+  const z = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(factor * 10) / 10));
+  win.webContents.setZoomFactor(z);
+  try {
+    writeFileSync(zoomPath(), JSON.stringify({ factor: z }));
+  } catch {
+    /* ignore */
+  }
+}
+
+function wireZoomShortcuts(win: BrowserWindow) {
+  win.webContents.on("did-finish-load", () => {
+    win.webContents.setZoomFactor(loadZoomFactor());
+  });
+  win.webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown") return;
+    const ctrl = input.control || input.meta;
+    if (!ctrl || input.alt) return;
+    const { code, key } = input;
+    const zoomIn =
+      code === "Equal" ||
+      code === "NumpadAdd" ||
+      key === "+" ||
+      key === "=" ||
+      key === "Add";
+    const zoomOut =
+      code === "Minus" ||
+      code === "NumpadSubtract" ||
+      key === "-" ||
+      key === "_" ||
+      key === "Subtract";
+    const zoomReset = !input.shift && (code === "Digit0" || code === "Numpad0");
+    if (zoomIn) {
+      event.preventDefault();
+      applyZoom(win, win.webContents.getZoomFactor() + ZOOM_STEP);
+    } else if (zoomOut) {
+      event.preventDefault();
+      applyZoom(win, win.webContents.getZoomFactor() - ZOOM_STEP);
+    } else if (zoomReset) {
+      event.preventDefault();
+      applyZoom(win, 1);
+    }
+  });
+}
 
 function appIcon() {
   const candidates = [
@@ -64,6 +127,7 @@ function createWindow(): void {
   });
 
   mainWindow.on("ready-to-show", () => mainWindow?.show());
+  wireZoomShortcuts(mainWindow);
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url);
     return { action: "deny" };

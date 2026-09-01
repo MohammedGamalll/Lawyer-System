@@ -5,11 +5,13 @@ import { softDelete } from '../sync/queue'
 import type { AuthedUser } from '../ipc/helpers'
 import { hasAnyPermission } from '../ipc/session'
 import { maskClientContactFields } from './clients'
+import { ftsQuery } from '../db/fts'
 
 export type ReportQuery = {
   type: string
   from?: string
   to?: string
+  venue?: string
   lawyer_id?: string
   case_type_id?: string
   format?: 'json' | 'xlsx' | 'csv'
@@ -105,15 +107,15 @@ export function runReport(q: ReportQuery) {
         .all()
     case 'hearings': {
       const d = dateWhere('hearing_date', q.from, q.to, params)
-      return db
-        .prepare(
-          `SELECT h.hearing_date, cs.case_number, cl.full_name as client_name, h.hearing_type, h.venue, h.previous_decision,
+      let sql = `SELECT h.hearing_date, cs.case_number, cl.full_name as client_name, h.hearing_type, h.venue, h.previous_decision,
                   h.hall, h.floor, cs.court, h.status, h.result
            FROM hearings h JOIN cases cs ON cs.id = h.case_id JOIN clients cl ON cl.id = cs.client_id
-           WHERE ${notDeleted('h')} AND ${notDeleted('cs')} AND ${notDeleted('cl')} ${d.sql}
-           ORDER BY h.hearing_date DESC`
-        )
-        .all(...d.params)
+           WHERE ${notDeleted('h')} AND ${notDeleted('cs')} AND ${notDeleted('cl')} ${d.sql}`
+      if (q.venue) {
+        sql += ' AND h.venue LIKE ?'
+        d.params.push(`%${String(q.venue).trim()}%`)
+      }
+      return db.prepare(`${sql} ORDER BY h.hearing_date DESC LIMIT 5000`).all(...d.params)
     }
     case 'poa':
       return db
@@ -135,18 +137,21 @@ export function runReport(q: ReportQuery) {
            WHERE ${notDeleted('ct')} ORDER BY ct.created_at DESC`
         )
         .all()
-    case 'tasks':
-      return db
-        .prepare(
-          `SELECT t.title, cs.case_number, cl.full_name as client_name, u.full_name as assignee_name,
-                  t.due_date, t.priority, t.status, t.progress
+    case 'tasks': {
+      const d = dateWhere('t.due_date', q.from, q.to, params)
+      let sql = `SELECT t.title, cs.case_number, cl.full_name as client_name, u.full_name as assignee_name,
+                  t.due_date, t.priority, t.status, t.progress, t.venue
            FROM tasks t
            LEFT JOIN cases cs ON cs.id = t.case_id AND ${notDeleted('cs')}
            LEFT JOIN clients cl ON cl.id = t.client_id AND ${notDeleted('cl')}
            LEFT JOIN users u ON u.id = t.assignee_id AND ${notDeleted('u')}
-           WHERE ${notDeleted('t')} ORDER BY t.due_date`
-        )
-        .all()
+           WHERE ${notDeleted('t')} ${d.sql}`
+      if (q.venue) {
+        sql += ' AND t.venue LIKE ?'
+        d.params.push(`%${String(q.venue).trim()}%`)
+      }
+      return db.prepare(`${sql} ORDER BY t.due_date LIMIT 5000`).all(...d.params)
+    }
     case 'income': {
       const d = dateWhere('payment_date', q.from, q.to, params)
       return db
@@ -327,16 +332,16 @@ export function globalSearch(term: string, actor?: AuthedUser | null) {
   if (hasAnyPermission(actor, 'cases.view')) {
     out.cases = db
       .prepare(
-        `SELECT id, case_number, title, status FROM cases WHERE ${notDeleted()} AND (title LIKE ? OR case_number LIKE ? OR opponent_name LIKE ? OR category LIKE ? OR internal_file_number LIKE ?) LIMIT 10`
+        `SELECT id, case_number, title, status, office_case_number, case_year FROM cases WHERE ${notDeleted()} AND (title LIKE ? OR case_number LIKE ? OR opponent_name LIKE ? OR category LIKE ? OR internal_file_number LIKE ? OR office_case_number LIKE ? OR case_year LIKE ?) LIMIT 10`
       )
-      .all(s, s, s, s, s)
+      .all(s, s, s, s, s, s, s)
   }
   if (hasAnyPermission(actor, 'hearings.view')) {
     out.hearings = db
       .prepare(
-        `SELECT h.id, h.hearing_date, cs.case_number, cs.title FROM hearings h JOIN cases cs ON cs.id = h.case_id WHERE ${notDeleted('h')} AND ${notDeleted('cs')} AND (cs.title LIKE ? OR cs.case_number LIKE ?) LIMIT 10`
+        `SELECT h.id, h.hearing_date, cs.case_number, cs.title, cs.office_case_number FROM hearings h JOIN cases cs ON cs.id = h.case_id WHERE ${notDeleted('h')} AND ${notDeleted('cs')} AND (cs.title LIKE ? OR cs.case_number LIKE ? OR cs.office_case_number LIKE ? OR cs.case_year LIKE ?) LIMIT 10`
       )
-      .all(s, s)
+      .all(s, s, s, s)
   }
   if (hasAnyPermission(actor, 'documents.view')) {
     out.documents = db
@@ -370,10 +375,81 @@ export function advancedSearch(filters: {
   lawyer_id?: string
   hearing_from?: string
   hearing_to?: string
+  office_case_number?: string
+  client_name?: string
+  opponent_name?: string
+  scope?: string
 }) {
   const db = getDb()
   const params: unknown[] = []
-  let sql = `SELECT DISTINCT c.*, cl.full_name as client_name, ct.name_ar as case_type_name, l.full_name as lawyer_name
+  const scope = String(filters.scope || 'cases')
+  if (scope === 'hearings') {
+    let sql = `SELECT h.id, h.hearing_date, h.hearing_type, h.status, h.venue, cs.id as case_id, cs.title, cs.case_number,
+                      cs.office_case_number, cl.full_name as client_name, 'hearing' as result_kind
+               FROM hearings h
+               JOIN cases cs ON cs.id = h.case_id
+               JOIN clients cl ON cl.id = cs.client_id
+               WHERE ${notDeleted('h')} AND ${notDeleted('cs')} AND ${notDeleted('cl')}`
+    if (filters.q) {
+      const fq = ftsQuery(filters.q)
+      if (fq && scope === 'hearings') {
+        sql += ` AND (cs.rowid IN (SELECT rowid FROM cases_fts WHERE cases_fts MATCH ?) OR h.hearing_type LIKE ?)`
+        params.push(fq, `%${filters.q}%`)
+      } else {
+        sql += ` AND (cs.title LIKE ? OR cs.case_number LIKE ? OR cs.office_case_number LIKE ? OR cl.full_name LIKE ? OR h.hearing_type LIKE ?)`
+        const s = `%${filters.q}%`
+        params.push(s, s, s, s, s)
+      }
+    }
+    if (filters.office_case_number) {
+      sql += ' AND (cs.office_case_number LIKE ? OR cs.case_number LIKE ?)'
+      const s = `%${filters.office_case_number}%`
+      params.push(s, s)
+    }
+    if (filters.client_name) {
+      sql += ' AND cl.full_name LIKE ?'
+      params.push(`%${filters.client_name}%`)
+    }
+    if (filters.hearing_from) {
+      sql += ' AND h.hearing_date >= ?'
+      params.push(filters.hearing_from)
+    }
+    if (filters.hearing_to) {
+      sql += ' AND h.hearing_date <= ?'
+      params.push(filters.hearing_to)
+    }
+    if (filters.lawyer_id) {
+      sql += ' AND (h.lawyer_id = ? OR cs.primary_lawyer_id = ?)'
+      params.push(filters.lawyer_id, filters.lawyer_id)
+    }
+    return db.prepare(`${sql} LIMIT 200`).all(...params)
+  }
+  if (scope === 'admin') {
+    let sql = `SELECT t.id, t.title, t.description, t.due_date, t.status, t.venue, cs.id as case_id, cs.title as case_title,
+                      cs.case_number, cs.office_case_number, cl.full_name as client_name, 'admin' as result_kind
+               FROM tasks t
+               LEFT JOIN cases cs ON cs.id = t.case_id AND ${notDeleted('cs')}
+               LEFT JOIN clients cl ON cl.id = COALESCE(t.client_id, cs.client_id) AND ${notDeleted('cl')}
+               WHERE ${notDeleted('t')} AND IFNULL(t.work_kind, 'admin') = 'admin'`
+    if (filters.q) {
+      sql += ` AND (t.title LIKE ? OR t.description LIKE ? OR cs.title LIKE ? OR cs.case_number LIKE ? OR cs.office_case_number LIKE ? OR cl.full_name LIKE ?)`
+      const s = `%${filters.q}%`
+      params.push(s, s, s, s, s, s)
+    }
+    if (filters.office_case_number) {
+      sql += ' AND (cs.office_case_number LIKE ? OR cs.case_number LIKE ?)'
+      const s = `%${filters.office_case_number}%`
+      params.push(s, s)
+    }
+    if (filters.client_name) {
+      sql += ' AND cl.full_name LIKE ?'
+      params.push(`%${filters.client_name}%`)
+    }
+    return db.prepare(`${sql} LIMIT 200`).all(...params)
+  }
+  let sql = `SELECT DISTINCT c.id, c.case_number, c.office_case_number, c.case_year, c.title, c.category, c.status,
+                    c.court, c.client_id, cl.full_name as client_name, ct.name_ar as case_type_name, l.full_name as lawyer_name,
+                    'case' as result_kind
              FROM cases c
              JOIN clients cl ON cl.id = c.client_id
              LEFT JOIN case_types ct ON ct.id = c.case_type_id AND ${notDeleted('ct')}
@@ -383,9 +459,29 @@ export function advancedSearch(filters: {
              LEFT JOIN clients cl2 ON cl2.id = cc.client_id AND ${notDeleted('cl2')}
              WHERE ${notDeleted('c')} AND ${notDeleted('cl')}`
   if (filters.q) {
-    sql += ` AND (c.title LIKE ? OR c.case_number LIKE ? OR c.category LIKE ? OR c.internal_file_number LIKE ? OR cl.full_name LIKE ? OR cl2.full_name LIKE ? OR ct.name_ar LIKE ?)`
-    const s = `%${filters.q}%`
-    params.push(s, s, s, s, s, s, s)
+    const fq = ftsQuery(filters.q)
+    if (fq) {
+      sql += ` AND c.rowid IN (SELECT rowid FROM cases_fts WHERE cases_fts MATCH ?)`
+      params.push(fq)
+    } else {
+      sql += ` AND (c.title LIKE ? OR c.case_number LIKE ? OR c.category LIKE ? OR c.internal_file_number LIKE ? OR c.office_case_number LIKE ? OR c.case_year LIKE ? OR cl.full_name LIKE ? OR cl2.full_name LIKE ? OR ct.name_ar LIKE ? OR c.opponent_name LIKE ?)`
+      const s = `%${filters.q}%`
+      params.push(s, s, s, s, s, s, s, s, s, s)
+    }
+  }
+  if (filters.office_case_number) {
+    sql += ' AND (c.office_case_number LIKE ? OR c.case_number LIKE ?)'
+    const s = `%${filters.office_case_number}%`
+    params.push(s, s)
+  }
+  if (filters.client_name) {
+    sql += ' AND (cl.full_name LIKE ? OR cl2.full_name LIKE ?)'
+    const s = `%${filters.client_name}%`
+    params.push(s, s)
+  }
+  if (filters.opponent_name) {
+    sql += ' AND c.opponent_name LIKE ?'
+    params.push(`%${filters.opponent_name}%`)
   }
   if (filters.case_type_id) {
     sql += ' AND c.case_type_id = ?'
@@ -410,7 +506,7 @@ export function advancedSearch(filters: {
     sql += ' AND h.hearing_date <= ?'
     params.push(filters.hearing_to)
   }
-  return db.prepare(sql).all(...params)
+  return db.prepare(`${sql} LIMIT 200`).all(...params)
 }
 
 export function searchLegacyArchive(term: string) {

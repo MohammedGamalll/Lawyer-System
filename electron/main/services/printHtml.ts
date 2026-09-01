@@ -15,6 +15,8 @@ export function buildPrintHtml(opts: {
   const isReport = opts.kind === 'report'
   const width = isTicket ? '72mm' : isReport ? 'auto' : '190mm'
   const fontSize = isTicket ? '13px' : isReport ? '11px' : '14px'
+  const pageMargin = isTicket ? '5mm 6mm' : isReport ? '14mm 16mm' : '16mm 18mm'
+  const bodyPad = isTicket ? '6mm 7mm' : isReport ? '22px 28px' : '20px 24px'
   return `<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -23,8 +25,9 @@ export function buildPrintHtml(opts: {
 <style>
   ${opts.fontFace || ''}
   * { box-sizing: border-box; }
-  @page { size: ${isReport ? 'A4 landscape' : 'A4'}; margin: ${isReport ? '8mm' : '12mm'}; }
-  body { font-family: Cairo, Tahoma, sans-serif; direction: rtl; text-align: right; width: ${width}; max-width: 100%; margin: ${isReport ? '0' : '12px auto'}; color: #122f4d; font-size: ${fontSize}; unicode-bidi: isolate; }
+  @page { size: ${isReport ? 'A4 landscape' : 'A4'}; margin: ${pageMargin}; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: Cairo, Tahoma, sans-serif; direction: rtl; text-align: right; width: ${width}; max-width: 100%; padding: ${bodyPad}; color: #122f4d; font-size: ${fontSize}; unicode-bidi: isolate; }
   h1 { font-size: ${isReport ? '16px' : '20px'}; margin: 0 0 4px; }
   .muted { color: #5b6b7c; font-size: 11px; }
   table { width: 100%; border-collapse: collapse; margin-top: 8px; table-layout: fixed; }

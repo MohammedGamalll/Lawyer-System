@@ -1,3 +1,5 @@
+import { PERFORMANCE_INDEXES } from './indexes'
+
 export const SCHEMA_SQL = `
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
@@ -102,6 +104,7 @@ CREATE TABLE IF NOT EXISTS clients (
   client_number TEXT NOT NULL UNIQUE,
   full_name TEXT NOT NULL,
   trade_name TEXT,
+  nickname TEXT,
   national_id TEXT,
   phone TEXT,
   phone2 TEXT,
@@ -153,6 +156,7 @@ CREATE TABLE IF NOT EXISTS lawyers (
   hire_date TEXT,
   status TEXT NOT NULL DEFAULT 'active',
   notes TEXT,
+  sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   deleted_at TEXT
@@ -207,6 +211,7 @@ CREATE TABLE IF NOT EXISTS leaves (
 CREATE TABLE IF NOT EXISTS opponents (
   id TEXT PRIMARY KEY,
   full_name TEXT NOT NULL,
+  nickname TEXT,
   national_id TEXT,
   phone TEXT,
   address TEXT,
@@ -256,6 +261,15 @@ CREATE TABLE IF NOT EXISTS cases (
   cassation_year TEXT,
   extra_ref_type TEXT,
   extra_ref_number TEXT,
+  extra_ref2_type TEXT,
+  extra_ref2_number TEXT,
+  extra_ref3_type TEXT,
+  extra_ref3_number TEXT,
+  session_place TEXT,
+  previous_circuit TEXT,
+  opponent_capacity_first TEXT,
+  opponent_capacity_appeal TEXT,
+  opponent_capacity_cassation TEXT,
   filing_date TEXT,
   received_date TEXT,
   status TEXT NOT NULL DEFAULT 'new',
@@ -292,6 +306,10 @@ CREATE TABLE IF NOT EXISTS case_opponents (
   id TEXT PRIMARY KEY,
   case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
   opponent_id TEXT NOT NULL REFERENCES opponents(id) ON DELETE CASCADE,
+  capacity_first TEXT,
+  capacity_appeal TEXT,
+  capacity_cassation TEXT,
+  sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   deleted_at TEXT,
@@ -373,6 +391,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   priority TEXT NOT NULL DEFAULT 'medium',
   status TEXT NOT NULL DEFAULT 'new',
   progress INTEGER NOT NULL DEFAULT 0,
+  work_kind TEXT NOT NULL DEFAULT 'admin',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   deleted_at TEXT
@@ -736,7 +755,7 @@ CREATE TABLE IF NOT EXISTS lookup_values (
   deleted_at TEXT,
   UNIQUE (kind, value)
 );
-`
+` + PERFORMANCE_INDEXES
 
 export const SYNC_TABLES = [
   'roles',

@@ -6,27 +6,55 @@ import { recordLocalChange, softDelete } from '../sync/queue'
 import type { AuthedUser } from '../ipc/helpers'
 import type { ListQuery } from '@shared/types'
 import { shouldMaskClientContact } from '@shared/permissions'
-import { clientSchema, parseSchema } from '@shared/schemas'
+import { clientSchema, parseSchema, ValidationError } from '@shared/schemas'
 import { rememberLookup } from './lookups'
+import { clampPageSize, pageKind, pickSort, sqlDir } from '../db/queryLimits'
+import { ftsQuery } from '../db/fts'
 
 export function listClients(query: ListQuery = {}, actor?: AuthedUser | null) {
   const db = getDb()
   const page = query.page ?? 1
-  const pageSize = query.pageSize ?? 20
+  const pageSize = clampPageSize(query.pageSize, pageKind(query))
   const params: unknown[] = []
-  let where = `WHERE is_archived = 0 AND ${notDeleted()}`
-  if (query.search) {
-    where += ` AND (full_name LIKE ? OR client_number LIKE ? OR phone LIKE ? OR national_id LIKE ? OR trade_name LIKE ?)`
+  let where = `WHERE c.is_archived = 0 AND ${notDeleted('c')}`
+  const fts = ftsQuery(String(query.search || ''))
+  if (query.search && fts) {
+    where += ` AND c.rowid IN (SELECT rowid FROM clients_fts WHERE clients_fts MATCH ?)`
+    params.push(fts)
+  } else if (query.search) {
+    where += ` AND (c.full_name LIKE ? OR c.client_number LIKE ? OR c.phone LIKE ? OR c.national_id LIKE ? OR c.profession LIKE ? OR c.nickname LIKE ?)`
     const s = `%${query.search}%`
-    params.push(s, s, s, s, s)
+    params.push(s, s, s, s, s, s)
   }
   if (query.filters?.client_type) {
-    where += ' AND client_type = ?'
+    where += ' AND c.client_type = ?'
     params.push(query.filters.client_type)
   }
-  const total = (db.prepare(`SELECT COUNT(*) as c FROM clients ${where}`).get(...params) as { c: number }).c
+  const total = (db.prepare(`SELECT COUNT(*) as c FROM clients c ${where}`).get(...params) as { c: number }).c
+  const order = pickSort(query.sortBy, {
+    client_number: 'c.client_number',
+    full_name: 'c.full_name',
+    phone: 'c.phone',
+    national_id: 'c.national_id',
+    profession: 'c.profession',
+    governorate: 'c.governorate'
+  }, 'c.created_at DESC')
+  const dir = query.sortBy ? ` ${sqlDir(query.sortDir)}` : ''
   const rows = db
-    .prepare(`SELECT * FROM clients ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
+    .prepare(
+      `SELECT c.id, c.client_number, c.full_name, c.nickname, c.national_id, c.phone, c.phone2, c.whatsapp, c.email,
+              c.profession, c.governorate, c.client_type, COALESCE(d.due, 0) as due
+       FROM clients c
+       LEFT JOIN (
+         SELECT cs.client_id as cid, SUM(cf.remaining) as due
+         FROM case_fees cf
+         JOIN cases cs ON cs.id = cf.case_id
+         WHERE ${notDeleted('cf')} AND ${notDeleted('cs')}
+         GROUP BY cs.client_id
+       ) d ON d.cid = c.id
+       ${where}
+       ORDER BY ${order}${dir} LIMIT ? OFFSET ?`
+    )
     .all(...params, pageSize, (page - 1) * pageSize)
   return { rows: maskClientRows(rows, actor), total, page, pageSize }
 }
@@ -88,24 +116,27 @@ export function clientProfile(id: string, actor?: AuthedUser | null) {
 }
 
 export function createClient(actor: AuthedUser, data: Record<string, unknown>) {
+  const forceSimilar = Boolean(data.force_similar)
   data = parseSchema(clientSchema, data) as Record<string, unknown>
   const fullName = String(data.full_name ?? '').trim()
   if (!fullName) throw new Error('اسم العميل مطلوب')
   const db = getDb()
+  assertClientIdentity(db, data, { forceSimilar })
   const ts = nowIso()
   const number = nextNumber(db, 'client')
   const id = newId()
   db.prepare(
     `INSERT INTO clients (
-        id, client_number, full_name, trade_name, national_id, phone, phone2, whatsapp, email, address,
+        id, client_number, full_name, trade_name, nickname, national_id, phone, phone2, whatsapp, email, address,
         governorate, district, client_type, profession, birth_date, extra_data, notes,
         commercial_register, tax_id, manager_name, created_at, updated_at, created_by
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).run(
     id,
     number,
     fullName,
     data.trade_name ?? null,
+    data.nickname ?? null,
     data.national_id ?? null,
     data.phone ?? null,
     data.phone2 ?? null,
@@ -142,18 +173,21 @@ export function createClient(actor: AuthedUser, data: Record<string, unknown>) {
 }
 
 export function updateClient(actor: AuthedUser, id: string, data: Record<string, unknown>) {
+  const forceSimilar = Boolean(data.force_similar)
   data = parseSchema(clientSchema, data) as Record<string, unknown>
   const db = getDb()
   const old = db.prepare(`SELECT * FROM clients WHERE id = ? AND ${notDeleted()}`).get(id) as Record<string, unknown> | undefined
   if (!old) throw new Error('العميل غير موجود')
+  assertClientIdentity(db, data, { excludeId: id, forceSimilar })
   const keepContact = shouldMask(actor)
   db.prepare(
-    `UPDATE clients SET full_name=?, trade_name=?, national_id=?, phone=?, phone2=?, whatsapp=?, email=?,
+    `UPDATE clients SET full_name=?, trade_name=?, nickname=?, national_id=?, phone=?, phone2=?, whatsapp=?, email=?,
       address=?, governorate=?, district=?, client_type=?, profession=?, birth_date=?, extra_data=?, notes=?,
       commercial_register=?, tax_id=?, manager_name=?, updated_at=? WHERE id=?`
   ).run(
     data.full_name,
     data.trade_name ?? null,
+    data.nickname ?? null,
     data.national_id ?? null,
     keepContact ? old.phone : data.phone ?? null,
     keepContact ? old.phone2 : data.phone2 ?? null,
@@ -209,10 +243,62 @@ export function removeClient(actor: AuthedUser, id: string) {
 }
 
 function rememberClientLookups(data: Record<string, unknown>) {
-  rememberLookup('capacity', data.trade_name)
   rememberLookup('governorate', data.governorate)
   rememberLookup('district', data.district)
   rememberLookup('profession', data.profession)
+}
+
+function digitsNid(value: unknown) {
+  const s = String(value ?? '').replace(/\D/g, '')
+  return s.length === 14 ? s : ''
+}
+
+export function normalizePersonName(value: unknown) {
+  return String(value ?? '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+}
+
+function assertClientIdentity(
+  db: ReturnType<typeof getDb>,
+  data: Record<string, unknown>,
+  opts: { excludeId?: string; forceSimilar?: boolean }
+) {
+  const nid = digitsNid(data.national_id)
+  const name = normalizePersonName(data.full_name)
+  const rows = db
+    .prepare(
+      `SELECT id, client_number, full_name, national_id FROM clients WHERE ${notDeleted()}${opts.excludeId ? ' AND id != ?' : ''}`
+    )
+    .all(...(opts.excludeId ? [opts.excludeId] : [])) as {
+    id: string
+    client_number: string
+    full_name: string
+    national_id: string | null
+  }[]
+  if (nid) {
+    const hit = rows.find((r) => digitsNid(r.national_id) === nid)
+    if (hit) {
+      throw new Error(`هذا العميل مسجل من قبل (كود ${hit.client_number} — ${hit.full_name})`)
+    }
+  }
+  if (opts.forceSimilar || !name) return
+  const similar = rows.find((r) => normalizePersonName(r.full_name) === name)
+  if (!similar) return
+  throw new ValidationError(
+    `هذا الاسم مسجل بالفعل، هل تريد إضافة هذا البيان؟ هل تقصد هذا الشخص «${similar.full_name}» (كود ${similar.client_number}) أم أنه شخص جديد؟`,
+    {
+      _similar: JSON.stringify({
+        id: similar.id,
+        client_number: similar.client_number,
+        full_name: similar.full_name,
+        national_id: similar.national_id
+      })
+    }
+  )
 }
 
 function shouldMask(user?: AuthedUser | null) {

@@ -37,3 +37,16 @@ export function rememberLookup(kind: string, raw?: unknown): void {
   )
   recordLocalChange('lookup_values', id, 'INSERT')
 }
+
+export function removeLookup(kind: string, raw?: unknown): void {
+  const value = String(raw ?? '').trim()
+  if (!kind || !value) return
+  const db = getDb()
+  const row = db
+    .prepare(`SELECT id FROM lookup_values WHERE kind = ? AND value = ? AND ${notDeleted()}`)
+    .get(kind, value) as { id: string } | undefined
+  if (!row) return
+  const ts = nowIso()
+  db.prepare('UPDATE lookup_values SET deleted_at = ?, updated_at = ? WHERE id = ?').run(ts, ts, row.id)
+  recordLocalChange('lookup_values', row.id, 'UPDATE')
+}

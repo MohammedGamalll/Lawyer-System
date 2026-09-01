@@ -2,6 +2,7 @@ import { getDb } from '../db/database'
 import { nowIso } from '../utils/time'
 import { audit } from './audit'
 import { newId, asId, asIdOrNull, notDeleted } from '../db/ids'
+import { clampPageSize, pageKind } from '../db/queryLimits'
 import { recordLocalChange, softDelete } from '../sync/queue'
 import type { AuthedUser } from '../ipc/helpers'
 import type { ListQuery } from '@shared/types'
@@ -50,7 +51,7 @@ function fileBuffer(file: { name: string; data: number[] | Uint8Array | Buffer }
 function paged(table: string, searchCols: string[], query: ListQuery, extraWhere = '') {
   const db = getDb()
   const page = query.page ?? 1
-  const pageSize = query.pageSize ?? 20
+  const pageSize = clampPageSize(query.pageSize, pageKind(query))
   const params: unknown[] = []
   let where = `WHERE ${notDeleted()} ${extraWhere}`
   if (query.search && searchCols.length) {
@@ -68,7 +69,7 @@ function paged(table: string, searchCols: string[], query: ListQuery, extraWhere
 export function listLawyers(q: ListQuery = {}) {
   const db = getDb()
   const page = q.page ?? 1
-  const pageSize = q.pageSize ?? 20
+  const pageSize = clampPageSize(q.pageSize, pageKind(q))
   const params: unknown[] = []
   let where = `WHERE ${notDeleted('l')}`
   if (q.search) {
@@ -83,7 +84,7 @@ export function listLawyers(q: ListQuery = {}) {
        FROM lawyers l
        LEFT JOIN users u ON u.id = l.user_id AND ${notDeleted('u')}
        LEFT JOIN employees e ON e.user_id = l.user_id AND ${notDeleted('e')}
-       ${where} ORDER BY l.created_at DESC LIMIT ? OFFSET ?`
+       ${where} ORDER BY IFNULL(l.sort_order, 0) ASC, l.full_name COLLATE NOCASE ASC LIMIT ? OFFSET ?`
     )
     .all(...params, pageSize, (page - 1) * pageSize)
   return { rows, total, page, pageSize }
@@ -136,10 +137,13 @@ export function createLawyer(actor: AuthedUser, data: Record<string, unknown>) {
   if (!String(data.full_name ?? '').trim()) throw new Error('اسم المحامي مطلوب')
   const id = newId()
   const ts = nowIso()
+  const maxOrd = (
+    getDb().prepare(`SELECT IFNULL(MAX(sort_order), 0) as m FROM lawyers WHERE ${notDeleted()}`).get() as { m: number }
+  ).m
   getDb()
     .prepare(
-      `INSERT INTO lawyers (id, user_id, full_name, photo_path, bar_number, specialization, phone, email, hire_date, status, notes, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      `INSERT INTO lawyers (id, user_id, full_name, photo_path, bar_number, specialization, phone, email, hire_date, status, notes, sort_order, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     )
     .run(
       id,
@@ -153,6 +157,7 @@ export function createLawyer(actor: AuthedUser, data: Record<string, unknown>) {
       data.hire_date ?? null,
       data.status ?? 'active',
       data.notes ?? null,
+      maxOrd + 1,
       ts,
       ts
     )
@@ -483,14 +488,35 @@ export function saveStaff(actor: AuthedUser, data: Record<string, unknown>) {
 }
 
 export function removeLawyer(actor: AuthedUser, id: string) {
-  const used = getDb()
-    .prepare(
-      `SELECT COUNT(*) as c FROM cases WHERE (primary_lawyer_id = ? OR assistant_lawyer_id = ?) AND ${notDeleted()}`
-    )
-    .get(id, id) as { c: number }
-  if (used.c > 0) throw new Error('لا يمكن حذف محامٍ مرتبط بقضايا')
   softDelete('lawyers', id)
   audit(actor, 'delete', 'lawyers', id, `تم حذف محامٍ رقم ${id}`)
+}
+
+export function reorderLawyer(id: string, direction: 'up' | 'down') {
+  const db = getDb()
+  const rows = db
+    .prepare(
+      `SELECT id, IFNULL(sort_order, 0) as sort_order FROM lawyers WHERE ${notDeleted()} ORDER BY IFNULL(sort_order, 0) ASC, full_name COLLATE NOCASE ASC`
+    )
+    .all() as { id: string; sort_order: number }[]
+  const i = rows.findIndex((r) => r.id === id)
+  const j = direction === 'up' ? i - 1 : i + 1
+  if (i < 0 || j < 0 || j >= rows.length) return { id }
+  const a = rows[i]
+  const b = rows[j]
+  const ts = nowIso()
+  db.prepare('UPDATE lawyers SET sort_order = ?, updated_at = ? WHERE id = ?').run(b.sort_order, ts, a.id)
+  db.prepare('UPDATE lawyers SET sort_order = ?, updated_at = ? WHERE id = ?').run(a.sort_order, ts, b.id)
+  if (a.sort_order === b.sort_order) {
+    rows.forEach((r, idx) => {
+      db.prepare('UPDATE lawyers SET sort_order = ?, updated_at = ? WHERE id = ?').run(idx, ts, r.id)
+    })
+    db.prepare('UPDATE lawyers SET sort_order = ?, updated_at = ? WHERE id = ?').run(j, ts, a.id)
+    db.prepare('UPDATE lawyers SET sort_order = ?, updated_at = ? WHERE id = ?').run(i, ts, b.id)
+  }
+  recordLocalChange('lawyers', a.id, 'UPDATE')
+  recordLocalChange('lawyers', b.id, 'UPDATE')
+  return { id }
 }
 
 export function listPayrollEmployees() {
@@ -507,7 +533,7 @@ export function listPayrollEmployees() {
 export function listEmployees(q: ListQuery = {}) {
   const db = getDb()
   const page = q.page ?? 1
-  const pageSize = q.pageSize ?? 20
+  const pageSize = clampPageSize(q.pageSize, pageKind(q))
   const params: unknown[] = []
   let where = `WHERE ${notDeleted('e')}`
   if (q.search) {
@@ -778,7 +804,7 @@ export function addLeave(actor: AuthedUser, data: Record<string, unknown>) {
 }
 
 export function listOpponents(q: ListQuery = {}) {
-  return paged('opponents', ['full_name', 'national_id', 'phone', 'lawyer_name'], q)
+  return paged('opponents', ['full_name', 'nickname', 'national_id', 'phone', 'lawyer_name'], q)
 }
 
 export function getOpponent(id: string) {
@@ -803,12 +829,13 @@ export function createOpponent(actor: AuthedUser, data: Record<string, unknown>)
   const ts = nowIso()
   getDb()
     .prepare(
-      `INSERT INTO opponents (id, full_name, national_id, phone, address, lawyer_name, lawyer_phone, extra_data, notes, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+      `INSERT INTO opponents (id, full_name, nickname, national_id, phone, address, lawyer_name, lawyer_phone, extra_data, notes, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
     )
     .run(
       id,
       data.full_name,
+      data.nickname ?? null,
       data.national_id ?? null,
       data.phone ?? null,
       data.address ?? null,
@@ -827,12 +854,14 @@ export function createOpponent(actor: AuthedUser, data: Record<string, unknown>)
 }
 
 export function updateOpponent(actor: AuthedUser, id: string, data: Record<string, unknown>) {
+  data = parseSchema(opponentSchema, data) as Record<string, unknown>
   getDb()
     .prepare(
-      `UPDATE opponents SET full_name=?, national_id=?, phone=?, address=?, lawyer_name=?, lawyer_phone=?, extra_data=?, notes=?, updated_at=? WHERE id=?`
+      `UPDATE opponents SET full_name=?, nickname=?, national_id=?, phone=?, address=?, lawyer_name=?, lawyer_phone=?, extra_data=?, notes=?, updated_at=? WHERE id=?`
     )
     .run(
       data.full_name,
+      data.nickname ?? null,
       data.national_id ?? null,
       data.phone ?? null,
       data.address ?? null,

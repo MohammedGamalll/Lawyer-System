@@ -8,19 +8,107 @@ import type { ListQuery } from '@shared/types'
 import { caseSchema, parseSchema } from '@shared/schemas'
 import { rememberLookup } from './lookups'
 import { maskClientContactFields } from './clients'
+import { clampPageSize, pageKind, pickSort, sqlDir } from '../db/queryLimits'
+import { ftsQuery } from '../db/fts'
+
+function splitCourtQuery(raw: string): { number: string; year: string } {
+  const t = String(raw ?? '').trim()
+  const m = t.match(/^(\d+)\s*(?:\/|لسنة)\s*(\d{2,4})\s*ق?\.?$/i)
+  if (m) return { number: m[1], year: m[2] }
+  return { number: t, year: '' }
+}
+
+function tokens(raw: string): string[] {
+  return String(raw || '')
+    .split(/\s+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 2 && !/^(ضد|vs\.?|و)$/i.test(s))
+}
+
+function parsePartyFilters(clientRaw: string, opponentRaw: string): { client: string[]; opponent: string[] } {
+  let client = String(clientRaw || '').trim()
+  let opponent = String(opponentRaw || '').trim()
+  const vs = client.match(/^(.+?)\s+(?:ضد|vs\.?)\s+(.+)$/i)
+  if (vs) {
+    client = vs[1].trim()
+    if (!opponent) opponent = vs[2].trim()
+  }
+  return { client: tokens(client), opponent: tokens(opponent) }
+}
+
+function applyNameAnd(
+  where: string,
+  params: unknown[],
+  parts: string[],
+  kind: 'client' | 'opponent'
+): string {
+  for (const tok of parts) {
+    const like = `%${tok}%`
+    if (kind === 'client') {
+      where += ` AND (
+        cl.full_name LIKE ? OR EXISTS (
+          SELECT 1 FROM case_clients x JOIN clients cx ON cx.id = x.client_id
+          WHERE x.case_id = c.id AND ${notDeleted('x')} AND ${notDeleted('cx')} AND cx.full_name LIKE ?
+        )
+      )`
+      params.push(like, like)
+    } else {
+      where += ` AND (
+        IFNULL(c.opponent_name,'') LIKE ? OR EXISTS (
+          SELECT 1 FROM case_opponents xo JOIN opponents ox ON ox.id = xo.opponent_id
+          WHERE xo.case_id = c.id AND ${notDeleted('xo')} AND ${notDeleted('ox')} AND ox.full_name LIKE ?
+        )
+      )`
+      params.push(like, like)
+    }
+  }
+  return where
+}
 
 export function listCases(query: ListQuery = {}, archived = 0) {
   const db = getDb()
   const page = query.page ?? 1
-  const pageSize = query.pageSize ?? 20
+  const pageSize = clampPageSize(query.pageSize, pageKind(query))
   const params: unknown[] = [archived]
   let where = `WHERE c.is_archived = ? AND ${notDeleted('c')} AND ${notDeleted('cl')}`
-  if (query.search) {
-    where += ` AND (c.title LIKE ? OR c.case_number LIKE ? OR c.office_case_number LIKE ? OR c.case_year LIKE ? OR c.internal_file_number LIKE ? OR cl.full_name LIKE ? OR c.category LIKE ?)`
+  const fts = ftsQuery(String(query.search || ''))
+  if (query.search && fts) {
+    where += ` AND c.rowid IN (SELECT rowid FROM cases_fts WHERE cases_fts MATCH ?)`
+    params.push(fts)
+  } else if (query.search) {
+    where += ` AND (c.title LIKE ? OR c.case_number LIKE ? OR c.office_case_number LIKE ? OR c.case_year LIKE ? OR c.internal_file_number LIKE ? OR cl.full_name LIKE ? OR c.category LIKE ? OR c.opponent_name LIKE ?)`
     const s = `%${query.search}%`
-    params.push(s, s, s, s, s, s, s)
+    params.push(s, s, s, s, s, s, s, s)
   }
   const f = query.filters ?? {}
+  const courtQ = splitCourtQuery(String(f.office_case_number ?? query.search ?? ''))
+  if (f.office_case_number) {
+    if (courtQ.year) {
+      where += ' AND c.office_case_number LIKE ? AND c.case_year LIKE ?'
+      params.push(`%${courtQ.number}%`, `%${courtQ.year}%`)
+    } else {
+      where += ' AND (c.office_case_number LIKE ? OR c.case_number LIKE ?)'
+      const s = `%${courtQ.number}%`
+      params.push(s, s)
+    }
+  } else if (query.search && courtQ.year) {
+    where += ' AND c.office_case_number LIKE ? AND c.case_year LIKE ?'
+    params.push(`%${courtQ.number}%`, `%${courtQ.year}%`)
+  }
+  if (f.program_code) {
+    const raw = String(f.program_code).trim()
+    const digits = raw.replace(/\D/g, '')
+    where += ' AND (c.case_number LIKE ? OR c.internal_file_number LIKE ?'
+    params.push(`%${raw}%`, `%${raw}%`)
+    if (digits) {
+      where += ' OR CAST(REPLACE(c.case_number, \'CS-\', \'\') AS INTEGER) = ?'
+      params.push(Number(digits))
+    }
+    where += ')'
+  }
+  const parties = parsePartyFilters(String(f.client_name ?? ''), String(f.opponent_name ?? ''))
+  where = applyNameAnd(where, params, parties.client, 'client')
+  where = applyNameAnd(where, params, parties.opponent, 'opponent')
   if (f.status) {
     where += ' AND c.status = ?'
     params.push(f.status)
@@ -42,18 +130,41 @@ export function listCases(query: ListQuery = {}, archived = 0) {
       c: number
     }
   ).c
+  const order = pickSort(query.sortBy, {
+    case_number: 'c.case_number',
+    office_case_number: 'c.office_case_number',
+    title: 'c.title',
+    status: 'c.status',
+    client_name: 'cl.full_name',
+    opponent_name: 'c.opponent_name',
+    lawyer_name: 'l.full_name',
+    case_type_name: 'ct.name_ar'
+  }, 'IFNULL(c.filing_date, IFNULL(c.received_date, c.created_at)) ASC, c.created_at ASC')
+  const dir = query.sortBy ? ` ${sqlDir(query.sortDir)}` : ''
   const rows = db
     .prepare(
-      `SELECT c.*, cl.full_name as client_name, cl.client_number, ct.name_ar as case_type_name,
-              l.full_name as lawyer_name
+      `SELECT c.id, c.case_number, c.office_case_number, c.case_year, c.title, c.category, c.status, c.court, c.circuit,
+              c.filing_date, c.received_date, c.client_id, c.opponent_name, c.primary_lawyer_id, c.case_type_id,
+              cl.full_name as client_name, cl.client_number, ct.name_ar as case_type_name, l.full_name as lawyer_name,
+              (SELECT GROUP_CONCAT(clx.full_name, '، ') FROM case_clients x JOIN clients clx ON clx.id = x.client_id
+                WHERE x.case_id = c.id AND IFNULL(x.is_primary,0) = 0 AND ${notDeleted('x')} AND ${notDeleted('clx')}) as extra_client_names,
+              (SELECT GROUP_CONCAT(ox.full_name, '، ') FROM case_opponents xo JOIN opponents ox ON ox.id = xo.opponent_id
+                WHERE xo.case_id = c.id AND ${notDeleted('xo')} AND ${notDeleted('ox')}) as opponent_names
        FROM cases c
        JOIN clients cl ON cl.id = c.client_id
        LEFT JOIN case_types ct ON ct.id = c.case_type_id AND ${notDeleted('ct')}
        LEFT JOIN lawyers l ON l.id = c.primary_lawyer_id AND ${notDeleted('l')}
-       ${where} ORDER BY c.created_at DESC LIMIT ? OFFSET ?`
+       ${where} ORDER BY ${order}${dir} LIMIT ? OFFSET ?`
     )
     .all(...params, pageSize, (page - 1) * pageSize)
-  return { rows, total, page, pageSize }
+  const mapped = (rows as Record<string, unknown>[]).map((r) => {
+    const extras = String(r.extra_client_names || '')
+      .split(/[،,]/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+    return { ...r, extra_client_count: extras.length }
+  })
+  return { rows: mapped, total, page, pageSize }
 }
 
 export function getCase(id: string, actor?: AuthedUser | null) {
@@ -79,28 +190,36 @@ export function getCase(id: string, actor?: AuthedUser | null) {
     .all(id)
   const opponents = db
     .prepare(
-      `SELECT o.* FROM opponents o JOIN case_opponents co ON co.opponent_id = o.id
-       WHERE co.case_id = ? AND ${notDeleted('o')} AND ${notDeleted('co')}`
+      `SELECT o.*, co.capacity_first as capacity_first, co.capacity_appeal as capacity_appeal,
+              co.capacity_cassation as capacity_cassation, co.sort_order as sort_order
+       FROM opponents o JOIN case_opponents co ON co.opponent_id = o.id
+       WHERE co.case_id = ? AND ${notDeleted('o')} AND ${notDeleted('co')}
+       ORDER BY IFNULL(co.sort_order, 0), o.full_name`
     )
     .all(id)
-  const fees = db.prepare(`SELECT * FROM case_fees WHERE case_id = ? AND ${notDeleted()}`).get(id)
   const hearingsTotal = (
     db.prepare(`SELECT COUNT(*) as c FROM hearings WHERE case_id = ? AND ${notDeleted()}`).get(id) as { c: number }
   ).c
   const hearings = db
     .prepare(
-      `SELECT id, hearing_date, hearing_type, previous_decision, hall, floor, venue, notes, status, result
+      `SELECT id, hearing_date, hearing_type, previous_decision, court_decision, hall, floor, venue, notes, status, result
        FROM hearings WHERE case_id = ? AND ${notDeleted()} ORDER BY hearing_date DESC LIMIT 80`
     )
     .all(id)
   const rawCaseClients = db
     .prepare(
-      `SELECT cc.*, cl.full_name, cl.phone, cl.national_id FROM case_clients cc
+      `SELECT cc.*, cl.client_number, cl.full_name, cl.nickname, cl.trade_name, cl.national_id, cl.phone, cl.phone2,
+              cl.whatsapp, cl.email, cl.address, cl.governorate, cl.district, cl.client_type, cl.profession,
+              cl.birth_date, cl.commercial_register, cl.tax_id, cl.manager_name, cl.notes as client_notes
+       FROM case_clients cc
        JOIN clients cl ON cl.id = cc.client_id
        WHERE cc.case_id = ? AND ${notDeleted('cc')} AND ${notDeleted('cl')} ORDER BY cc.is_primary DESC, cc.sort_order`
     )
     .all(id)
   const caseClients = maskClientContactFields(rawCaseClients, actor)
+  const primaryParty = (caseClients as { is_primary?: number; capacity_first?: string; capacity_appeal?: string; capacity_cassation?: string }[]).find(
+    (p) => Number(p.is_primary) === 1
+  )
   const tasks = db
     .prepare(
       `SELECT id, title, venue, case_subject, due_date, status FROM tasks WHERE case_id = ? AND ${notDeleted()} ORDER BY due_date IS NULL, due_date LIMIT 80`
@@ -116,7 +235,41 @@ export function getCase(id: string, actor?: AuthedUser | null) {
       `SELECT id, title, category, file_name, current_version FROM documents WHERE case_id = ? AND ${notDeleted()} ORDER BY created_at DESC LIMIT 80`
     )
     .all(id)
-  return { ...(row as object), links, opponents, fees, hearings, hearingsTotal, payments, documents, caseClients, tasks }
+  syncCaseFeePaid(db, id)
+  const fees = db.prepare(`SELECT * FROM case_fees WHERE case_id = ? AND ${notDeleted()}`).get(id)
+  return {
+    ...(row as object),
+    capacity_first: primaryParty?.capacity_first ?? (row as { capacity_first?: string }).capacity_first,
+    capacity_appeal: primaryParty?.capacity_appeal,
+    capacity_cassation: primaryParty?.capacity_cassation,
+    links,
+    opponents,
+    fees,
+    hearings,
+    hearingsTotal,
+    payments,
+    documents,
+    caseClients,
+    tasks
+  }
+}
+
+function syncCaseFeePaid(db: ReturnType<typeof getDb>, caseId: string) {
+  const paidRow = db.prepare(`SELECT COALESCE(SUM(amount),0) as s FROM payments WHERE case_id = ? AND ${notDeleted()}`).get(caseId) as {
+    s: number
+  }
+  const fees = db.prepare(`SELECT id, total_fees FROM case_fees WHERE case_id = ? AND ${notDeleted()}`).get(caseId) as
+    | { id: string; total_fees: number }
+    | undefined
+  if (!fees) return
+  const paid = Number(paidRow?.s || 0)
+  db.prepare('UPDATE case_fees SET paid=?, remaining=?, updated_at=? WHERE id=?').run(
+    paid,
+    Math.max(0, Number(fees.total_fees) - paid),
+    nowIso(),
+    fees.id
+  )
+  recordLocalChange('case_fees', fees.id, 'UPDATE')
 }
 
 function upsertCaseFees(
@@ -133,8 +286,8 @@ function upsertCaseFees(
     | undefined
   if (existing) {
     db.prepare(
-      `UPDATE case_fees SET total_fees=?, remaining=?, due_date=?, payment_method=?, installment_count=?, updated_at=? WHERE id=?`
-    ).run(total, total - existing.paid, dueDate ?? null, paymentMethod ?? null, installmentCount ?? 1, ts, existing.id)
+      `UPDATE case_fees SET total_fees=?, due_date=?, payment_method=?, installment_count=?, updated_at=? WHERE id=?`
+    ).run(total, dueDate ?? null, paymentMethod ?? null, installmentCount ?? 1, ts, existing.id)
     recordLocalChange('case_fees', existing.id, 'UPDATE')
   } else {
     const fid = newId()
@@ -144,6 +297,7 @@ function upsertCaseFees(
     ).run(fid, caseId, total, total, dueDate ?? null, paymentMethod ?? null, installmentCount ?? 1, ts, ts)
     recordLocalChange('case_fees', fid, 'INSERT')
   }
+  syncCaseFeePaid(db, caseId)
 }
 
 export function createCase(actor: AuthedUser, data: Record<string, unknown>) {
@@ -164,9 +318,11 @@ export function createCase(actor: AuthedUser, data: Record<string, unknown>) {
         id, case_number, office_case_number, case_year, internal_file_number, title, client_id, primary_lawyer_id, assistant_lawyer_id,
         case_type_id, category, court, circuit, governorate, court_address, circuit_number, litigation_degree,
         first_instance_number, first_instance_year, appeal_number, appeal_year, cassation_number, cassation_year,
-        extra_ref_type, extra_ref_number, filing_date, received_date, status, case_value, opponent_name, opponent_lawyer, opponent_case_number,
+        extra_ref_type, extra_ref_number, extra_ref2_type, extra_ref2_number, extra_ref3_type, extra_ref3_number,
+        session_place, previous_circuit, opponent_capacity_first, opponent_capacity_appeal, opponent_capacity_cassation,
+        filing_date, received_date, status, case_value, opponent_name, opponent_lawyer, opponent_case_number,
         description, summary, notes, created_at, updated_at, created_by
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).run(
     id,
     number,
@@ -193,6 +349,15 @@ export function createCase(actor: AuthedUser, data: Record<string, unknown>) {
     data.cassation_year ?? null,
     data.extra_ref_type ?? null,
     data.extra_ref_number ?? null,
+    data.extra_ref2_type ?? null,
+    data.extra_ref2_number ?? null,
+    data.extra_ref3_type ?? null,
+    data.extra_ref3_number ?? null,
+    data.session_place ?? null,
+    data.previous_circuit ?? null,
+    data.opponent_capacity_first ?? null,
+    data.opponent_capacity_appeal ?? null,
+    data.opponent_capacity_cassation ?? null,
     data.filing_date ?? null,
     data.received_date ?? null,
     data.status ?? 'new',
@@ -240,7 +405,10 @@ export function updateCase(actor: AuthedUser, id: string, data: Record<string, u
     `UPDATE cases SET case_number=?, office_case_number=?, case_year=?, internal_file_number=?, title=?, client_id=?, primary_lawyer_id=?, assistant_lawyer_id=?,
       case_type_id=?, category=?, court=?, circuit=?, governorate=?, court_address=?, circuit_number=?,
       litigation_degree=?, first_instance_number=?, first_instance_year=?, appeal_number=?, appeal_year=?,
-      cassation_number=?, cassation_year=?, extra_ref_type=?, extra_ref_number=?, filing_date=?, received_date=?,
+      cassation_number=?, cassation_year=?, extra_ref_type=?, extra_ref_number=?, extra_ref2_type=?, extra_ref2_number=?,
+      extra_ref3_type=?, extra_ref3_number=?, session_place=?, previous_circuit=?,
+      opponent_capacity_first=?, opponent_capacity_appeal=?, opponent_capacity_cassation=?,
+      filing_date=?, received_date=?,
       status=?, case_value=?, opponent_name=?,
       opponent_lawyer=?, opponent_case_number=?, description=?, summary=?, notes=?, closed_at=COALESCE(?, closed_at),
       updated_at=? WHERE id=?`
@@ -269,6 +437,15 @@ export function updateCase(actor: AuthedUser, id: string, data: Record<string, u
     data.cassation_year ?? null,
     data.extra_ref_type ?? null,
     data.extra_ref_number ?? null,
+    data.extra_ref2_type ?? null,
+    data.extra_ref2_number ?? null,
+    data.extra_ref3_type ?? null,
+    data.extra_ref3_number ?? null,
+    data.session_place ?? null,
+    data.previous_circuit ?? null,
+    data.opponent_capacity_first ?? null,
+    data.opponent_capacity_appeal ?? null,
+    data.opponent_capacity_cassation ?? null,
     data.filing_date ?? null,
     data.received_date ?? null,
     data.status ?? 'new',
@@ -379,41 +556,44 @@ function rememberCaseLookups(data: Record<string, unknown>) {
   rememberLookup('court', data.court)
   rememberLookup('case_subject', data.category)
   rememberLookup('extra_ref_type', data.extra_ref_type)
+  rememberLookup('extra_ref_type', data.extra_ref2_type)
+  rememberLookup('extra_ref_type', data.extra_ref3_type)
   rememberLookup('capacity', data.capacity_first)
   rememberLookup('capacity', data.capacity_appeal)
   rememberLookup('capacity', data.capacity_cassation)
-}
-
-function currentYear() {
-  return String(new Date().getFullYear())
+  rememberLookup('capacity', data.opponent_capacity_first)
+  rememberLookup('capacity', data.opponent_capacity_appeal)
+  rememberLookup('capacity', data.opponent_capacity_cassation)
 }
 
 function allocateCaseNumber(
   db: ReturnType<typeof getDb>,
   data: Record<string, unknown>,
   excludeId?: string
-): { number: string; year: string; office: string | null } {
-  const year = String(data.case_year ?? '').trim() || currentYear()
+): { number: string; year: string | null; office: string | null } {
+  const year = String(data.case_year ?? '').trim()
   let office = String(data.office_case_number ?? '').trim()
-  if (office.endsWith(`/${year}`)) office = office.slice(0, -(year.length + 1)).trim()
+  if (year && office.endsWith(`/${year}`)) office = office.slice(0, -(year.length + 1)).trim()
   let number: string
-  if (office) {
-    number = `${office}/${year}`
-  } else if (excludeId) {
+  if (excludeId) {
     const old = db.prepare(`SELECT case_number FROM cases WHERE id = ?`).get(excludeId) as { case_number: string }
     number = old.case_number
   } else {
     number = nextNumber(db, 'case')
   }
-  const found = excludeId
-    ? (db
-        .prepare(`SELECT id FROM cases WHERE case_number = ? AND id != ? AND ${notDeleted()}`)
-        .get(number, excludeId) as { id: string } | undefined)
-    : (db.prepare(`SELECT id FROM cases WHERE case_number = ? AND ${notDeleted()}`).get(number) as
-        | { id: string }
-        | undefined)
-  if (found) throw new Error('رقم القضية مستخدم بالفعل في هذه السنة')
-  return { number, year, office: office || null }
+  if (office) {
+    const found = excludeId
+      ? (db
+          .prepare(
+            `SELECT id FROM cases WHERE office_case_number = ? AND IFNULL(case_year,'') = ? AND id != ? AND ${notDeleted()}`
+          )
+          .get(office, year, excludeId) as { id: string } | undefined)
+      : (db
+          .prepare(`SELECT id FROM cases WHERE office_case_number = ? AND IFNULL(case_year,'') = ? AND ${notDeleted()}`)
+          .get(office, year) as { id: string } | undefined)
+    if (found) throw new Error('رقم القضية مستخدم بالفعل في هذه السنة')
+  }
+  return { number, year: year || null, office: office || null }
 }
 
 function upsertCaseClient(
@@ -490,52 +670,110 @@ function syncCaseParties(caseId: string, data: Record<string, unknown>, isCreate
   }
 
   const extraOpps =
-    (data.extra_opponents as { opponent_id?: string; full_name?: string; lawyer_name?: string; lawyer_phone?: string }[]) || []
-  if (isCreate) {
-    const hasOpp =
-      Boolean(String(data.opponent_name ?? '').trim()) ||
-      extraOpps.some((o) => Boolean(asIdOrNull(o.opponent_id) || String(o.full_name ?? '').trim()))
-    if (!hasOpp) throw new Error('يجب إضافة خصم واحد على الأقل')
+    (data.extra_opponents as {
+      opponent_id?: string
+      full_name?: string
+      lawyer_name?: string
+      lawyer_phone?: string
+      capacity_first?: string
+      capacity_appeal?: string
+      capacity_cassation?: string
+    }[]) || []
+  const seenOpp = new Set<string>()
+  const primaryOppId = asIdOrNull(data.opponent_id)
+  const primaryName = String(data.opponent_name ?? '').trim()
+  const hasOpp =
+    Boolean(primaryOppId) ||
+    Boolean(primaryName) ||
+    extraOpps.some((o) => Boolean(asIdOrNull(o.opponent_id) || String(o.full_name ?? '').trim()))
+  if (isCreate && !hasOpp) throw new Error('يجب إضافة خصم واحد على الأقل')
+
+  if (primaryOppId) {
+    seenOpp.add(primaryOppId)
+    linkOpponentRowLocal(caseId, primaryOppId, 0, {
+      capacity_first: data.opponent_capacity_first,
+      capacity_appeal: data.opponent_capacity_appeal,
+      capacity_cassation: data.opponent_capacity_cassation
+    })
+  } else if (primaryName) {
+    const oid = findOrCreateOpponent(primaryName, data.opponent_lawyer, undefined)
+    seenOpp.add(oid)
+    linkOpponentRowLocal(caseId, oid, 0, {
+      capacity_first: data.opponent_capacity_first,
+      capacity_appeal: data.opponent_capacity_appeal,
+      capacity_cassation: data.opponent_capacity_cassation
+    })
   }
-  for (const opp of extraOpps) {
+  extraOpps.forEach((opp, i) => {
     let oid = asIdOrNull(opp.opponent_id)
-    if (!oid && opp.full_name) {
-      oid = newId()
-      const ts = nowIso()
-      db.prepare(
-        `INSERT INTO opponents (id, full_name, lawyer_name, lawyer_phone, created_at, updated_at) VALUES (?,?,?,?,?,?)`
-      ).run(oid, opp.full_name, opp.lawyer_name ?? null, opp.lawyer_phone ?? null, ts, ts)
-      recordLocalChange('opponents', oid, 'INSERT')
+    const name = String(opp.full_name ?? '').trim()
+    if (!oid && name) oid = findOrCreateOpponent(name, opp.lawyer_name, opp.lawyer_phone)
+    if (!oid) return
+    seenOpp.add(oid)
+    linkOpponentRowLocal(caseId, oid, i + 1, opp)
+    rememberLookup('capacity', opp.capacity_first)
+    rememberLookup('capacity', opp.capacity_appeal)
+    rememberLookup('capacity', opp.capacity_cassation)
+  })
+  if (!isCreate) {
+    const oldOpps = db.prepare(`SELECT id, opponent_id FROM case_opponents WHERE case_id = ? AND ${notDeleted()}`).all(caseId) as {
+      id: string
+      opponent_id: string
+    }[]
+    for (const row of oldOpps) {
+      if (!seenOpp.has(row.opponent_id)) softDelete('case_opponents', row.id)
     }
-    if (oid) linkOpponentRowLocal(caseId, oid)
-  }
-  if (data.opponent_name && extraOpps.length === 0 && isCreate) {
-    const oid = newId()
-    const ts = nowIso()
-    db.prepare(
-      `INSERT INTO opponents (id, full_name, lawyer_name, created_at, updated_at) VALUES (?,?,?,?,?)`
-    ).run(oid, data.opponent_name, data.opponent_lawyer ?? null, ts, ts)
-    recordLocalChange('opponents', oid, 'INSERT')
-    linkOpponentRowLocal(caseId, oid)
   }
 }
 
-function linkOpponentRowLocal(caseId: string, opponentId: string) {
+function findOrCreateOpponent(fullName: string, lawyerName?: unknown, lawyerPhone?: unknown) {
+  const db = getDb()
+  const existing = db
+    .prepare(`SELECT id FROM opponents WHERE full_name = ? AND ${notDeleted()} LIMIT 1`)
+    .get(fullName) as { id: string } | undefined
+  if (existing) return existing.id
+  const oid = newId()
+  const ts = nowIso()
+  db.prepare(
+    `INSERT INTO opponents (id, full_name, lawyer_name, lawyer_phone, created_at, updated_at) VALUES (?,?,?,?,?,?)`
+  ).run(oid, fullName, lawyerName ?? null, lawyerPhone ?? null, ts, ts)
+  recordLocalChange('opponents', oid, 'INSERT')
+  return oid
+}
+
+function linkOpponentRowLocal(
+  caseId: string,
+  opponentId: string,
+  sortOrder = 0,
+  caps: { capacity_first?: unknown; capacity_appeal?: unknown; capacity_cassation?: unknown } = {}
+) {
   const db = getDb()
   const existing = db
     .prepare('SELECT id, deleted_at FROM case_opponents WHERE case_id = ? AND opponent_id = ?')
     .get(caseId, opponentId) as { id: string; deleted_at: string | null } | undefined
   const ts = nowIso()
-  if (existing && !existing.deleted_at) return
   if (existing) {
-    db.prepare('UPDATE case_opponents SET deleted_at = NULL, updated_at = ? WHERE id = ?').run(ts, existing.id)
+    db.prepare(
+      `UPDATE case_opponents SET deleted_at = NULL, sort_order=?, capacity_first=?, capacity_appeal=?, capacity_cassation=?, updated_at = ? WHERE id = ?`
+    ).run(sortOrder, caps.capacity_first ?? null, caps.capacity_appeal ?? null, caps.capacity_cassation ?? null, ts, existing.id)
     recordLocalChange('case_opponents', existing.id, 'UPDATE')
     return
   }
   const id = newId()
   db.prepare(
-    'INSERT INTO case_opponents (id, case_id, opponent_id, created_at, updated_at) VALUES (?,?,?,?,?)'
-  ).run(id, caseId, opponentId, ts, ts)
+    `INSERT INTO case_opponents (id, case_id, opponent_id, capacity_first, capacity_appeal, capacity_cassation, sort_order, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?)`
+  ).run(
+    id,
+    caseId,
+    opponentId,
+    caps.capacity_first ?? null,
+    caps.capacity_appeal ?? null,
+    caps.capacity_cassation ?? null,
+    sortOrder,
+    ts,
+    ts
+  )
   recordLocalChange('case_opponents', id, 'INSERT')
 }
 

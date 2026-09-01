@@ -1,3 +1,5 @@
+import { invalidateListCache } from './listCache'
+
 type Listener = () => void
 const listeners = new Set<Listener>()
 
@@ -9,6 +11,7 @@ export function onDataChanged(fn: Listener) {
 }
 
 export function notifyDataChanged() {
+  invalidateListCache()
   for (const fn of [...listeners]) {
     try {
       fn()

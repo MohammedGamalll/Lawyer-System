@@ -8,11 +8,12 @@ import type { AuthedUser } from '../ipc/helpers'
 import type { ListQuery } from '@shared/types'
 import { parseSchema, reminderSchema, taskSchema } from '@shared/schemas'
 import { rememberLookup } from './lookups'
+import { clampPageSize, pageKind, pickSort, sqlDir } from '../db/queryLimits'
 
 export function listTasks(query: ListQuery = {}, userId?: string) {
   const db = getDb()
   const page = query.page ?? 1
-  const pageSize = query.pageSize ?? 50
+  const pageSize = clampPageSize(query.pageSize, pageKind(query))
   const params: unknown[] = []
   let where = `WHERE ${notDeleted('t')}`
   const f = query.filters ?? {}
@@ -27,19 +28,50 @@ export function listTasks(query: ListQuery = {}, userId?: string) {
     where += ' AND t.assignee_id = ?'
     params.push(f.assignee_id)
   }
+  if (f.case_id) {
+    where += ' AND t.case_id = ?'
+    params.push(f.case_id)
+  }
+  if (f.work_kind) {
+    where += ' AND IFNULL(t.work_kind, \'admin\') = ?'
+    params.push(f.work_kind)
+  }
+  if (f.venue) {
+    where += ' AND t.venue LIKE ?'
+    params.push(`%${String(f.venue).trim()}%`)
+  }
+  if (f.date_from) {
+    where += ' AND t.due_date >= ?'
+    params.push(f.date_from)
+  }
+  if (f.date_to) {
+    where += ' AND t.due_date <= ?'
+    params.push(f.date_to)
+  }
   if (query.search) {
     where += ' AND t.title LIKE ?'
     params.push(`%${query.search}%`)
   }
   const total = (db.prepare(`SELECT COUNT(*) as c FROM tasks t ${where}`).get(...params) as { c: number }).c
+  const order = pickSort(query.sortBy, {
+    title: 't.title',
+    due_date: 't.due_date',
+    status: 't.status',
+    venue: 't.venue',
+    case_number: 'cs.case_number',
+    assignee_name: 'u.full_name'
+  }, 't.due_date IS NULL, t.due_date ASC')
+  const dir = query.sortBy ? ` ${sqlDir(query.sortDir)}` : ''
   const rows = db
     .prepare(
-      `SELECT t.*, u.full_name as assignee_name, cs.case_number, cl.full_name as client_name
+      `SELECT t.id, t.title, t.description, t.venue, t.case_subject, t.assignee_id, t.case_id, t.client_id,
+              t.due_date, t.priority, t.status, t.progress, t.work_kind,
+              u.full_name as assignee_name, cs.case_number, cl.full_name as client_name
        FROM tasks t
        LEFT JOIN users u ON u.id = t.assignee_id AND ${notDeleted('u')}
        LEFT JOIN cases cs ON cs.id = t.case_id AND ${notDeleted('cs')}
        LEFT JOIN clients cl ON cl.id = t.client_id AND ${notDeleted('cl')}
-       ${where} ORDER BY t.due_date IS NULL, t.due_date ASC LIMIT ? OFFSET ?`
+       ${where} ORDER BY ${order}${dir} LIMIT ? OFFSET ?`
     )
     .all(...params, pageSize, (page - 1) * pageSize)
   return { rows, total, page, pageSize }
@@ -63,12 +95,14 @@ export function getTask(id: string) {
 export function createTask(actor: AuthedUser, data: Record<string, unknown>) {
   data = parseSchema(taskSchema, data) as Record<string, unknown>
   if (!String(data.title ?? '').trim()) throw new Error('اسم المهمة مطلوب')
+  if (!String(data.description ?? '').trim()) throw new Error('البيان مطلوب لحفظ العمل الإداري')
+  if (!String(data.due_date ?? '').trim()) throw new Error('تاريخ العمل الإداري مطلوب')
   const ts = nowIso()
   const id = newId()
   getDb()
     .prepare(
-      `INSERT INTO tasks (id, title, description, venue, case_subject, assignee_id, case_id, client_id, start_date, due_date, priority, status, progress, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      `INSERT INTO tasks (id, title, description, venue, case_subject, assignee_id, case_id, client_id, start_date, due_date, priority, status, progress, work_kind, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     )
     .run(
       id,
@@ -82,13 +116,14 @@ export function createTask(actor: AuthedUser, data: Record<string, unknown>) {
       data.start_date ?? null,
       data.due_date ?? null,
       data.priority ?? 'medium',
-      data.status ?? 'new',
+      data.status ?? 'not_done',
       data.progress ?? 0,
+      data.work_kind || 'admin',
       ts,
       ts
     )
   recordLocalChange('tasks', id, 'INSERT')
-  rememberLookup('admin_action', data.title)
+  rememberLookup(data.work_kind === 'execution' ? 'execution_action' : 'admin_action', data.title)
   rememberLookup('venue', data.venue)
   rememberLookup('case_subject', data.case_subject)
   if (data.due_date) {
@@ -108,10 +143,12 @@ export function createTask(actor: AuthedUser, data: Record<string, unknown>) {
 }
 
 export function updateTask(actor: AuthedUser, id: string, data: Record<string, unknown>) {
+  if (!String(data.description ?? '').trim()) throw new Error('البيان مطلوب لحفظ العمل الإداري')
+  if (!String(data.due_date ?? '').trim()) throw new Error('تاريخ العمل الإداري مطلوب')
   getDb()
     .prepare(
       `UPDATE tasks SET title=?, description=?, venue=?, case_subject=?, assignee_id=?, case_id=?, client_id=?, start_date=?, due_date=?,
-        priority=?, status=?, progress=?, updated_at=? WHERE id=?`
+        priority=?, status=?, progress=?, work_kind=?, updated_at=? WHERE id=?`
     )
     .run(
       data.title,
@@ -124,8 +161,9 @@ export function updateTask(actor: AuthedUser, id: string, data: Record<string, u
       data.start_date ?? null,
       data.due_date ?? null,
       data.priority ?? 'medium',
-      data.status ?? 'new',
+      data.status ?? 'not_done',
       data.progress ?? 0,
+      data.work_kind || 'admin',
       nowIso(),
       id
     )
@@ -145,7 +183,7 @@ export function removeTask(actor: AuthedUser, id: string) {
 export function listReminders(query: ListQuery = {}) {
   const db = getDb()
   const page = query.page ?? 1
-  const pageSize = query.pageSize ?? 50
+  const pageSize = clampPageSize(query.pageSize, pageKind(query))
   const params: unknown[] = []
   let where = `WHERE r.is_dismissed = 0 AND ${notDeleted('r')}`
   if (query.filters?.reminder_type) {

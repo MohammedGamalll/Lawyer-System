@@ -67,7 +67,6 @@ export function LoginPage() {
             {busy ? t('loading') : t('enter')}
           </Button>
         </div>
-        <p className="mt-4 text-center text-xs text-navy-400">{t('defaultAccount')}</p>
       </form>
     </div>
   )

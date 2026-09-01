@@ -6,11 +6,12 @@ import { recordLocalChange, softDelete } from '../sync/queue'
 import { createReminder, reminderBeforeExpiry } from './reminders'
 import type { AuthedUser } from '../ipc/helpers'
 import type { ListQuery } from '@shared/types'
+import { clampPageSize, pageKind } from '../db/queryLimits'
 
 export function listPoa(q: ListQuery = {}) {
   const db = getDb()
   const page = q.page ?? 1
-  const pageSize = q.pageSize ?? 20
+  const pageSize = clampPageSize(q.pageSize, pageKind(q))
   const params: unknown[] = []
   let where = `WHERE ${notDeleted('p')}`
   if (q.search) {
@@ -104,7 +105,7 @@ export function removePoa(actor: AuthedUser, id: string) {
 export function listContracts(q: ListQuery = {}) {
   const db = getDb()
   const page = q.page ?? 1
-  const pageSize = q.pageSize ?? 20
+  const pageSize = clampPageSize(q.pageSize, pageKind(q))
   const params: unknown[] = []
   let where = `WHERE ${notDeleted('c')}`
   if (q.search) {
@@ -200,7 +201,7 @@ export function removeContract(actor: AuthedUser, id: string) {
 export function listConsultations(q: ListQuery = {}) {
   const db = getDb()
   const page = q.page ?? 1
-  const pageSize = q.pageSize ?? 20
+  const pageSize = clampPageSize(q.pageSize, pageKind(q))
   const params: unknown[] = []
   let where = `WHERE ${notDeleted('c')}`
   if (q.search) {
@@ -283,7 +284,7 @@ export function removeConsultation(actor: AuthedUser, id: string) {
 export function listCorrespondence(q: ListQuery = {}) {
   const db = getDb()
   const page = q.page ?? 1
-  const pageSize = q.pageSize ?? 20
+  const pageSize = clampPageSize(q.pageSize, pageKind(q))
   const params: unknown[] = []
   let where = `WHERE ${notDeleted('c')}`
   if (q.search) {

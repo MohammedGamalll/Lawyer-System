@@ -9,11 +9,12 @@ import type { AuthedUser } from '../ipc/helpers'
 import type { ListQuery } from '@shared/types'
 import { PERMISSIONS, ROLE_PERMISSIONS } from '@shared/permissions'
 import { userCreateSchema, userUpdateSchema, parseSchema } from '@shared/schemas'
+import { clampPageSize, pageKind } from '../db/queryLimits'
 
 export function listUsers(query: ListQuery = {}, actor?: AuthedUser | null) {
   const db = getDb()
   const page = query.page ?? 1
-  const pageSize = query.pageSize ?? 20
+  const pageSize = clampPageSize(query.pageSize, pageKind(query))
   const params: unknown[] = []
   let where = `WHERE ${notDeleted('u')}`
   if (query.search) {

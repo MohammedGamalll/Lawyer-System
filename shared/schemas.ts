@@ -45,7 +45,7 @@ export const emailSchema = z.preprocess(
 export const clientSchema = z
   .object({
     full_name: reqStr,
-    trade_name: optStr,
+    nickname: optStr,
     national_id: optStr,
     phone: phoneSchema,
     phone2: phoneSchema,
@@ -62,7 +62,8 @@ export const clientSchema = z
     commercial_register: optStr,
     tax_id: optStr,
     manager_name: optStr,
-    contacts: z.array(z.object({ name: reqStr, position: optStr, phone: phoneSchema, email: emailSchema })).optional()
+    contacts: z.array(z.object({ name: reqStr, position: optStr, phone: phoneSchema, email: emailSchema })).optional(),
+    force_similar: z.coerce.boolean().optional()
   })
   .superRefine((data, ctx) => {
     const nid = String(data.national_id ?? '').trim()
@@ -99,6 +100,12 @@ export const caseSchema = z.object({
   cassation_year: optStr,
   extra_ref_type: optStr,
   extra_ref_number: optStr,
+  extra_ref2_type: optStr,
+  extra_ref2_number: optStr,
+  extra_ref3_type: optStr,
+  extra_ref3_number: optStr,
+  session_place: optStr,
+  previous_circuit: optStr,
   filing_date: optStr,
   received_date: optStr,
   status: optStr,
@@ -132,13 +139,19 @@ export const caseSchema = z.object({
         opponent_id: optId,
         full_name: optStr,
         lawyer_name: optStr,
-        lawyer_phone: optStr
+        lawyer_phone: optStr,
+        capacity_first: optStr,
+        capacity_appeal: optStr,
+        capacity_cassation: optStr
       })
     )
     .optional(),
   capacity_first: optStr,
   capacity_appeal: optStr,
-  capacity_cassation: optStr
+  capacity_cassation: optStr,
+  opponent_capacity_first: optStr,
+  opponent_capacity_appeal: optStr,
+  opponent_capacity_cassation: optStr
 })
 
 export const hearingSchema = z.object({
@@ -159,22 +172,26 @@ export const hearingSchema = z.object({
   what_happened: optStr,
   required_documents: optStr,
   next_actions: optStr,
-  notes: optStr
+  notes: optStr,
+  upcoming_procedures: z
+    .array(z.object({ title: z.string().optional(), due_date: z.string().optional() }))
+    .optional()
 })
 
 export const taskSchema = z.object({
   title: reqStr,
-  description: optStr,
+  description: reqStr,
   venue: optStr,
   case_subject: optStr,
   assignee_id: optId,
   case_id: optId,
   client_id: optId,
   start_date: optStr,
-  due_date: optStr,
+  due_date: reqStr,
   priority: optStr,
   status: optStr,
-  progress: optNum
+  progress: optNum,
+  work_kind: optStr
 })
 
 export const reminderSchema = z.object({
@@ -351,6 +368,7 @@ export const leaveSchema = z.object({
 
 export const opponentSchema = z.object({
   full_name: reqStr,
+  nickname: optStr,
   national_id: nationalIdSchema,
   phone: phoneSchema,
   address: optStr,

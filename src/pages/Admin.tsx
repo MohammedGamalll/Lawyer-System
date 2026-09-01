@@ -4,6 +4,7 @@ import { invoke } from '../lib/api'
 import { useApp } from '../store'
 import { Button, Card, Field, Input, PageHeader, Select } from '../components/ui'
 import { DatePicker } from '../components/DateTimePicker'
+import { LookupCombo } from '../components/LookupCombo'
 import { CrudPage } from '../components/CrudPage'
 import i18n from '../i18n'
 import { formatCell } from '../lib/datetime'
@@ -38,17 +39,19 @@ export function ReportsPage() {
   const [type, setType] = useState('cases')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
+  const [venue, setVenue] = useState('')
   const [rows, setRows] = useState<object[]>([])
   const headerKeys = rows[0] ? Object.keys(rows[0] as object) : []
   const colLabel = (k: string) => t(`fields.${k}`, { defaultValue: t(`reports.${k}`, { defaultValue: k }) })
   const cell = (k: string, v: unknown) => (typeof v === 'object' && v !== null ? '' : formatCell(k, v, i18n.language, t))
+  const q = { type, from, to, venue: type === 'hearings' || type === 'tasks' ? venue || undefined : undefined }
 
-  const run = () => invoke<object[]>('reports:run', { type, from, to }).then(setRows).catch((e) => toast(e.message, 'err'))
+  const run = () => invoke<object[]>('reports:run', q).then(setRows).catch((e) => toast(e.message, 'err'))
   useEffect(() => {
     run()
-  }, [type, from, to])
+  }, [type, from, to, venue])
   const exp = async (format: 'xlsx' | 'csv') => {
-    const r = await invoke<{ canceled?: boolean }>('reports:export', { type, from, to }, format)
+    const r = await invoke<{ canceled?: boolean }>('reports:export', q, format)
     if (!r?.canceled) toast(t('savedOk'))
   }
   const print = async () => {
@@ -73,6 +76,11 @@ export function ReportsPage() {
           </Select>
           <DatePicker value={from} onChange={setFrom} />
           <DatePicker value={to} onChange={setTo} />
+          {(type === 'hearings' || type === 'tasks') && (
+            <div className="w-44">
+              <LookupCombo kind="venue" value={venue} onChange={setVenue} placeholder={t('fields.venue')} />
+            </div>
+          )}
           <Button onClick={run}>{t('reports.show')}</Button>
           <Button variant="outline" onClick={() => exp('xlsx')}>
             Excel

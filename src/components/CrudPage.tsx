@@ -11,8 +11,13 @@ import { DatePicker, DateTimePicker, TimePicker } from './DateTimePicker'
 import { EntitySelect } from './EntitySelect'
 import { LookupCombo } from './LookupCombo'
 import { formatCell } from '../lib/datetime'
+import { formatProgramCode } from '../lib/courtNumber'
 import type { LookupKind } from '../lib/lookups'
 import { emailSchema, msg, nationalIdSchema, phoneSchema } from '@shared/schemas'
+import { TableVirtuoso } from 'react-virtuoso'
+import { useDebouncedValue } from '../lib/useDebouncedValue'
+import { getListCache, listCacheKey, setListCache } from '../lib/listCache'
+import { SimilarClientModal } from './SimilarClientModal'
 import { onDataChanged } from '../lib/bus'
 
 export type FieldDef = {
@@ -36,6 +41,7 @@ export type FieldDef = {
     | 'employees'
     | 'hearings'
     | 'contracts'
+  size?: 'sm' | 'xs'
 }
 
 export function schemaFromFields(fields: FieldDef[]) {
@@ -58,7 +64,8 @@ export function FormFields({
   errors,
   register,
   extra,
-  extraAfter
+  extraAfter,
+  compact
 }: {
   fields: FieldDef[]
   values: Record<string, unknown>
@@ -67,13 +74,14 @@ export function FormFields({
   register?: (name: string) => Record<string, unknown>
   extra?: React.ReactNode
   extraAfter?: string
+  compact?: boolean
 }) {
   return (
-    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+    <div className={compact ? 'grid grid-cols-1 gap-2 md:grid-cols-3' : 'grid grid-cols-1 gap-3 md:grid-cols-2'}>
       {fields.map((f) => {
         const opts = f.options
         const val = (values[f.name] as string | number | undefined) ?? ''
-        const span = f.type === 'textarea' ? 'md:col-span-2' : ''
+        const span = f.type === 'textarea' ? (compact ? 'md:col-span-3' : 'md:col-span-2') : f.size === 'xs' ? 'max-w-[6.5rem]' : f.size === 'sm' ? 'max-w-[8.5rem]' : ''
         const err = errors?.[f.name]
         const reg = (register ? register(f.name) : {}) as {
           onChange?: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => void
@@ -176,7 +184,15 @@ export function CrudPage({
   rowActions,
   formExtra,
   formExtraAfter,
-  defaults
+  formPrefix,
+  defaults,
+  idleUntilSearch,
+  hideQuickSearch,
+  emptyHint,
+  compactForm,
+  onRowsLoaded,
+  pageSize: pageSizeProp,
+  embedded
 }: {
   title: string
   listChannel: string
@@ -198,61 +214,129 @@ export function CrudPage({
   rowActions?: (row: Record<string, unknown>, reload: () => Promise<void>) => React.ReactNode
   formExtra?: (form: Record<string, unknown>, setField: (name: string, value: unknown) => void) => React.ReactNode
   formExtraAfter?: string
+  formPrefix?: (form: Record<string, unknown>, setField: (name: string, value: unknown) => void) => React.ReactNode
   defaults?: Record<string, unknown>
+  idleUntilSearch?: boolean
+  hideQuickSearch?: boolean
+  emptyHint?: string
+  compactForm?: boolean
+  onRowsLoaded?: (rows: Record<string, unknown>[], total: number) => void
+  pageSize?: number
+  embedded?: boolean
 }) {
   const { t, i18n } = useTranslation()
   const { toast, can, pageMeta, page: appPage, setPage: setAppPage } = useApp()
   const [q, setQ] = useState('')
+  const debouncedQ = useDebouncedValue(q, 300)
   const [page, setPage] = useState(1)
+  const [printing, setPrinting] = useState(false)
   const [data, setData] = useState<{ rows: Record<string, unknown>[]; total: number; pageSize: number }>({ rows: [], total: 0, pageSize: 20 })
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Record<string, unknown> | null>(null)
   const [form, setForm] = useState<Record<string, unknown>>({})
   const [del, setDel] = useState<Record<string, unknown> | null>(null)
   const [saving, setSaving] = useState(false)
+  const [similar, setSimilar] = useState<{ id: string; client_number: string; full_name: string } | null>(null)
+  const [pendingPayload, setPendingPayload] = useState<Record<string, unknown> | null>(null)
   const [sortKey, setSortKey] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [colFilters, setColFilters] = useState<Record<string, string>>({})
   const zodSchema = (editing ? updateSchema : createSchema) ?? schema ?? schemaFromFields(fields)
   const rhf = useForm<Record<string, unknown>>({ resolver: zodResolver(zodSchema as never), values: form, mode: 'onChange' })
 
-  const hasColFilter = Object.values(colFilters).some((v) => v.trim())
+  const hasListFilter = Object.values(listFilters || {}).some((v) => String(v ?? '').trim())
+  const listPageSize = Math.min(pageSizeProp || 50, 100)
+  const queryPayload = {
+    page,
+    pageSize: listPageSize,
+    search: debouncedQ,
+    filters: listFilters || {},
+    sortBy: sortKey || undefined,
+    sortDir
+  }
+
   const load = async () => {
-    const res = await invoke<{ rows: Record<string, unknown>[]; total: number; pageSize: number }>(listChannel, {
-      page: hasColFilter || sortKey ? 1 : page,
-      pageSize: hasColFilter || sortKey ? 400 : 20,
-      search: q,
-      filters: listFilters || {},
-      sortBy: sortKey || undefined,
-      sortDir
-    })
+    if (idleUntilSearch && !debouncedQ.trim() && !hasListFilter) {
+      setData({ rows: [], total: 0, pageSize: listPageSize })
+      return
+    }
+    const key = listCacheKey(listChannel, queryPayload)
+    const cached = getListCache<{ rows: Record<string, unknown>[]; total: number; pageSize: number }>(key)
+    if (cached) {
+      setData(cached)
+      onRowsLoaded?.(cached.rows, cached.total)
+    }
+    const res = await invoke<{ rows: Record<string, unknown>[]; total: number; pageSize: number }>(listChannel, queryPayload)
+    setListCache(key, res)
     setData(res)
+    onRowsLoaded?.(res.rows, res.total)
+  }
+
+  const printList = async () => {
+    setPrinting(true)
+    try {
+      const res = await invoke<{ rows: Record<string, unknown>[]; total: number }> (listChannel, {
+        page: 1,
+        pageSize: 500,
+        print: true,
+        search: debouncedQ,
+        filters: listFilters || {},
+        sortBy: sortKey || undefined,
+        sortDir
+      })
+      const rows = res.rows || []
+      const esc = (s: string) =>
+        s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      const head = columns.map((c) => `<th>${esc(c.label)}</th>`).join('')
+      const bodyRows = rows
+        .map(
+          (r) =>
+            `<tr>${columns
+              .map((c) => `<td>${esc(formatCell(c.key, r[c.key], i18n.language, t) || String(r[c.key] ?? ''))}</td>`)
+              .join('')}</tr>`
+        )
+        .join('')
+      const body = `<h2>${esc(title)}</h2><table><thead><tr>${head}</tr></thead><tbody>${bodyRows || `<tr><td>${t('noData')}</td></tr>`}</tbody></table>`
+      await invoke('print:print', 'report', title, body)
+      if ((res.total || 0) > rows.length) toast(t('printListCapped', { count: rows.length }))
+    } catch (e) {
+      toast((e as Error).message, 'err')
+    } finally {
+      setPrinting(false)
+    }
   }
 
   useEffect(() => {
     load().catch((e) => toast(e.message, 'err'))
-  }, [page, q, listChannel, JSON.stringify(listFilters), hasColFilter, sortKey, sortDir])
+  }, [page, debouncedQ, listChannel, JSON.stringify(listFilters), sortKey, sortDir, idleUntilSearch])
 
   useEffect(() => onDataChanged(() => {
     load().catch(() => undefined)
-  }), [listChannel, page, q, JSON.stringify(listFilters)])
+  }), [listChannel, page, debouncedQ, JSON.stringify(listFilters), sortKey, sortDir])
 
   useEffect(() => {
     if (!pageMeta.edit_id) return
     const editId = String(pageMeta.edit_id)
-    const row = data.rows.find((r) => String(r.id) === editId)
-    if (!row) return
-    startEdit(row)
+    const fromList = data.rows.find((r) => String(r.id) === editId)
     const rest = { ...pageMeta }
     delete rest.edit_id
     setAppPage(appPage, rest, { replace: true })
-  }, [pageMeta.edit_id, data.rows])
+    if (fromList) {
+      startEdit(fromList)
+      return
+    }
+    const getChannel = listChannel.replace(/:list$/, ':get')
+    invoke<Record<string, unknown>>(getChannel, editId)
+      .then((row) => startEdit(row))
+      .catch((e) => toast((e as Error).message, 'err'))
+  }, [pageMeta.edit_id])
 
   useEffect(() => {
     if (!pageMeta.create) return
     const prefill: Record<string, unknown> = {}
     if (pageMeta.case_id) prefill.case_id = pageMeta.case_id
     if (pageMeta.client_id) prefill.client_id = pageMeta.client_id
+    if (pageMeta.work_kind) prefill.work_kind = pageMeta.work_kind
     if (pageMeta.prefill && typeof pageMeta.prefill === 'object') Object.assign(prefill, pageMeta.prefill)
     startCreate(prefill)
     const rest = { ...pageMeta }
@@ -268,11 +352,59 @@ export function CrudPage({
     setOpen(true)
   }
   const startEdit = (row: Record<string, unknown>) => {
+    void (async () => {
     setEditing(row)
-    const next: Record<string, unknown> = { ...row, password: '' }
+    let next: Record<string, unknown> = { ...row, password: '' }
     delete next.password_hash
+    if (listChannel === 'cases:list' && row.id) {
+      try {
+        const full = await invoke<Record<string, unknown>>('cases:get', row.id)
+        next = { ...next, ...full }
+        const parties = (full.caseClients as { client_id: string; is_primary?: number; capacity_first?: string; capacity_appeal?: string; capacity_cassation?: string }[]) || []
+        const primary = parties.find((p) => Number(p.is_primary) === 1) || parties[0]
+        if (primary) {
+          next.capacity_first = primary.capacity_first || ''
+          next.capacity_appeal = primary.capacity_appeal || ''
+          next.capacity_cassation = primary.capacity_cassation || ''
+        }
+        next.extra_clients = parties
+          .filter((p) => Number(p.is_primary) !== 1)
+          .map((p) => ({
+            client_id: p.client_id,
+            capacity_first: p.capacity_first || '',
+            capacity_appeal: p.capacity_appeal || '',
+            capacity_cassation: p.capacity_cassation || ''
+          }))
+        const opps =
+          (full.opponents as {
+            id: string
+            full_name: string
+            lawyer_name?: string
+            lawyer_phone?: string
+            capacity_first?: string
+            capacity_appeal?: string
+            capacity_cassation?: string
+          }[]) || []
+        const primaryOpp = opps[0]
+        next.opponent_name = String(full.opponent_name || primaryOpp?.full_name || '')
+        next.opponent_id = primaryOpp?.id || ''
+        next.extra_opponents = opps
+          .filter((o) => o.id !== primaryOpp?.id)
+          .map((o) => ({
+            opponent_id: o.id,
+            full_name: o.full_name,
+            lawyer_name: o.lawyer_name || '',
+            lawyer_phone: o.lawyer_phone || '',
+            capacity_first: o.capacity_first || '',
+            capacity_appeal: o.capacity_appeal || '',
+            capacity_cassation: o.capacity_cassation || ''
+          }))
+      } catch {
+        /* keep list row */
+      }
+    }
     if (!next.office_case_number && typeof next.case_number === 'string') {
-      const m = String(next.case_number).match(/^(.*)\/(\d{4})$/)
+      const m = String(next.case_number).match(/^(.*)\/(\d{2,4})$/)
       if (m && !String(next.case_number).startsWith('CS-')) {
         next.office_case_number = m[1]
         if (!next.case_year) next.case_year = m[2]
@@ -281,11 +413,13 @@ export function CrudPage({
     setForm(next)
     rhf.reset(next)
     setOpen(true)
+    })()
   }
   const save = rhf.handleSubmit(async (values) => {
     setSaving(true)
+    const payload: Record<string, unknown> = { ...form, ...(values as Record<string, unknown>) }
+    let result: unknown
     try {
-      const payload: Record<string, unknown> = { ...form, ...(values as Record<string, unknown>) }
       const pwd = String(payload.password ?? form.password ?? '').trim()
       if (pwd) payload.password = pwd
       else delete payload.password
@@ -294,13 +428,28 @@ export function CrudPage({
         setSaving(false)
         return
       }
-      if (editing && updateChannel) await invoke(updateChannel, editing.id, payload)
-      else if (createChannel) await invoke(createChannel, payload)
+      if (editing && updateChannel) result = await invoke(updateChannel, editing.id, payload)
+      else if (createChannel) result = await invoke(createChannel, payload)
+      const extra = result as { followUp?: string; autoHearing?: boolean; autoTasks?: number } | undefined
+      if (extra?.autoHearing) toast(t('hearings.autoCreated'))
+      if (extra?.autoTasks) toast(t('hearings.autoTasks', { count: extra.autoTasks }))
+      if (extra?.followUp) toast(extra.followUp)
       toast(t('savedOk'))
       setOpen(false)
+      setSimilar(null)
+      setPendingPayload(null)
       await load()
     } catch (e) {
       const err = e as ApiError
+      if (err.fieldErrors?._similar) {
+        try {
+          setSimilar(JSON.parse(err.fieldErrors._similar))
+          setPendingPayload(payload)
+        } catch {
+          toast(err.message, 'err')
+        }
+        return
+      }
       toast(err.message, 'err')
       if (err.fieldErrors) {
         for (const [k, v] of Object.entries(err.fieldErrors)) {
@@ -366,60 +515,153 @@ export function CrudPage({
     return rows
   }, [data.rows, colFilters, sortKey, sortDir, i18n.language, t])
 
+  const rowCells = (row: Record<string, unknown>) => (
+    <>
+      {columns.map((c) => (
+        <td
+          key={c.key}
+          className={`whitespace-nowrap px-3 py-2 text-start align-middle leading-relaxed text-navy-900 dark:text-white ${c.onCellClick ? 'cursor-pointer underline decoration-navy-300' : ''}`}
+          onClick={(e) => {
+            if (!c.onCellClick) return
+            e.stopPropagation()
+            c.onCellClick(row)
+          }}
+        >
+          {c.render ? (
+            c.render(row)
+          ) : c.status ? (
+            <StatusBadge value={String(row[c.key] ?? '')} />
+          ) : c.money ? (
+            Number(row[c.key] ?? 0).toLocaleString(i18n.language === 'en' ? 'en-EG' : 'ar-EG')
+          ) : (
+            formatCell(c.key, row[c.key], i18n.language, t)
+          )}
+        </td>
+      ))}
+      <td className="w-12 px-1 py-2 text-center align-middle" data-no-row onClick={(e) => e.stopPropagation()}>
+        <RowMenu
+          items={[
+            ...(onRowOpen ? [{ label: t('details'), onClick: () => onRowOpen(row) }] : []),
+            ...(updateChannel && (!updatePerm || can(updatePerm))
+              ? [{ label: t('edit'), onClick: () => startEdit(row) }]
+              : []),
+            ...(removeChannel && (!deletePerm || can(deletePerm))
+              ? [{ label: t('delete'), onClick: () => setDel(row), danger: true }]
+              : [])
+          ]}
+          extra={rowActions?.(row, load)}
+        />
+      </td>
+    </>
+  )
+
+  const headerRows = (
+    <>
+      <tr>
+        {columns.map((c) => (
+          <th key={c.key} className="whitespace-nowrap px-3 py-2 text-start font-semibold">
+            <button type="button" className="inline-flex items-center gap-1" onClick={() => toggleSort(c.key)}>
+              {c.label}
+              <span className="text-[10px] opacity-80">
+                {sortKey === c.key ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}
+              </span>
+            </button>
+          </th>
+        ))}
+        <th className="w-12 px-2 py-2 text-center">{t('actions')}</th>
+      </tr>
+      <tr className="bg-navy-700">
+        {columns.map((c) => (
+          <th key={c.key} className="px-2 py-1.5">
+            <input
+              className="h-7 w-full rounded border-0 bg-white/95 px-2 text-xs font-normal text-navy-900 outline-none dark:bg-navy-800 dark:text-white"
+              placeholder={t('filter')}
+              value={colFilters[c.key] || ''}
+              onChange={(e) => setColFilters((prev) => ({ ...prev, [c.key]: e.target.value }))}
+            />
+          </th>
+        ))}
+        <th />
+      </tr>
+    </>
+  )
+
+  const onRowClick = (e: React.MouseEvent, row: Record<string, unknown>) => {
+    const el = e.target as HTMLElement
+    if (el.closest('button, a, input, textarea, select, [data-no-row]')) return
+    if (onRowOpen) onRowOpen(row)
+    else if (updateChannel && (!updatePerm || can(updatePerm))) startEdit(row)
+  }
+
   return (
     <div>
-      <PageHeader
-        title={title}
-        actions={
-          <>
-            {extraActions}
-            {createChannel && (!createPerm || can(createPerm)) && (
-              <Button variant="gold" onClick={() => startCreate()}>
-                {t('add')}
+      {embedded ? (
+        <div className="mb-3 flex flex-wrap justify-end gap-2">
+          {extraActions}
+          <Button type="button" variant="outline" disabled={printing} onClick={() => printList()}>
+            {t('print')}
+          </Button>
+          {createChannel && (!createPerm || can(createPerm)) && (
+            <Button variant="gold" onClick={() => startCreate()}>
+              {t('add')}
+            </Button>
+          )}
+        </div>
+      ) : (
+        <PageHeader
+          title={title}
+          actions={
+            <>
+              {extraActions}
+              <Button type="button" variant="outline" disabled={printing} onClick={() => printList()}>
+                {t('print')}
               </Button>
-            )}
-          </>
-        }
-      />
+              {createChannel && (!createPerm || can(createPerm)) && (
+                <Button variant="gold" onClick={() => startCreate()}>
+                  {t('add')}
+                </Button>
+              )}
+            </>
+          }
+        />
+      )}
       <div className="mb-3 flex flex-wrap gap-2">
-        <Input placeholder={t('search')} value={q} onChange={(e) => { setPage(1); setQ(e.target.value) }} className="max-w-sm" />
+        {!hideQuickSearch ? (
+          <Input placeholder={t('search')} value={q} onChange={(e) => { setPage(1); setQ(e.target.value) }} className="max-w-sm" />
+        ) : null}
         {extraFilters}
       </div>
       <div className="data-table-wrap overflow-y-auto overflow-x-auto rounded-xl border border-navy-100 bg-white dark:bg-navy-900 dark:border-navy-800">
-        <table className="border-collapse text-sm">
-          <thead className="bg-navy-800 text-white">
-            <tr>
-              {columns.map((c) => (
-                <th key={c.key} className="whitespace-nowrap px-3 py-2 text-start font-semibold">
-                  <button type="button" className="inline-flex items-center gap-1" onClick={() => toggleSort(c.key)}>
-                    {c.label}
-                    <span className="text-[10px] opacity-80">
-                      {sortKey === c.key ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}
-                    </span>
-                  </button>
-                </th>
-              ))}
-              <th className="w-12 px-2 py-2 text-center">{t('actions')}</th>
-            </tr>
-            <tr className="bg-navy-700">
-              {columns.map((c) => (
-                <th key={c.key} className="px-2 py-1.5">
-                  <input
-                    className="h-7 w-full rounded border-0 bg-white/95 px-2 text-xs font-normal text-navy-900 outline-none dark:bg-navy-800 dark:text-white"
-                    placeholder={t('filter')}
-                    value={colFilters[c.key] || ''}
-                    onChange={(e) => setColFilters((prev) => ({ ...prev, [c.key]: e.target.value }))}
+        {displayRows.length > 50 ? (
+          <TableVirtuoso
+            style={{ height: 520 }}
+            data={displayRows}
+            className="border-collapse text-sm"
+            fixedHeaderContent={() => headerRows}
+            itemContent={(_i, row) => rowCells(row)}
+            components={{
+              Table: (props) => <table {...props} className="border-collapse text-sm" />,
+              TableRow: (props) => {
+                const row = displayRows[props['data-index'] as number]
+                return (
+                  <tr
+                    {...props}
+                    className="cursor-pointer border-t border-navy-50 hover:bg-navy-50/60 dark:border-navy-800 dark:hover:bg-navy-800/60"
+                    onClick={(e) => row && onRowClick(e, row)}
                   />
-                </th>
-              ))}
-              <th />
-            </tr>
-          </thead>
+                )
+              },
+              TableHead: (props) => <thead {...props} className="bg-navy-800 text-white" />
+            }}
+          />
+        ) : (
+        <table className="border-collapse text-sm">
+          <thead className="bg-navy-800 text-white">{headerRows}</thead>
           <tbody>
             {displayRows.length === 0 && (
               <tr>
                 <td colSpan={columns.length + 1} className="px-3 py-10 text-center text-navy-400">
-                  {t('noData')}
+                  {idleUntilSearch && !q.trim() && !hasListFilter ? emptyHint || t('cases.searchFirst') : t('noData')}
                 </td>
               </tr>
             )}
@@ -427,52 +669,14 @@ export function CrudPage({
               <tr
                 key={String(row.id)}
                 className="cursor-pointer border-t border-navy-50 hover:bg-navy-50/60 dark:border-navy-800 dark:hover:bg-navy-800/60"
-                onClick={(e) => {
-                  const el = e.target as HTMLElement
-                  if (el.closest('button, a, input, textarea, select, [data-no-row]')) return
-                  if (onRowOpen) onRowOpen(row)
-                  else if (updateChannel && (!updatePerm || can(updatePerm))) startEdit(row)
-                }}
+                onClick={(e) => onRowClick(e, row)}
               >
-                {columns.map((c) => (
-                  <td
-                    key={c.key}
-                    className={`whitespace-nowrap px-3 py-2 text-start align-middle leading-relaxed text-navy-900 dark:text-white ${c.onCellClick ? 'cursor-pointer underline decoration-navy-300' : ''}`}
-                    onClick={(e) => {
-                      if (!c.onCellClick) return
-                      e.stopPropagation()
-                      c.onCellClick(row)
-                    }}
-                  >
-                    {c.render ? (
-                      c.render(row)
-                    ) : c.status ? (
-                      <StatusBadge value={String(row[c.key] ?? '')} />
-                    ) : c.money ? (
-                      Number(row[c.key] ?? 0).toLocaleString(i18n.language === 'en' ? 'en-EG' : 'ar-EG')
-                    ) : (
-                      formatCell(c.key, row[c.key], i18n.language, t)
-                    )}
-                  </td>
-                ))}
-                <td className="w-12 px-1 py-2 text-center align-middle" data-no-row onClick={(e) => e.stopPropagation()}>
-                  <RowMenu
-                    items={[
-                      ...(onRowOpen ? [{ label: t('details'), onClick: () => onRowOpen(row) }] : []),
-                      ...(updateChannel && (!updatePerm || can(updatePerm))
-                        ? [{ label: t('edit'), onClick: () => startEdit(row) }]
-                        : []),
-                      ...(removeChannel && (!deletePerm || can(deletePerm))
-                        ? [{ label: t('delete'), onClick: () => setDel(row), danger: true }]
-                        : [])
-                    ]}
-                    extra={rowActions?.(row, load)}
-                  />
-                </td>
+                {rowCells(row)}
               </tr>
             ))}
           </tbody>
         </table>
+        )}
       </div>
       <div className="mt-3 flex items-center justify-between text-sm text-navy-600 dark:text-navy-200">
         <span>
@@ -490,11 +694,21 @@ export function CrudPage({
 
       <Modal open={open} title={editing ? t('edit') : t('add')} onClose={() => setOpen(false)} wide>
         <form onSubmit={save}>
+          {listChannel === 'cases:list' ? (
+            <div className="mb-3 text-center text-4xl font-black text-red-600">
+              {editing ? formatProgramCode(editing) : '0'}
+            </div>
+          ) : null}
+          {formPrefix?.(form, (n, v) => {
+            setForm((prev) => ({ ...prev, [n]: v }))
+            rhf.setValue(n as never, v as never, { shouldValidate: true })
+          })}
           <FormFields
             fields={fields}
             values={form}
             errors={fieldErrors}
             register={rhf.register as never}
+            compact={compactForm}
             extraAfter={formExtraAfter}
             extra={formExtra?.(form, (n, v) => {
               setForm((prev) => ({ ...prev, [n]: v }))
@@ -519,6 +733,37 @@ export function CrudPage({
         <p>{t('confirmDelete')}</p>
         <ConfirmBar onCancel={() => setDel(null)} onConfirm={doDelete} />
       </Modal>
+      <SimilarClientModal
+        open={!!similar}
+        name={similar?.full_name}
+        code={similar?.client_number}
+        saving={saving}
+        onClose={() => setSimilar(null)}
+        onOpenExisting={() => {
+          if (similar) useApp.getState().setPage('clientProfile', { id: similar.id })
+          setSimilar(null)
+          setOpen(false)
+        }}
+        onAddAsNew={async () => {
+          if (!pendingPayload || !createChannel) return
+          setSaving(true)
+          try {
+            if (editing && updateChannel) await invoke(updateChannel, editing.id, { ...pendingPayload, force_similar: true })
+            else await invoke(createChannel, { ...pendingPayload, force_similar: true })
+            toast(t('savedOk'))
+            setSimilar(null)
+            setPendingPayload(null)
+            setOpen(false)
+            await load()
+          } catch (e) {
+            const err = e as ApiError
+            if (err.fieldErrors?._similar) return
+            toast(err.message, 'err')
+          } finally {
+            setSaving(false)
+          }
+        }}
+      />
     </div>
   )
 }

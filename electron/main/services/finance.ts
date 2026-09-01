@@ -66,6 +66,10 @@ export function listPayments(q: ListQuery = {}) {
     const s = `%${q.search}%`
     params.push(s, s, s)
   }
+  if (q.filters?.case_id) {
+    where += ' AND p.case_id = ?'
+    params.push(q.filters.case_id)
+  }
   if (q.filters?.client_id) {
     where += ' AND p.client_id = ?'
     params.push(q.filters.client_id)
@@ -138,10 +142,13 @@ export function createPayment(actor: AuthedUser, data: Record<string, unknown>) 
   touchCashbox(cashboxId, 'income', amount, 'payment', id, `دفعة ${number}`, actor.id)
   if (caseId) {
     const fees = db.prepare(`SELECT * FROM case_fees WHERE case_id = ? AND ${notDeleted()}`).get(caseId) as
-      | { id: string; total_fees: number; paid: number }
+      | { id: string; total_fees: number }
       | undefined
     if (fees) {
-      const paid = fees.paid + amount
+      const paidRow = db
+        .prepare(`SELECT COALESCE(SUM(amount),0) as s FROM payments WHERE case_id = ? AND ${notDeleted()}`)
+        .get(caseId) as { s: number }
+      const paid = Number(paidRow.s)
       db.prepare('UPDATE case_fees SET paid = ?, remaining = ?, updated_at = ? WHERE id = ?').run(
         paid,
         Math.max(0, fees.total_fees - paid),
@@ -189,10 +196,13 @@ export function removePayment(actor: AuthedUser, id: string) {
       | { id: string; paid: number; total_fees: number }
       | undefined
     if (fees) {
-      const paid = Math.max(0, fees.paid - p.amount)
+      const paidRow = db
+        .prepare(`SELECT COALESCE(SUM(amount),0) as s FROM payments WHERE case_id = ? AND ${notDeleted()}`)
+        .get(p.case_id) as { s: number }
+      const paid = Number(paidRow.s)
       db.prepare('UPDATE case_fees SET paid=?, remaining=?, updated_at=? WHERE id=?').run(
         paid,
-        fees.total_fees - paid,
+        Math.max(0, fees.total_fees - paid),
         nowIso(),
         fees.id
       )

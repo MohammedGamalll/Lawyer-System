@@ -16,17 +16,22 @@ export type LookupKind =
 
 export type LookupOption = { value: string; label: string; extra?: Record<string, unknown> }
 
+const q40 = (search?: unknown) => ({
+  page: 1,
+  pageSize: 40,
+  lookup: true,
+  search: search ? String(search) : undefined
+})
+
 export async function fetchLookup(kind: LookupKind, filters?: Record<string, unknown>): Promise<LookupOption[]> {
+  const search = filters?.search
   if (kind === 'clients') {
-    const r = await invoke<{ rows: { id: string; full_name: string; client_number: string }[] }>('clients:list', {
-      pageSize: 1000,
-      search: filters?.search
-    })
+    const r = await invoke<{ rows: { id: string; full_name: string; client_number: string }[] }>('clients:list', q40(search))
     return r.rows.map((x) => ({ value: x.id, label: `${x.client_number} — ${x.full_name}` }))
   }
   if (kind === 'cases') {
     const r = await invoke<{ rows: { id: string; title: string; case_number: string; client_id?: string }[] }>('cases:list', {
-      pageSize: 1000,
+      ...q40(search),
       filters: filters?.client_id ? { client_id: String(filters.client_id) } : {}
     })
     return r.rows.map((x) => ({
@@ -36,11 +41,11 @@ export async function fetchLookup(kind: LookupKind, filters?: Record<string, unk
     }))
   }
   if (kind === 'lawyers') {
-    const r = await invoke<{ rows: { id: string; full_name: string }[] }>('lawyers:list', { pageSize: 500 })
+    const r = await invoke<{ rows: { id: string; full_name: string }[] }>('lawyers:list', q40(search))
     return r.rows.map((x) => ({ value: x.id, label: x.full_name }))
   }
   if (kind === 'users') {
-    const r = await invoke<{ rows: { id: string; full_name: string; username: string }[] }>('users:list', { pageSize: 500 }).catch(
+    const r = await invoke<{ rows: { id: string; full_name: string; username: string }[] }>('users:list', q40(search)).catch(
       () => ({ rows: [] })
     )
     return r.rows.map((x) => ({ value: x.id, label: `${x.full_name} (${x.username})` }))
@@ -62,15 +67,15 @@ export async function fetchLookup(kind: LookupKind, filters?: Record<string, unk
     return r.roles.map((x) => ({ value: x.id, label: x.name_ar }))
   }
   if (kind === 'opponents') {
-    const r = await invoke<{ rows: { id: string; full_name: string }[] }>('opponents:list', { pageSize: 500 }).catch(() => ({
+    const r = await invoke<{ rows: { id: string; full_name: string }[] }>('opponents:list', q40(search)).catch(() => ({
       rows: []
     }))
     return r.rows.map((x) => ({ value: x.id, label: x.full_name }))
   }
   if (kind === 'employees') {
-    const r = await invoke<{ rows: { id: string; full_name: string; salary?: number | null }[] }>('employees:list', {
-      pageSize: 1000
-    }).catch(() => ({ rows: [] }))
+    const r = await invoke<{ rows: { id: string; full_name: string; salary?: number | null }[] }>('employees:list', q40(search)).catch(
+      () => ({ rows: [] })
+    )
     return r.rows.map((x) => ({
       value: x.id,
       label: x.full_name,
@@ -78,18 +83,18 @@ export async function fetchLookup(kind: LookupKind, filters?: Record<string, unk
     }))
   }
   if (kind === 'hearings') {
-    const r = await invoke<{ rows: { id: string; hearing_date: string; case_number?: string }[] }>('hearings:list', {
-      pageSize: 500
-    }).catch(() => ({ rows: [] }))
+    const r = await invoke<{ rows: { id: string; hearing_date: string; case_number?: string }[] }>('hearings:list', q40(search)).catch(
+      () => ({ rows: [] })
+    )
     return r.rows.map((x) => ({
       value: x.id,
       label: `${x.case_number || ''} — ${x.hearing_date}`
     }))
   }
   if (kind === 'contracts') {
-    const r = await invoke<{ rows: { id: string; contract_number: string; title: string }[] }>('contracts:list', {
-      pageSize: 500
-    }).catch(() => ({ rows: [] }))
+    const r = await invoke<{ rows: { id: string; contract_number: string; title: string }[] }>('contracts:list', q40(search)).catch(
+      () => ({ rows: [] })
+    )
     return r.rows.map((x) => ({ value: x.id, label: `${x.contract_number} — ${x.title}` }))
   }
   return []

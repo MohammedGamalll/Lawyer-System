@@ -5,9 +5,10 @@ import { useTranslation } from 'react-i18next'
 import { contactSchema } from '@shared/schemas'
 import { invoke } from '../lib/api'
 import { useApp } from '../store'
-import { Button, Card, Field, InfoGrid, Input, MiniTable, PageHeader, UiTabs } from '../components/ui'
+import { Button, Card, Field, InfoGrid, Input, MiniTable, Modal, PageHeader, UiTabs } from '../components/ui'
+import { FormFields, type FieldDef } from '../components/CrudPage'
+import { ClientDocumentUpload, DocumentPreviewModal, DocumentThumb } from '../components/DocumentTools'
 import { ContactActions } from '../components/ContactActions'
-import type { FieldDef } from '../components/CrudPage'
 import { formatCell } from '../lib/datetime'
 import { onDataChanged } from '../lib/bus'
 
@@ -17,6 +18,9 @@ export function ClientProfilePage() {
   const [p, setP] = useState<Record<string, unknown> | null>(null)
   const [contact, setContact] = useState({ name: '', position: '', phone: '', email: '' })
   const [saving, setSaving] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [form, setForm] = useState<Record<string, unknown>>({})
+  const [previewId, setPreviewId] = useState<string | null>(null)
   const id = String(pageMeta.id || '')
   const rhf = useForm({ resolver: zodResolver(contactSchema), values: contact, mode: 'onChange' })
 
@@ -48,14 +52,13 @@ export function ClientProfilePage() {
 
   const personalFields: FieldDef[] = [
     { name: 'full_name', label: t('fields.full_name') },
-    { name: 'national_id', label: t('fields.national_id') },
     { name: 'phone', label: t('fields.phone') },
+    { name: 'national_id', label: t('fields.national_id') },
     { name: 'phone2', label: t('fields.phone2') },
     { name: 'whatsapp', label: t('fields.whatsapp') },
     { name: 'email', label: t('fields.email') },
     { name: 'address', label: t('fields.address') },
     { name: 'governorate', label: t('fields.governorate') },
-    { name: 'client_type', label: t('fields.client_type') },
     { name: 'profession', label: t('fields.profession') },
     { name: 'commercial_register', label: t('fields.commercial_register') },
     { name: 'tax_id', label: t('fields.tax_id') },
@@ -66,17 +69,32 @@ export function ClientProfilePage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title={`${t('nav.clients')} — ${c.full_name}`}
+        title={`${String(c.client_number || '')} — ${c.full_name}`}
         actions={
-          <Button variant="outline" onClick={() => goBack()}>
-            {t('back')}
-          </Button>
+          <div className="flex gap-2">
+            {can('clients.update') && (
+              <Button
+                variant="gold"
+                onClick={() => {
+                  setForm({ ...c })
+                  setEditing(true)
+                }}
+              >
+                {t('edit')}
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => goBack()}>
+              {t('back')}
+            </Button>
+          </div>
         }
       />
       <div className="grid gap-3 md:grid-cols-4">
         <Card className="min-w-0">
-          <div className="text-xs text-navy-500">{t('number')}</div>
-          <div className="overflow-hidden text-ellipsis whitespace-nowrap font-bold">{String(c.client_number)}</div>
+          <div className="text-xs text-navy-500">{t('fields.national_id')}</div>
+          <div className="overflow-hidden text-ellipsis whitespace-nowrap font-bold" dir="ltr">
+            {String(c.national_id || '—')}
+          </div>
         </Card>
         <Card className="min-w-0">
           <div className="text-xs text-navy-500">{t('phone')}</div>
@@ -92,9 +110,9 @@ export function ClientProfilePage() {
           </div>
         </Card>
         <Card className="min-w-0">
-          <div className="text-xs text-navy-500">{t('type')}</div>
+          <div className="text-xs text-navy-500">{t('fields.profession')}</div>
           <div className="overflow-hidden text-ellipsis whitespace-nowrap font-bold">
-            {t(`status.${c.client_type}`, { defaultValue: String(c.client_type) })}
+            {String(c.profession || '—')}
           </div>
         </Card>
         {can('accounts.view') && (
@@ -175,11 +193,20 @@ export function ClientProfilePage() {
               id: 'documents',
               label: t('tabs.documents'),
               body: (
-                <MiniTable
-                  rows={p.documents as object[]}
-                  keys={['title', 'category']}
-                  onRowClick={(r) => invoke('documents:open', r.id).catch((e) => toast((e as Error).message, 'err'))}
-                />
+                <div className="space-y-3">
+                  <ClientDocumentUpload clientId={id} onDone={() => load()} />
+                  {(p.documents as object[])?.length ? (
+                    <div className="space-y-2">
+                      {(p.documents as { id: string; title: string; category: string }[]).map((doc) => (
+                        <div key={doc.id} className="flex items-center justify-between gap-2 rounded border border-navy-100 px-2 py-1 dark:border-navy-800">
+                          <DocumentThumb id={doc.id} title={`${doc.title} — ${doc.category}`} onOpen={() => setPreviewId(doc.id)} />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-navy-400">{t('docs.noClientDocs')}</div>
+                  )}
+                </div>
               )
             },
             {
@@ -252,6 +279,33 @@ export function ClientProfilePage() {
           ]}
         />
       </Card>
+      <Modal open={editing} title={t('edit')} onClose={() => setEditing(false)} wide>
+        <FormFields
+          fields={personalFields}
+          values={form}
+          onChange={(n, v) => setForm((prev) => ({ ...prev, [n]: v }))}
+        />
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="outline" onClick={() => setEditing(false)}>
+            {t('cancel')}
+          </Button>
+          <Button
+            onClick={async () => {
+              try {
+                await invoke('clients:update', id, form)
+                toast(t('savedOk'))
+                setEditing(false)
+                await load()
+              } catch (e) {
+                toast((e as Error).message, 'err')
+              }
+            }}
+          >
+            {t('save')}
+          </Button>
+        </div>
+      </Modal>
+      <DocumentPreviewModal id={previewId} onClose={() => setPreviewId(null)} />
     </div>
   )
 }

@@ -8,6 +8,7 @@ import { assertNetworkDriverConfigured, getDriverName } from './adapter'
 import { newId } from './ids'
 import { migrateToUuidIfNeeded } from './migrateToUuid'
 import { patchSchema } from './patch'
+import { ensureFts } from './fts'
 import log from 'electron-log'
 
 let db: Database.Database | null = null
@@ -25,6 +26,7 @@ export function initDatabase(dbPath = getDbPath()): Database.Database {
   }
   db = new Database(dbPath)
   db.pragma('journal_mode = WAL')
+  db.pragma('synchronous = NORMAL')
   db.pragma('busy_timeout = 5000')
   try {
     migrateToUuidIfNeeded(db, dbPath)
@@ -37,6 +39,7 @@ export function initDatabase(dbPath = getDbPath()): Database.Database {
   db.pragma('foreign_keys = ON')
   db.exec(SCHEMA_SQL)
   patchSchema(db)
+  ensureFts(db)
   dedupeSyncQueue(db)
   seedIfEmpty(db)
   ensureSetting(db, 'ui_font_size', '16')

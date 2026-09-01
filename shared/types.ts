@@ -22,6 +22,8 @@ export type ListQuery = {
   search?: string
   sortBy?: string
   sortDir?: 'asc' | 'desc'
+  print?: boolean
+  lookup?: boolean
   filters?: Record<string, string | number | boolean | null | undefined>
 }
 
@@ -50,7 +52,7 @@ export const HEARING_STATUSES = [
   'lawyer_absent'
 ] as const
 
-export const TASK_STATUSES = ['new', 'in_progress', 'completed', 'overdue', 'cancelled'] as const
+export const TASK_STATUSES = ['not_done', 'new', 'in_progress', 'completed', 'overdue', 'cancelled'] as const
 
 export const CLIENT_TYPES = ['individual', 'company', 'institution', 'government', 'other'] as const
 

@@ -10,16 +10,17 @@ export type { PrintKind }
 export { buildPrintHtml }
 
 function pageOpts(kind: PrintKind) {
+  const paper = { marginType: 'custom' as const, top: 0.55, bottom: 0.55, left: 0.55, right: 0.55 }
   if (kind === 'receipt' || kind === 'voucher') {
     return {
       pageSize: { width: 80000, height: 200000 },
-      marginsType: 1 as const
+      margins: { marginType: 'custom' as const, top: 0.2, bottom: 0.2, left: 0.2, right: 0.2 }
     }
   }
   if (kind === 'report') {
-    return { pageSize: 'A4' as const, landscape: true, marginsType: 1 as const }
+    return { pageSize: 'A4' as const, landscape: true, margins: paper }
   }
-  return { pageSize: 'A4' as const, marginsType: 0 as const }
+  return { pageSize: 'A4' as const, margins: paper }
 }
 
 function cairoFace(): string {
@@ -147,7 +148,14 @@ export async function printHtml(html: string, kind: PrintKind, parent?: BrowserW
           ...(match && !pdfLike ? { deviceName: match.name } : {}),
           printBackground: true,
           pageSize: 'A4',
-          landscape: kind === 'report'
+          landscape: kind === 'report',
+          margins: {
+            marginType: kind === 'receipt' || kind === 'voucher' ? 'printableArea' : 'custom',
+            top: 16,
+            bottom: 16,
+            left: 16,
+            right: 16
+          }
         },
         (success, error) => {
           if (!success && error && !isCancel(error)) reject(new Error(error))

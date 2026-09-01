@@ -12,6 +12,10 @@ export function SearchPage() {
   const { toast, setPage } = useApp()
   const [filters, setFilters] = useState({
     q: '',
+    scope: 'cases',
+    office_case_number: '',
+    client_name: '',
+    opponent_name: '',
     case_type_id: '',
     status: '',
     lawyer_id: '',
@@ -24,6 +28,10 @@ export function SearchPage() {
     try {
       const data = await invoke<Record<string, unknown>[]>('search:advanced', {
         q: filters.q || undefined,
+        scope: filters.scope || undefined,
+        office_case_number: filters.office_case_number || undefined,
+        client_name: filters.client_name || undefined,
+        opponent_name: filters.opponent_name || undefined,
         case_type_id: filters.case_type_id || undefined,
         status: filters.status || undefined,
         lawyer_id: filters.lawyer_id || undefined,
@@ -36,17 +44,48 @@ export function SearchPage() {
     }
   }
 
+  const kind = (r: Record<string, unknown>) => String(r.result_kind || filters.scope || 'case')
+
   return (
     <div className="space-y-4">
       <PageHeader title={t('searchPage.title')} />
       <Card>
-        <div className="grid gap-3 md:grid-cols-5">
+        <div className="mb-3 flex flex-wrap gap-2">
+          {(['cases', 'hearings', 'admin'] as const).map((s) => (
+            <Button key={s} type="button" variant={filters.scope === s ? 'primary' : 'outline'} onClick={() => setFilters({ ...filters, scope: s })}>
+              {s === 'cases' ? t('nav.cases') : s === 'hearings' ? t('nav.hearings') : t('caseForm.adminWork')}
+            </Button>
+          ))}
+        </div>
+        <div className="grid gap-3 md:grid-cols-4">
           <Field label={t('searchPage.query')}>
             <input
               className="w-full rounded border px-2 py-2 dark:bg-navy-800"
               value={filters.q}
               onChange={(e) => setFilters({ ...filters, q: e.target.value })}
               placeholder={t('searchPage.queryHint')}
+            />
+          </Field>
+          <Field label={t('fields.court_number')}>
+            <input
+              className="w-full rounded border px-2 py-2 dark:bg-navy-800"
+              dir="ltr"
+              value={filters.office_case_number}
+              onChange={(e) => setFilters({ ...filters, office_case_number: e.target.value })}
+            />
+          </Field>
+          <Field label={t('fields.client_name')}>
+            <input
+              className="w-full rounded border px-2 py-2 dark:bg-navy-800"
+              value={filters.client_name}
+              onChange={(e) => setFilters({ ...filters, client_name: e.target.value })}
+            />
+          </Field>
+          <Field label={t('fields.opponent_name')}>
+            <input
+              className="w-full rounded border px-2 py-2 dark:bg-navy-800"
+              value={filters.opponent_name}
+              onChange={(e) => setFilters({ ...filters, opponent_name: e.target.value })}
             />
           </Field>
           <Field label={t('searchPage.caseType')}>
@@ -89,10 +128,10 @@ export function SearchPage() {
           <thead>
             <tr>
               <th className="px-3 py-2 text-start">{t('fields.case_number')}</th>
+              <th className="px-3 py-2 text-start">{t('fields.court_number')}</th>
               <th className="px-3 py-2 text-start">{t('fields.title')}</th>
               <th className="px-3 py-2 text-start">{t('fields.client_name')}</th>
               <th className="px-3 py-2 text-start">{t('fields.status')}</th>
-              <th className="px-3 py-2 text-start">{t('fields.lawyer_id')}</th>
             </tr>
           </thead>
           <tbody>
@@ -103,31 +142,32 @@ export function SearchPage() {
                 </td>
               </tr>
             )}
-            {rows.map((r) => (
-              <tr
-                key={String(r.id)}
-                className="cursor-pointer border-t hover:bg-navy-50/60 dark:hover:bg-navy-800/60"
-                onClick={() => setPage('caseProfile', { id: r.id })}
-              >
-                <td className="min-w-0 px-3 py-2 text-start align-middle leading-relaxed text-navy-900 dark:text-white">
-                  {String(r.case_number)}
-                </td>
-                <td className="min-w-0 px-3 py-2 text-start align-middle leading-relaxed text-navy-900 dark:text-white">{String(r.title)}</td>
-                <td
-                  className="min-w-0 cursor-pointer px-3 py-2 text-start align-middle leading-relaxed text-navy-900 underline decoration-navy-300 dark:text-white"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    if (r.client_id) setPage('clientProfile', { id: r.client_id })
+            {rows.map((r) => {
+              const k = kind(r)
+              const caseId = String(r.case_id || (k === 'case' ? r.id : '') || '')
+              return (
+                <tr
+                  key={`${k}-${String(r.id)}`}
+                  className="cursor-pointer border-t hover:bg-navy-50/60 dark:hover:bg-navy-800/60"
+                  onClick={() => {
+                    if (k === 'hearing' && r.case_id) setPage('caseProfile', { id: r.case_id })
+                    else if (k === 'admin' && r.case_id) setPage('caseProfile', { id: r.case_id })
+                    else if (r.id && (k === 'case' || !k)) setPage('caseProfile', { id: r.id })
+                    else if (caseId) setPage('caseProfile', { id: caseId })
                   }}
                 >
-                  {String(r.client_name)}
-                </td>
-                <td className="min-w-0 px-3 py-2 text-start align-middle leading-relaxed">
-                  <StatusBadge value={String(r.status)} />
-                </td>
-                <td className="min-w-0 px-3 py-2 text-start align-middle leading-relaxed text-navy-900 dark:text-white">{String(r.lawyer_name ?? '')}</td>
-              </tr>
-            ))}
+                  <td className="px-3 py-2">{String(r.case_number || '')}</td>
+                  <td className="px-3 py-2" dir="ltr">
+                    {String(r.office_case_number || '')}
+                  </td>
+                  <td className="px-3 py-2">{String(r.title || r.case_title || r.description || '')}</td>
+                  <td className="px-3 py-2">{String(r.client_name || '')}</td>
+                  <td className="px-3 py-2">
+                    <StatusBadge value={String(r.status || '')} />
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </Card>
