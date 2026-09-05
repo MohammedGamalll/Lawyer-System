@@ -116,7 +116,7 @@ export function updateDocument(
     recordLocalChange('document_versions', vid, 'INSERT')
   }
   db.prepare(
-    `UPDATE documents SET title=?, category=?, client_id=?, case_id=?, hearing_id=?, notes=?,
+    `UPDATE documents SET title=?, category=?, client_id=?, case_id=?, hearing_id=?, contract_id=?, notes=?,
       file_path=COALESCE(?, file_path), file_name=COALESCE(?, file_name), current_version=?, updated_at=? WHERE id=?`
   ).run(
     data.title ?? old.title,
@@ -124,6 +124,7 @@ export function updateDocument(
     asIdOrNull(data.client_id),
     asIdOrNull(data.case_id),
     asIdOrNull(data.hearing_id),
+    asIdOrNull(data.contract_id),
     data.notes ?? null,
     filePath ?? null,
     file?.name ?? null,

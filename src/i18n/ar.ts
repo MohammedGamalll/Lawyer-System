@@ -247,7 +247,12 @@ const ar = {
     similarTitle: 'تشابه في الاسم',
     similarAsk: 'هذا الاسم مسجل بالفعل، هل تريد إضافة هذا البيان؟ هل تقصد هذا الشخص «{{name}}» (كود {{code}}) أم أنه شخص جديد؟',
     openExisting: 'فتح الموكل المسجل',
-    addAsNew: 'شخص جديد'
+    addAsNew: 'شخص جديد',
+    blankForm: 'نموذج بيانات موكل',
+    printBlank: 'طباعة نموذج فارغ',
+    attachId: 'إرفاق صورة البطاقة',
+    attachPoa: 'إرفاق صورة التوكيل',
+    addAddress: 'عنوان إضافي'
   },
   cases: {
     searchFirst:
@@ -301,11 +306,18 @@ const ar = {
     nickname: 'اسم الشهرة',
     trade_name: 'الصفة',
     national_id: 'الرقم القومي',
+    id_kind: 'نوع الهوية',
+    passport: 'جواز السفر',
+    passport_country: 'دولة الجواز',
     phone: 'الهاتف',
+    phone_other: 'هاتف آخر',
     phone2: 'هاتف إضافي',
-    whatsapp: 'واتساب',
+    phone_home: 'هاتف المنزل',
+    phone_work: 'هاتف العمل',
+    whatsapp: 'واتس',
     email: 'البريد',
     address: 'العنوان',
+    address2: 'عنوان إضافي',
     governorate: 'المحافظة',
     district: 'المنطقة',
     client_type: 'نوع الموكل',

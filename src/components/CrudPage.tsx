@@ -18,6 +18,8 @@ import { TableVirtuoso } from 'react-virtuoso'
 import { useDebouncedValue } from '../lib/useDebouncedValue'
 import { getListCache, listCacheKey, setListCache } from '../lib/listCache'
 import { SimilarClientModal } from './SimilarClientModal'
+import { defaultWidthCh } from '../lib/fieldWidth'
+import { hydrateCaseForm } from '../lib/caseForm'
 import { onDataChanged } from '../lib/bus'
 
 export type FieldDef = {
@@ -42,13 +44,14 @@ export type FieldDef = {
     | 'hearings'
     | 'contracts'
   size?: 'sm' | 'xs'
+  widthCh?: number
 }
 
 export function schemaFromFields(fields: FieldDef[]) {
   const shape: Record<string, z.ZodTypeAny> = {}
   for (const f of fields) {
     if (f.name === 'national_id') shape[f.name] = nationalIdSchema
-    else if (f.name === 'phone' || f.name === 'phone2' || f.name === 'whatsapp') shape[f.name] = phoneSchema
+    else if (f.name === 'phone' || f.name === 'phone2' || f.name === 'whatsapp' || f.name === 'phone_home' || f.name === 'phone_work') shape[f.name] = phoneSchema
     else if (f.name === 'email') shape[f.name] = emailSchema
     else if (f.required && f.type === 'number') shape[f.name] = z.coerce.number({ required_error: msg.required, invalid_type_error: msg.required })
     else if (f.required) shape[f.name] = z.string({ required_error: msg.required }).min(1, msg.required)
@@ -77,18 +80,19 @@ export function FormFields({
   compact?: boolean
 }) {
   return (
-    <div className={compact ? 'grid grid-cols-1 gap-2 md:grid-cols-3' : 'grid grid-cols-1 gap-3 md:grid-cols-2'}>
+    <div className={compact ? 'flex flex-wrap items-start gap-x-2 gap-y-1' : 'flex flex-wrap items-start gap-x-3 gap-y-2'}>
       {fields.map((f) => {
         const opts = f.options
         const val = (values[f.name] as string | number | undefined) ?? ''
-        const span = f.type === 'textarea' ? (compact ? 'md:col-span-3' : 'md:col-span-2') : f.size === 'xs' ? 'max-w-[6.5rem]' : f.size === 'sm' ? 'max-w-[8.5rem]' : ''
+        const full = f.type === 'textarea'
+        const ch = defaultWidthCh({ type: f.type, size: f.size, widthCh: f.widthCh, lookup: f.lookup, name: f.name })
         const err = errors?.[f.name]
         const reg = (register ? register(f.name) : {}) as {
           onChange?: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => void
         }
         return (
           <React.Fragment key={f.name}>
-          <div className={span}>
+          <div className={full ? 'w-full basis-full' : 'max-w-full'} style={full ? undefined : { width: `${ch}ch` }}>
             <Field label={f.label} required={f.required} error={err}>
               {f.type === 'textarea' ? (
                 <Textarea {...reg} value={String(val)} onChange={(e) => { reg.onChange?.(e); onChange(f.name, e.target.value) }} />
@@ -145,11 +149,11 @@ export function FormFields({
               )}
             </Field>
           </div>
-          {extraAfter === f.name && extra ? <div className="md:col-span-2">{extra}</div> : null}
+          {extraAfter === f.name && extra ? <div className="w-full basis-full">{extra}</div> : null}
           </React.Fragment>
         )
       })}
-      {!extraAfter && extra ? <div className="md:col-span-2">{extra}</div> : null}
+      {!extraAfter && extra ? <div className="w-full basis-full">{extra}</div> : null}
     </div>
   )
 }
@@ -185,6 +189,9 @@ export function CrudPage({
   formExtra,
   formExtraAfter,
   formPrefix,
+  formBody,
+  afterSave,
+  onEditRow,
   defaults,
   idleUntilSearch,
   hideQuickSearch,
@@ -215,6 +222,13 @@ export function CrudPage({
   formExtra?: (form: Record<string, unknown>, setField: (name: string, value: unknown) => void) => React.ReactNode
   formExtraAfter?: string
   formPrefix?: (form: Record<string, unknown>, setField: (name: string, value: unknown) => void) => React.ReactNode
+  formBody?: (
+    form: Record<string, unknown>,
+    setField: (name: string, value: unknown) => void,
+    errors: Record<string, string>
+  ) => React.ReactNode
+  afterSave?: (info: { created: boolean; result: unknown; form: Record<string, unknown> }) => void | Promise<void>
+  onEditRow?: (row: Record<string, unknown>) => void
   defaults?: Record<string, unknown>
   idleUntilSearch?: boolean
   hideQuickSearch?: boolean
@@ -356,49 +370,19 @@ export function CrudPage({
     setEditing(row)
     let next: Record<string, unknown> = { ...row, password: '' }
     delete next.password_hash
+    if (listChannel === 'clients:list' && row.id) {
+      try {
+        const full = await invoke<Record<string, unknown>>('clients:get', row.id)
+        next = { ...next, ...full }
+        if (next.address2) next.__show_address2 = true
+      } catch {
+        /* keep list row */
+      }
+    }
     if (listChannel === 'cases:list' && row.id) {
       try {
         const full = await invoke<Record<string, unknown>>('cases:get', row.id)
-        next = { ...next, ...full }
-        const parties = (full.caseClients as { client_id: string; is_primary?: number; capacity_first?: string; capacity_appeal?: string; capacity_cassation?: string }[]) || []
-        const primary = parties.find((p) => Number(p.is_primary) === 1) || parties[0]
-        if (primary) {
-          next.capacity_first = primary.capacity_first || ''
-          next.capacity_appeal = primary.capacity_appeal || ''
-          next.capacity_cassation = primary.capacity_cassation || ''
-        }
-        next.extra_clients = parties
-          .filter((p) => Number(p.is_primary) !== 1)
-          .map((p) => ({
-            client_id: p.client_id,
-            capacity_first: p.capacity_first || '',
-            capacity_appeal: p.capacity_appeal || '',
-            capacity_cassation: p.capacity_cassation || ''
-          }))
-        const opps =
-          (full.opponents as {
-            id: string
-            full_name: string
-            lawyer_name?: string
-            lawyer_phone?: string
-            capacity_first?: string
-            capacity_appeal?: string
-            capacity_cassation?: string
-          }[]) || []
-        const primaryOpp = opps[0]
-        next.opponent_name = String(full.opponent_name || primaryOpp?.full_name || '')
-        next.opponent_id = primaryOpp?.id || ''
-        next.extra_opponents = opps
-          .filter((o) => o.id !== primaryOpp?.id)
-          .map((o) => ({
-            opponent_id: o.id,
-            full_name: o.full_name,
-            lawyer_name: o.lawyer_name || '',
-            lawyer_phone: o.lawyer_phone || '',
-            capacity_first: o.capacity_first || '',
-            capacity_appeal: o.capacity_appeal || '',
-            capacity_cassation: o.capacity_cassation || ''
-          }))
+        next = hydrateCaseForm(next, full)
       } catch {
         /* keep list row */
       }
@@ -423,6 +407,9 @@ export function CrudPage({
       const pwd = String(payload.password ?? form.password ?? '').trim()
       if (pwd) payload.password = pwd
       else delete payload.password
+      for (const k of Object.keys(payload)) {
+        if (k.startsWith('__')) delete payload[k]
+      }
       if (!editing && createChannel === 'users:create' && !payload.password) {
         toast(t('users.passwordRequired'), 'err')
         setSaving(false)
@@ -430,6 +417,7 @@ export function CrudPage({
       }
       if (editing && updateChannel) result = await invoke(updateChannel, editing.id, payload)
       else if (createChannel) result = await invoke(createChannel, payload)
+      await afterSave?.({ created: !editing, result, form })
       const extra = result as { followUp?: string; autoHearing?: boolean; autoTasks?: number } | undefined
       if (extra?.autoHearing) toast(t('hearings.autoCreated'))
       if (extra?.autoTasks) toast(t('hearings.autoTasks', { count: extra.autoTasks }))
@@ -542,8 +530,8 @@ export function CrudPage({
         <RowMenu
           items={[
             ...(onRowOpen ? [{ label: t('details'), onClick: () => onRowOpen(row) }] : []),
-            ...(updateChannel && (!updatePerm || can(updatePerm))
-              ? [{ label: t('edit'), onClick: () => startEdit(row) }]
+            ...(onEditRow || (updateChannel && (!updatePerm || can(updatePerm)))
+              ? [{ label: t('edit'), onClick: () => (onEditRow ? onEditRow(row) : startEdit(row)) }]
               : []),
             ...(removeChannel && (!deletePerm || can(deletePerm))
               ? [{ label: t('delete'), onClick: () => setDel(row), danger: true }]
@@ -591,6 +579,7 @@ export function CrudPage({
     if (el.closest('button, a, input, textarea, select, [data-no-row]')) return
     if (onRowOpen) onRowOpen(row)
     else if (updateChannel && (!updatePerm || can(updatePerm))) startEdit(row)
+    else if (onEditRow) onEditRow(row)
   }
 
   return (
@@ -703,6 +692,16 @@ export function CrudPage({
             setForm((prev) => ({ ...prev, [n]: v }))
             rhf.setValue(n as never, v as never, { shouldValidate: true })
           })}
+          {formBody ? (
+            formBody(
+              form,
+              (n, v) => {
+                setForm((prev) => ({ ...prev, [n]: v }))
+                rhf.setValue(n as never, v as never, { shouldValidate: true })
+              },
+              fieldErrors
+            )
+          ) : (
           <FormFields
             fields={fields}
             values={form}
@@ -719,6 +718,7 @@ export function CrudPage({
               rhf.setValue(n as never, v as never, { shouldValidate: true })
             }}
           />
+          )}
           <div className="mt-4 flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               {t('cancel')}

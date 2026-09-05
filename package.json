@@ -1,6 +1,6 @@
 {
   "name": "law-office-management",
-  "version": "1.0.5",
+  "version": "1.0.8",
   "description": "Law Office Management System",
   "main": "./out/main/index.js",
   "author": "Law Office Management",
@@ -98,6 +98,15 @@
       "out/**/*",
       "package.json"
     ],
+    "extraFiles": [
+      {
+        "from": "resources/vc-runtime",
+        "to": ".",
+        "filter": [
+          "*.dll"
+        ]
+      }
+    ],
     "extraResources": [
       {
         "from": "resources/docs",
@@ -114,6 +123,13 @@
       {
         "from": "resources/icon.ico",
         "to": "icon.ico"
+      },
+      {
+        "from": "resources/vc-runtime",
+        "to": "app.asar.unpacked/node_modules/better-sqlite3/build/Release",
+        "filter": [
+          "*.dll"
+        ]
       }
     ],
     "win": {
@@ -123,7 +139,8 @@
       ],
       "artifactName": "${productName}-Setup-${version}.${ext}",
       "signAndEditExecutable": true,
-      "signExecutable": false
+      "signExecutable": false,
+      "requestedExecutionLevel": "asInvoker"
     },
     "nsis": {
       "oneClick": false,
@@ -135,6 +152,8 @@
       "shortcutName": "Law Office Management System",
       "installerIcon": "resources/icon.ico",
       "uninstallerIcon": "resources/icon.ico",
+      "include": "resources/installer.nsh",
+      "runAfterFinish": false,
       "installerLanguages": [
         "ar",
         "en_US"

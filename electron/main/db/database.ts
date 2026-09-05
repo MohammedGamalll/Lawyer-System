@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3'
+import type BetterSqlite3 from 'better-sqlite3'
 import bcrypt from 'bcryptjs'
 import { SCHEMA_SQL, CASE_TYPE_SEEDS, EXPENSE_CATEGORY_SEEDS } from './schema'
 import { PERMISSIONS, ROLES, ROLE_PERMISSIONS } from '@shared/permissions'
@@ -7,24 +7,39 @@ import { nowIso } from '../utils/time'
 import { assertNetworkDriverConfigured, getDriverName } from './adapter'
 import { newId } from './ids'
 import { migrateToUuidIfNeeded } from './migrateToUuid'
-import { patchSchema } from './patch'
+import { patchSchema, ensurePermissions } from './patch'
 import { ensureFts } from './fts'
 import log from 'electron-log'
 
-let db: Database.Database | null = null
+let db: BetterSqlite3.Database | null = null
 
-export function getDb(): Database.Database {
+function openSqlite(dbPath: string): BetterSqlite3.Database {
+  // Keep this require out of static analysis so the packaged CJS bundle does not
+  // load the native addon before Win10 crash/GPU handlers run.
+  const req = eval('require') as NodeRequire
+  const Database = req('better-sqlite3') as typeof BetterSqlite3
+  return new Database(dbPath)
+}
+
+export function getDb(): BetterSqlite3.Database {
   if (!db) throw new Error('Database not initialized')
   return db
 }
 
-export function initDatabase(dbPath = getDbPath()): Database.Database {
+export function initDatabase(dbPath = getDbPath()): BetterSqlite3.Database {
   const driver = getDriverName()
   assertNetworkDriverConfigured(driver)
   if (driver !== 'sqlite') {
     throw new Error(`تشغيل ${driver} يتطلب مهايئ الشبكة. استخدم LAW_DB_DRIVER=sqlite محلياً.`)
   }
-  db = new Database(dbPath)
+  try {
+    db = openSqlite(dbPath)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    throw new Error(
+      `تعذر فتح قاعدة البيانات (${msg}). ثبّت Microsoft Visual C++ Redistributable 2015-2022 (x64) ثم أعد تشغيل الجهاز.`
+    )
+  }
   db.pragma('journal_mode = WAL')
   db.pragma('synchronous = NORMAL')
   db.pragma('busy_timeout = 5000')
@@ -38,17 +53,34 @@ export function initDatabase(dbPath = getDbPath()): Database.Database {
   }
   db.pragma('foreign_keys = ON')
   db.exec(SCHEMA_SQL)
-  patchSchema(db)
-  ensureFts(db)
+  try {
+    patchSchema(db)
+  } catch (err) {
+    log.warn('schema patch skipped', err)
+  }
+  try {
+    seedIfEmpty(db)
+  } catch (err) {
+    log.warn('seed skipped', err)
+  }
+  try {
+    ensurePermissions(db)
+  } catch (err) {
+    log.warn('permissions seed skipped', err)
+  }
+  try {
+    ensureFts(db)
+  } catch (err) {
+    log.warn('fts init skipped', err)
+  }
   dedupeSyncQueue(db)
-  seedIfEmpty(db)
   ensureSetting(db, 'ui_font_size', '16')
   ensureSetting(db, 'supabase_url', '')
   ensureSetting(db, 'supabase_anon_key', '')
   return db
 }
 
-function dedupeSyncQueue(database: Database.Database): void {
+function dedupeSyncQueue(database: BetterSqlite3.Database): void {
   database.exec(`
     DELETE FROM local_sync_queue
     WHERE rowid NOT IN (
@@ -58,7 +90,7 @@ function dedupeSyncQueue(database: Database.Database): void {
   `)
 }
 
-function ensureSetting(database: Database.Database, key: string, value: string) {
+function ensureSetting(database: BetterSqlite3.Database, key: string, value: string) {
   const row = database.prepare('SELECT key FROM settings WHERE key = ?').get(key) as { key: string } | undefined
   if (!row) database.prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)').run(key, value, nowIso())
 }
@@ -68,33 +100,42 @@ export function closeDatabase(): void {
   db = null
 }
 
-function seedIfEmpty(database: Database.Database): void {
-  const roleCount = (database.prepare('SELECT COUNT(*) as c FROM roles WHERE deleted_at IS NULL').get() as { c: number }).c
-  if (roleCount > 0) return
-
+function seedIfEmpty(database: BetterSqlite3.Database): void {
   const ts = nowIso()
+  const count = (sql: string) => (database.prepare(sql).get() as { c: number }).c
+
   const insertRole = database.prepare(
-    'INSERT INTO roles (id, code, name_ar, name_en, is_system, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)'
+    'INSERT OR IGNORE INTO roles (id, code, name_ar, name_en, is_system, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)'
   )
   const roleIds: Record<string, string> = {}
   for (const role of ROLES) {
+    const existing = database.prepare('SELECT id FROM roles WHERE code = ?').get(role.code) as { id: string } | undefined
+    if (existing) {
+      roleIds[role.code] = existing.id
+      continue
+    }
     const id = newId()
     roleIds[role.code] = id
     insertRole.run(id, role.code, role.nameAr, role.nameEn, ts, ts)
   }
 
   const insertPerm = database.prepare(
-    'INSERT INTO permissions (id, code, name_ar, name_en, module, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    'INSERT OR IGNORE INTO permissions (id, code, name_ar, name_en, module, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
   )
   const permIds: Record<string, string> = {}
   for (const p of PERMISSIONS) {
+    const existing = database.prepare('SELECT id FROM permissions WHERE code = ?').get(p.code) as { id: string } | undefined
+    if (existing) {
+      permIds[p.code] = existing.id
+      continue
+    }
     const id = newId()
     permIds[p.code] = id
     insertPerm.run(id, p.code, p.nameAr, p.nameEn, p.module, ts, ts)
   }
 
   const insertRp = database.prepare(
-    'INSERT INTO role_permissions (id, role_id, permission_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+    'INSERT OR IGNORE INTO role_permissions (id, role_id, permission_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
   )
   for (const [code, perms] of Object.entries(ROLE_PERMISSIONS)) {
     const roleId = roleIds[code]
@@ -104,32 +145,40 @@ function seedIfEmpty(database: Database.Database): void {
     }
   }
 
-  database
-    .prepare(
-      `INSERT INTO users (id, username, password_hash, full_name, email, role_id, is_active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`
+  if (count('SELECT COUNT(*) as c FROM users WHERE deleted_at IS NULL') === 0 && roleIds.admin) {
+    database
+      .prepare(
+        `INSERT INTO users (id, username, password_hash, full_name, email, role_id, is_active, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`
+      )
+      .run(newId(), 'admin', bcrypt.hashSync('Admin@123', 10), 'مدير النظام', 'admin@lawoffice.local', roleIds.admin, ts, ts)
+  }
+
+  if (count('SELECT COUNT(*) as c FROM case_types WHERE deleted_at IS NULL') === 0) {
+    const insertType = database.prepare(
+      'INSERT INTO case_types (id, name_ar, name_en, is_active, sort_order, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?)'
     )
-    .run(newId(), 'admin', bcrypt.hashSync('Admin@123', 10), 'مدير النظام', 'admin@lawoffice.local', roleIds.admin, ts, ts)
+    CASE_TYPE_SEEDS.forEach((name, i) => insertType.run(newId(), name, name, i, ts, ts))
+  }
 
-  const insertType = database.prepare(
-    'INSERT INTO case_types (id, name_ar, name_en, is_active, sort_order, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?)'
-  )
-  CASE_TYPE_SEEDS.forEach((name, i) => insertType.run(newId(), name, name, i, ts, ts))
+  if (count('SELECT COUNT(*) as c FROM expense_categories WHERE deleted_at IS NULL') === 0) {
+    const insertExp = database.prepare(
+      'INSERT INTO expense_categories (id, name_ar, name_en, is_active, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)'
+    )
+    EXPENSE_CATEGORY_SEEDS.forEach((name) => insertExp.run(newId(), name, name, ts, ts))
+  }
 
-  const insertExp = database.prepare(
-    'INSERT INTO expense_categories (id, name_ar, name_en, is_active, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)'
-  )
-  EXPENSE_CATEGORY_SEEDS.forEach((name) => insertExp.run(newId(), name, name, ts, ts))
-
-  const insertCb = database.prepare(
-    'INSERT INTO cashboxes (id, name, type, current_balance, is_active, created_at, updated_at) VALUES (?, ?, ?, 0, 1, ?, ?)'
-  )
-  insertCb.run(newId(), 'خزينة المكتب', 'office', ts, ts)
-  insertCb.run(newId(), 'البنك', 'bank', ts, ts)
-  insertCb.run(newId(), 'محفظة إلكترونية', 'wallet', ts, ts)
+  if (count('SELECT COUNT(*) as c FROM cashboxes WHERE deleted_at IS NULL') === 0) {
+    const insertCb = database.prepare(
+      'INSERT INTO cashboxes (id, name, type, current_balance, is_active, created_at, updated_at) VALUES (?, ?, ?, 0, 1, ?, ?)'
+    )
+    insertCb.run(newId(), 'خزينة المكتب', 'office', ts, ts)
+    insertCb.run(newId(), 'البنك', 'bank', ts, ts)
+    insertCb.run(newId(), 'محفظة إلكترونية', 'wallet', ts, ts)
+  }
 
   const seq = database.prepare(
-    'INSERT INTO number_sequences (name, prefix, current_value, padding, updated_at) VALUES (?, ?, 0, ?, ?)'
+    'INSERT OR IGNORE INTO number_sequences (name, prefix, current_value, padding, updated_at) VALUES (?, ?, 0, ?, ?)'
   )
   seq.run('client', 'CL-', 4, ts)
   seq.run('case', 'CS-', 5, ts)
@@ -165,11 +214,11 @@ function seedIfEmpty(database: Database.Database): void {
     supabase_url: '',
     supabase_anon_key: ''
   }
-  const insertSetting = database.prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)')
+  const insertSetting = database.prepare('INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, ?)')
   for (const [k, v] of Object.entries(defaults)) insertSetting.run(k, v, ts)
 }
 
-export function nextNumber(database: Database.Database, name: string): string {
+export function nextNumber(database: BetterSqlite3.Database, name: string): string {
   const row = database.prepare('SELECT * FROM number_sequences WHERE name = ?').get(name) as {
     prefix: string
     current_value: number
@@ -182,7 +231,7 @@ export function nextNumber(database: Database.Database, name: string): string {
 }
 
 export function listQuery(
-  database: Database.Database,
+  database: BetterSqlite3.Database,
   baseSql: string,
   where: string,
   params: unknown[],

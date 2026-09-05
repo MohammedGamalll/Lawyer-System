@@ -66,19 +66,27 @@ function ContactSnap({ id, kind }: { id: string; kind: 'clients' | 'opponents' }
       .catch(() => setSnap(null))
   }, [id, kind])
   return (
-    <div className="grid grid-cols-4 gap-1.5 text-xs">
+    <div className="flex flex-wrap gap-1.5 text-xs">
+      <div className="max-w-full" style={{ width: '14ch' }}>
       <Field label={t('fields.nickname')}>
         <Input readOnly value={snap?.nickname || '—'} className="h-8 bg-navy-50" />
       </Field>
+      </div>
+      <div className="max-w-full" style={{ width: '16ch' }}>
       <Field label={t('fields.national_id')}>
         <Input readOnly value={snap?.national_id || '—'} className="h-8 bg-navy-50" />
       </Field>
+      </div>
+      <div className="min-w-[12rem] flex-1">
       <Field label={t('fields.address')}>
         <Input readOnly value={snap?.address || '—'} className="h-8 overflow-x-auto bg-navy-50" />
       </Field>
+      </div>
+      <div className="max-w-full" style={{ width: '16ch' }}>
       <Field label={t('fields.phone')}>
         <Input readOnly dir="ltr" value={snap?.phone || snap?.phone2 || '—'} className="h-8 bg-navy-50" />
       </Field>
+      </div>
     </div>
   )
 }
@@ -224,19 +232,24 @@ export function CaseFormExtras({
       <div className="space-y-2 rounded-lg border border-navy-100 p-2 dark:border-navy-700">
         <div className="text-sm font-bold">{t('nav.clients')}</div>
         {form.__quick_client ? (
-          <div className="grid gap-2 md:grid-cols-4">
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="max-w-full" style={{ width: '22ch' }}>
             <Input
               placeholder={t('fields.full_name')}
               value={quick.full_name}
               onChange={(e) => setQuick({ ...quick, full_name: e.target.value })}
             />
+            </div>
+            <div className="max-w-full" style={{ width: '16ch' }}>
             <Input
               placeholder={t('fields.national_id')}
               value={quick.national_id}
               onChange={(e) => setQuick({ ...quick, national_id: e.target.value })}
             />
+            </div>
+            <div className="max-w-full" style={{ width: '16ch' }}>
             <select
-              className="rounded border px-2 py-2 dark:bg-navy-800"
+              className="h-9 w-full rounded border px-2 py-1 dark:bg-navy-800"
               value={quick.client_type}
               onChange={(e) => setQuick({ ...quick, client_type: e.target.value })}
             >
@@ -244,6 +257,7 @@ export function CaseFormExtras({
               <option value="company">{t('status.company')}</option>
               <option value="institution">{t('status.institution')}</option>
             </select>
+            </div>
             <Button type="button" variant="outline" onClick={() => createInline()}>
               {t('caseForm.createClient')}
             </Button>
@@ -345,17 +359,21 @@ export function CaseFormExtras({
       <div className="space-y-2 rounded-lg border border-navy-100 p-2 dark:border-navy-700">
         <div className="text-sm font-bold">{t('nav.opponents')}</div>
         {form.__quick_opponent ? (
-          <div className="grid gap-2 md:grid-cols-3">
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="max-w-full" style={{ width: '22ch' }}>
             <Input
               placeholder={t('fields.full_name')}
               value={quickOpp.full_name}
               onChange={(e) => setQuickOpp({ ...quickOpp, full_name: e.target.value })}
             />
+            </div>
+            <div className="max-w-full" style={{ width: '16ch' }}>
             <Input
               placeholder={t('fields.national_id')}
               value={quickOpp.national_id}
               onChange={(e) => setQuickOpp({ ...quickOpp, national_id: e.target.value })}
             />
+            </div>
             <Button type="button" variant="outline" onClick={() => createOppInline()}>
               {t('caseForm.createClient')}
             </Button>

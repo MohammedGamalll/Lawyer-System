@@ -25,7 +25,7 @@ export const activeFlag = z.preprocess((v) => {
   return 1
 }, z.number())
 
-const phoneRe = /^(01[0-2,5][0-9]{8}|0[2-9][0-9]{7,8}|\+?[1-9][0-9]{7,14})?$/
+const phoneRe = /^(01[0-2,5][0-9]{8}|0[2-9][0-9]{7,8}|\+?[1-9][0-9]{7,15})?$/
 
 export const phoneSchema = z.preprocess(
   (v) => (empty(v) ? undefined : String(v).trim()),
@@ -47,11 +47,16 @@ export const clientSchema = z
     full_name: reqStr,
     nickname: optStr,
     national_id: optStr,
+    id_kind: optStr,
+    passport_country: optStr,
     phone: phoneSchema,
     phone2: phoneSchema,
     whatsapp: phoneSchema,
+    phone_home: phoneSchema,
+    phone_work: phoneSchema,
     email: emailSchema,
     address: optStr,
+    address2: optStr,
     governorate: optStr,
     district: optStr,
     client_type: optStr,
@@ -66,6 +71,8 @@ export const clientSchema = z
     force_similar: z.coerce.boolean().optional()
   })
   .superRefine((data, ctx) => {
+    const kind = String(data.id_kind ?? 'national_id')
+    if (kind === 'passport') return
     const nid = String(data.national_id ?? '').trim()
     if (!nid || nid === '***') return
     const company = data.client_type === 'company' || data.client_type === 'institution'

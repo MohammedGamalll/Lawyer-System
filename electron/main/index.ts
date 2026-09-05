@@ -1,4 +1,5 @@
-import { app, shell, BrowserWindow, ipcMain, nativeImage } from "electron";
+import "./crashGuard";
+import { app, shell, BrowserWindow, ipcMain, nativeImage, dialog } from "electron";
 import { join } from "path";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { initDatabase } from "./db/database";
@@ -15,6 +16,7 @@ import { ensureAdminOnlyReset } from "./services/wipe";
 import { startSyncService } from "./sync/service";
 import { loadDotEnv } from "./env";
 import log from "electron-log";
+import { fatalStartup } from "./crashGuard";
 
 // الكود ده هيشتغل بس لو إحنا طلبنا نفتح النسخة التانية
 if (process.env.SECOND_INSTANCE === "true") {
@@ -111,9 +113,9 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
-    minWidth: 1100,
-    minHeight: 720,
-    show: false,
+    minWidth: 800,
+    minHeight: 560,
+    show: true,
     autoHideMenuBar: true,
     title: "Law Office Management System",
     icon: appIcon(),
@@ -126,7 +128,16 @@ function createWindow(): void {
     },
   });
 
-  mainWindow.on("ready-to-show", () => mainWindow?.show());
+  mainWindow.on("ready-to-show", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
+  });
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show();
+  }, 2500);
+  mainWindow.webContents.on("did-fail-load", (_e, code, desc) => {
+    log.error("did-fail-load", code, desc);
+    dialog.showErrorBox("تعذر فتح الواجهة", `${desc || code}`);
+  });
   wireZoomShortcuts(mainWindow);
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url);
@@ -142,8 +153,13 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   app.setAppUserModelId("com.lawoffice.management");
-  initDatabase();
-  persistSyncSettingsFromEnv();
+  try {
+    initDatabase();
+    persistSyncSettingsFromEnv();
+  } catch (err) {
+    fatalStartup(err);
+    return;
+  }
   try {
     ensureAdminOnlyReset();
   } catch (err) {
@@ -182,6 +198,8 @@ app.whenReady().then(() => {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+}).catch((err) => {
+  fatalStartup(err);
 });
 
 app.on("window-all-closed", () => {

@@ -247,7 +247,12 @@ const en = {
     similarTitle: 'Similar name',
     similarAsk: 'This name already exists. Do you mean «{{name}}» (code {{code}}) or a new person?',
     openExisting: 'Open existing client',
-    addAsNew: 'New person'
+    addAsNew: 'New person',
+    blankForm: 'Client intake form',
+    printBlank: 'Print blank form',
+    attachId: 'Attach national ID',
+    attachPoa: 'Attach power of attorney',
+    addAddress: 'Add address'
   },
   cases: {
     searchFirst:
@@ -301,11 +306,18 @@ const en = {
     nickname: 'Nickname / alias',
     trade_name: 'Capacity / trade name',
     national_id: 'National ID',
+    id_kind: 'ID type',
+    passport: 'Passport',
+    passport_country: 'Passport country',
     phone: 'Phone',
+    phone_other: 'Other phone',
     phone2: 'Phone 2',
+    phone_home: 'Home phone',
+    phone_work: 'Work phone',
     whatsapp: 'WhatsApp',
     email: 'Email',
     address: 'Address',
+    address2: 'Additional address',
     governorate: 'Governorate',
     district: 'District',
     client_type: 'Client type',

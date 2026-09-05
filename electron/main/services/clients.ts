@@ -129,8 +129,9 @@ export function createClient(actor: AuthedUser, data: Record<string, unknown>) {
     `INSERT INTO clients (
         id, client_number, full_name, trade_name, nickname, national_id, phone, phone2, whatsapp, email, address,
         governorate, district, client_type, profession, birth_date, extra_data, notes,
-        commercial_register, tax_id, manager_name, created_at, updated_at, created_by
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        commercial_register, tax_id, manager_name, id_kind, passport_country, phone_home, phone_work, address2,
+        created_at, updated_at, created_by
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).run(
     id,
     number,
@@ -153,6 +154,11 @@ export function createClient(actor: AuthedUser, data: Record<string, unknown>) {
     data.commercial_register ?? null,
     data.tax_id ?? null,
     data.manager_name ?? null,
+    data.id_kind || 'national_id',
+    data.passport_country ?? null,
+    data.phone_home ?? null,
+    data.phone_work ?? null,
+    data.address2 ?? null,
     ts,
     ts,
     actor.id
@@ -183,7 +189,8 @@ export function updateClient(actor: AuthedUser, id: string, data: Record<string,
   db.prepare(
     `UPDATE clients SET full_name=?, trade_name=?, nickname=?, national_id=?, phone=?, phone2=?, whatsapp=?, email=?,
       address=?, governorate=?, district=?, client_type=?, profession=?, birth_date=?, extra_data=?, notes=?,
-      commercial_register=?, tax_id=?, manager_name=?, updated_at=? WHERE id=?`
+      commercial_register=?, tax_id=?, manager_name=?, id_kind=?, passport_country=?, phone_home=?, phone_work=?,
+      address2=?, updated_at=? WHERE id=?`
   ).run(
     data.full_name,
     data.trade_name ?? null,
@@ -204,6 +211,11 @@ export function updateClient(actor: AuthedUser, id: string, data: Record<string,
     data.commercial_register ?? null,
     data.tax_id ?? null,
     data.manager_name ?? null,
+    data.id_kind || old.id_kind || 'national_id',
+    data.passport_country ?? null,
+    keepContact ? old.phone_home : data.phone_home ?? null,
+    keepContact ? old.phone_work : data.phone_work ?? null,
+    data.address2 ?? null,
     nowIso(),
     id
   )
@@ -328,6 +340,8 @@ export function maskClientContactFields(rows: unknown[], actor?: AuthedUser | nu
     phone: maskPhone(r.phone),
     phone2: maskPhone(r.phone2),
     whatsapp: maskPhone(r.whatsapp),
+    phone_home: maskPhone(r.phone_home),
+    phone_work: maskPhone(r.phone_work),
     email: maskEmail(r.email)
   }))
 }

@@ -294,35 +294,51 @@ export function StaffFormPage() {
       </div>
       <Card>
         <h3 className="mb-3 font-bold">{t('hr.hrSection')}</h3>
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+          <div style={{ width: '28ch' }} className="max-w-full">
           <Field label={t('fields.full_name')} required>
             <Input type="text" autoComplete="off" value={String(form.full_name ?? '')} onChange={(e) => setField('full_name', e.target.value)} />
           </Field>
+          </div>
+          <div style={{ width: '16ch' }} className="max-w-full">
           <Field label={t('fields.phone')}>
             <Input type="text" autoComplete="off" value={String(form.phone ?? '')} onChange={(e) => setField('phone', e.target.value)} />
           </Field>
+          </div>
+          <div style={{ width: '22ch' }} className="max-w-full">
           <Field label={t('fields.email')}>
             <Input type="text" autoComplete="off" value={String(form.email ?? '')} onChange={(e) => setField('email', e.target.value)} />
           </Field>
+          </div>
+          <div style={{ width: '14ch' }} className="max-w-full">
           <Field label={t('fields.hire_date')}>
             <DatePicker value={String(form.hire_date || '')} onChange={(v) => setField('hire_date', v)} />
           </Field>
+          </div>
+          <div style={{ width: '18ch' }} className="max-w-full">
           <Field label={t('fields.job_title')}>
             <Input type="text" autoComplete="off" value={String(form.job_title ?? '')} onChange={(e) => setField('job_title', e.target.value)} />
           </Field>
+          </div>
+          <div style={{ width: '16ch' }} className="max-w-full">
           <Field label={t('fields.department')}>
             <Input type="text" autoComplete="off" value={String(form.department ?? '')} onChange={(e) => setField('department', e.target.value)} />
           </Field>
+          </div>
+          <div style={{ width: '12ch' }} className="max-w-full">
           <Field label={t('fields.salary')}>
             <Input type="text" inputMode="decimal" autoComplete="off" value={String(form.salary ?? '')} onChange={(e) => setField('salary', e.target.value)} />
           </Field>
+          </div>
+          <div style={{ width: '12ch' }} className="max-w-full">
           <Field label={t('fields.status')}>
             <Select value={String(form.status || 'active')} onChange={(e) => setField('status', e.target.value)}>
               <option value="active">{t('status.active')}</option>
               <option value="inactive">{t('status.inactive')}</option>
             </Select>
           </Field>
-          <div className="md:col-span-2">
+          </div>
+          <div className="w-full basis-full">
             <Field label={t('fields.notes')}>
               <Textarea value={String(form.notes ?? '')} onChange={(e) => setField('notes', e.target.value)} />
             </Field>
@@ -332,39 +348,52 @@ export function StaffFormPage() {
       {roleCode === 'lawyer' && (
         <Card>
           <h3 className="mb-3 font-bold">{t('hr.lawyerSection')}</h3>
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+            <div style={{ width: '16ch' }} className="max-w-full">
             <Field label={t('fields.bar_number')}>
               <Input type="text" autoComplete="off" value={String(form.bar_number ?? '')} onChange={(e) => setField('bar_number', e.target.value)} />
             </Field>
+            </div>
+            <div style={{ width: '22ch' }} className="max-w-full">
             <Field label={t('fields.specialization')}>
               <Input type="text" autoComplete="off" value={String(form.specialization ?? '')} onChange={(e) => setField('specialization', e.target.value)} />
             </Field>
+            </div>
           </div>
         </Card>
       )}
       {roleCode === 'accountant' && (
         <Card>
           <h3 className="mb-3 font-bold">{t('hr.accountantSection')}</h3>
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+            <div style={{ width: '16ch' }} className="max-w-full">
             <Field label={t('fields.license_no')}>
               <Input type="text" autoComplete="off" value={String(form.license_no ?? '')} onChange={(e) => setField('license_no', e.target.value)} />
             </Field>
+            </div>
+            <div style={{ width: '22ch' }} className="max-w-full">
             <Field label={t('fields.qualification')}>
               <Input type="text" autoComplete="off" value={String(form.qualification ?? '')} onChange={(e) => setField('qualification', e.target.value)} />
             </Field>
+            </div>
           </div>
         </Card>
       )}
       <Card>
         <h3 className="mb-3 font-bold">{t('hr.account')}</h3>
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+          <div style={{ width: '18ch' }} className="max-w-full">
           <Field label={t('fields.username')} required>
             <Input type="text" autoComplete="off" value={String(form.username ?? '')} onChange={(e) => setField('username', e.target.value)} />
           </Field>
+          </div>
+          <div style={{ width: '18ch' }} className="max-w-full">
           <Field label={`${t('fields.password')} (${t('users.passwordHint')})`} required={isNew}>
             <Input type="password" autoComplete="new-password" value={String(form.password ?? '')} onChange={(e) => setField('password', e.target.value)} />
           </Field>
+          </div>
           {hideType && (
+            <div style={{ width: '18ch' }} className="max-w-full">
             <Field label={t('hr.staffType')} required>
               <Select value={String(form.role_id || '')} onChange={(e) => onTypeChange(e.target.value)}>
                 <option value="">{t('pickFromList')}</option>
@@ -375,13 +404,16 @@ export function StaffFormPage() {
                 ))}
               </Select>
             </Field>
+            </div>
           )}
+          <div style={{ width: '12ch' }} className="max-w-full">
           <Field label={t('fields.is_active')}>
             <Select value={String(form.is_active ?? 1)} onChange={(e) => setField('is_active', Number(e.target.value))}>
               <option value={1}>{t('status.yes')}</option>
               <option value={0}>{t('status.no')}</option>
             </Select>
           </Field>
+          </div>
         </div>
       </Card>
       {empId ? (

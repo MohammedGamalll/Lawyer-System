@@ -1,5 +1,18 @@
 import type Database from 'better-sqlite3'
 
+function hasColumn(db: Database.Database, table: string, column: string): boolean {
+  return (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === column)
+}
+
+function canSelect(db: Database.Database, sql: string): boolean {
+  try {
+    db.prepare(sql).get()
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function ftsQuery(raw: string): string {
   const toks = String(raw || '')
     .replace(/['"^:*()]/g, ' ')
@@ -10,6 +23,18 @@ export function ftsQuery(raw: string): string {
 }
 
 export function ensureFts(db: Database.Database): void {
+  if (!hasColumn(db, 'clients', 'nickname')) {
+    db.exec(`ALTER TABLE clients ADD COLUMN nickname TEXT`)
+  }
+  if (hasColumn(db, 'opponents', 'id') && !hasColumn(db, 'opponents', 'nickname')) {
+    db.exec(`ALTER TABLE opponents ADD COLUMN nickname TEXT`)
+  }
+  if (!canSelect(db, `SELECT nickname FROM clients_fts LIMIT 0`)) {
+    db.exec(`DROP TRIGGER IF EXISTS clients_fts_ai`)
+    db.exec(`DROP TRIGGER IF EXISTS clients_fts_ad`)
+    db.exec(`DROP TRIGGER IF EXISTS clients_fts_au`)
+    db.exec(`DROP TABLE IF EXISTS clients_fts`)
+  }
   db.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS cases_fts USING fts5(
       title, category, case_number, office_case_number, opponent_name,

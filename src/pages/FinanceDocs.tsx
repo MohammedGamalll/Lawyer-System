@@ -74,9 +74,13 @@ export function DocumentsPage() {
           { key: 'current_version', label: t('fields.current_version') }
         ]}
         fields={[
-          { name: 'title', label: t('fields.title') },
-          { name: 'category', label: t('fields.category'), type: 'select', options: cats(t) },
-          { name: 'notes', label: t('fields.notes'), type: 'textarea' }
+          { name: 'title', label: t('fields.title'), required: true, widthCh: 28 },
+          { name: 'client_id', label: t('fields.client_id'), lookup: 'clients', widthCh: 22 },
+          { name: 'case_id', label: t('fields.case_id'), lookup: 'cases', widthCh: 22 },
+          { name: 'category', label: t('fields.category'), type: 'select', options: cats(t), widthCh: 16 },
+          { name: 'notes', label: t('fields.notes'), type: 'textarea' },
+          { name: 'hearing_id', label: t('fields.hearing_id'), lookup: 'hearings', widthCh: 22 },
+          { name: 'contract_id', label: t('fields.contract_id'), lookup: 'contracts', widthCh: 22 }
         ]}
         extraActions={
           can('documents.upload') && (
@@ -130,10 +134,13 @@ export function DocumentsPage() {
         )}
       />
       <Modal open={open} title={t('docs.upload')} onClose={() => setOpen(false)} wide>
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+          <div style={{ width: '24ch' }} className="max-w-full">
           <Field label={t('fields.title')} required>
             <Input value={String(form.title || '')} onChange={(e) => setForm({ ...form, title: e.target.value })} />
           </Field>
+          </div>
+          <div style={{ width: '22ch' }} className="max-w-full">
           <Field label={t('fields.client_id')}>
             <EntitySelect
               kind="clients"
@@ -141,6 +148,8 @@ export function DocumentsPage() {
               onChange={(v) => setForm({ ...form, client_id: v })}
             />
           </Field>
+          </div>
+          <div style={{ width: '22ch' }} className="max-w-full">
           <Field label={t('fields.case_id')}>
             <EntitySelect
               kind="cases"
@@ -149,6 +158,8 @@ export function DocumentsPage() {
               onChange={(v) => setForm({ ...form, case_id: v })}
             />
           </Field>
+          </div>
+          <div style={{ width: '16ch' }} className="max-w-full">
           <Field label={t('fields.category')}>
             <Select value={String(form.category)} onChange={(e) => setForm({ ...form, category: e.target.value })}>
               {cats(t).map((c) => (
@@ -158,9 +169,13 @@ export function DocumentsPage() {
               ))}
             </Select>
           </Field>
+          </div>
+          <div className="w-full basis-full">
           <Field label={t('fields.notes')}>
             <Textarea value={String(form.notes || '')} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
           </Field>
+          </div>
+          <div style={{ width: '22ch' }} className="max-w-full">
           <Field label={t('fields.hearing_id')}>
             <EntitySelect
               kind="hearings"
@@ -168,6 +183,8 @@ export function DocumentsPage() {
               onChange={(v) => setForm({ ...form, hearing_id: v })}
             />
           </Field>
+          </div>
+          <div style={{ width: '22ch' }} className="max-w-full">
           <Field label={t('fields.contract_id')}>
             <EntitySelect
               kind="contracts"
@@ -175,6 +192,7 @@ export function DocumentsPage() {
               onChange={(v) => setForm({ ...form, contract_id: v })}
             />
           </Field>
+          </div>
         </div>
         <div className="mt-3 space-y-2">
           <UploadSourceMenu
@@ -874,7 +892,8 @@ export function InvoicesPage() {
         )}
       />
       <Modal open={open} title={t('finance.newInvoice')} onClose={() => setOpen(false)} wide>
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+          <div className="max-w-full" style={{ width: '22ch' }}>
           <Field label={t('fields.client_id')} required>
             <EntitySelect
               kind="clients"
@@ -882,6 +901,8 @@ export function InvoicesPage() {
               onChange={(v) => setForm({ ...form, client_id: v })}
             />
           </Field>
+          </div>
+          <div className="max-w-full" style={{ width: '22ch' }}>
           <Field label={t('fields.case_id')}>
             <EntitySelect
               kind="cases"
@@ -890,9 +911,12 @@ export function InvoicesPage() {
               onChange={onPickCase}
             />
           </Field>
+          </div>
+          <div className="max-w-full" style={{ width: '14ch' }}>
           <Field label={t('fields.invoice_date')}>
             <DatePicker value={String(form.invoice_date || '')} onChange={(d) => setForm({ ...form, invoice_date: d })} />
           </Field>
+          </div>
         </div>
         {caseFees && (
           <div className="mt-3 grid gap-2 rounded-lg bg-navy-50 p-3 text-sm md:grid-cols-3 dark:bg-navy-800">

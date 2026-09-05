@@ -8,7 +8,7 @@ import { Button, Input, Select } from '../components/ui'
 import { formatCourtNumber, formatProgramCode } from '../lib/courtNumber'
 import { invoke } from '../lib/api'
 import { useApp } from '../store'
-import { CASE_STATUSES, REMINDER_TYPES } from '@shared/types'
+import { REMINDER_TYPES } from '@shared/types'
 import {
   appointmentSchema,
   caseSchema,
@@ -16,11 +16,13 @@ import {
   consultationSchema,
   contractSchema,
   correspondenceSchema,
-  lawyerSchema,
   opponentSchema,
   poaSchema,
   reminderSchema
 } from '@shared/schemas'
+import { ClientForm, uploadClientPendingDocs } from '../components/ClientForm'
+import { caseFormFields } from '../lib/caseForm'
+import { clientBlankFormHtml } from '../lib/clientBlankForm'
 import { StaffFormPage } from './StaffForm'
 import { ClientProfilePage } from './ClientProfile'
 import { CaseProfilePage } from './CaseProfile'
@@ -35,7 +37,7 @@ function f(t: (k: string) => string, name: string, extra: Partial<FieldDef> = {}
 
 export function ClientsPage() {
   const { t } = useTranslation()
-  const { setPage, can } = useApp()
+  const { setPage, can, toast } = useApp()
   const showContact = can('clients.unmask_contact')
   return (
     <CrudPage
@@ -48,6 +50,7 @@ export function ClientsPage() {
       updatePerm="clients.update"
       deletePerm="clients.delete"
       schema={clientSchema}
+      defaults={{ id_kind: 'national_id' }}
       columns={[
         { key: 'client_number', label: t('fields.client_number') },
         {
@@ -60,36 +63,44 @@ export function ClientsPage() {
           label: t('fields.phone'),
           render: (r) => (
             <span className="inline-flex items-center gap-1">
-              <span dir="ltr">{String(r.phone ?? '')}</span>
+              <span dir="ltr">{String(r.phone ?? r.whatsapp ?? '')}</span>
               {showContact ? <ContactActions phone={String(r.phone || '')} whatsapp={String(r.whatsapp || '')} /> : null}
             </span>
           )
         },
         { key: 'national_id', label: t('fields.national_id') },
         { key: 'profession', label: t('fields.profession') },
-        ...(can('accounts.view') ? [{ key: 'due', label: t('due'), money: true as const }] : []),
-        { key: 'governorate', label: t('fields.governorate') }
+        ...(can('accounts.view') ? [{ key: 'due', label: t('due'), money: true as const }] : [])
       ]}
-      fields={[
-        f(t, 'full_name', { required: true }),
-        f(t, 'nickname'),
-        f(t, 'phone'),
-        f(t, 'national_id'),
-        f(t, 'phone2'),
-        f(t, 'whatsapp'),
-        f(t, 'email'),
-        f(t, 'address'),
-        f(t, 'governorate', { type: 'combo', comboKind: 'governorate' }),
-        f(t, 'district', { type: 'combo', comboKind: 'district' }),
-        f(t, 'profession', { type: 'combo', comboKind: 'profession' }),
-        f(t, 'birth_date', { type: 'date' }),
-        f(t, 'commercial_register'),
-        f(t, 'tax_id'),
-        f(t, 'manager_name'),
-        f(t, 'notes', { type: 'textarea' })
-      ]}
+      fields={[]}
+      formBody={(form, setField, errors) => (
+        <ClientForm values={form} onChange={setField} errors={errors} clientId={String(form.id || '')} />
+      )}
+      afterSave={async ({ result, form }) => {
+        const id = String((result as { id?: string })?.id || form.id || '')
+        if (!id) return
+        try {
+          await uploadClientPendingDocs(id, form)
+        } catch (e) {
+          toast((e as Error).message, 'err')
+        }
+      }}
+      extraActions={
+        <>
+          <Button
+            variant="outline"
+            onClick={() =>
+              invoke('print:print', 'a4', t('clients.blankForm'), clientBlankFormHtml()).catch((e) =>
+                toast((e as Error).message, 'err')
+              )
+            }
+          >
+            {t('clients.printBlank')}
+          </Button>
+          <ImportButton kind="clients" />
+        </>
+      }
       onRowOpen={(r) => setPage('clientProfile', { id: r.id })}
-      extraActions={<ImportButton kind="clients" />}
     />
   )
 }
@@ -199,54 +210,7 @@ export function CasesPage() {
         { key: 'status', label: t('fields.status'), status: true }
       ]}
       compactForm
-      fields={[
-        f(t, 'title', { required: true, type: 'combo', comboKind: 'case_title', label: t('fields.case_subject') }),
-        f(t, 'case_type_id', { lookup: 'caseTypes' }),
-        f(t, 'category', { type: 'combo', comboKind: 'case_subject' }),
-        f(t, 'court', { type: 'combo', comboKind: 'court' }),
-        f(t, 'circuit', { size: 'sm' }),
-        f(t, 'session_place', { size: 'sm' }),
-        f(t, 'previous_circuit', { size: 'sm' }),
-        f(t, 'first_instance_number', { size: 'sm' }),
-        f(t, 'first_instance_year', { size: 'sm' }),
-        f(t, 'appeal_number', { size: 'sm' }),
-        f(t, 'appeal_year', { size: 'sm' }),
-        f(t, 'cassation_number', { size: 'sm' }),
-        f(t, 'cassation_year', { size: 'sm' }),
-        f(t, 'extra_ref_type', { type: 'combo', comboKind: 'extra_ref_type' }),
-        f(t, 'extra_ref_number', { size: 'sm' }),
-        f(t, 'extra_ref2_type', { type: 'combo', comboKind: 'extra_ref_type', label: t('fields.extra_ref_type') }),
-        f(t, 'extra_ref2_number', { size: 'sm', label: t('fields.extra_ref_number') }),
-        f(t, 'extra_ref3_type', { type: 'combo', comboKind: 'extra_ref_type', label: t('fields.extra_ref_type') }),
-        f(t, 'extra_ref3_number', { size: 'sm', label: t('fields.extra_ref_number') }),
-        f(t, 'received_date', { type: 'date' }),
-        f(t, 'filing_date', { type: 'date' }),
-        f(t, 'primary_lawyer_id', { lookup: 'lawyers' }),
-        f(t, 'assistant_lawyer_id', { lookup: 'lawyers' }),
-        f(t, 'status', { type: 'select', options: st(t, CASE_STATUSES) }),
-        f(t, 'case_value', { type: 'number' }),
-        f(t, 'total_fees', { type: 'number' }),
-        f(t, 'fees_due_date', { type: 'date' }),
-        f(t, 'payment_method', {
-          type: 'select',
-          options: ['cash', 'bank', 'card', 'wallet', 'installment', 'other'].map((v) => ({
-            value: v,
-            label: t(`types.${v}`)
-          }))
-        }),
-        f(t, 'installment_count', { type: 'number' }),
-        f(t, 'related_case_id', { lookup: 'cases' }),
-        f(t, 'link_type', {
-          type: 'select',
-          options: ['original', 'appeal', 'cassation', 'execution'].map((v) => ({
-            value: v,
-            label: t(`status.${v}`)
-          }))
-        }),
-        f(t, 'description', { type: 'textarea' }),
-        f(t, 'summary', { type: 'textarea' }),
-        f(t, 'notes', { type: 'textarea' })
-      ]}
+      fields={caseFormFields(t)}
       onRowOpen={(r) => setPage('caseProfile', { id: r.id })}
       extraActions={<ImportButton kind="cases" />}
       defaults={{
@@ -315,17 +279,12 @@ export function LawyersPage() {
     <CrudPage
       title={t('nav.lawyers')}
       listChannel="lawyers:list"
-      createChannel="lawyers:create"
-      updateChannel="lawyers:update"
       removeChannel="lawyers:remove"
-      createPerm="users.manage"
-      updatePerm="users.manage"
       deletePerm="users.manage"
-      schema={lawyerSchema}
       pageSize={200}
       extraActions={
         can('users.manage') ? (
-        <Button variant="outline" onClick={() => setPage('staffForm', { lockRole: 'lawyer', back: 'lawyers' })}>
+        <Button variant="gold" onClick={() => setPage('staffForm', { lockRole: 'lawyer', back: 'lawyers' })}>
           {t('hr.addLawyer')}
         </Button>
         ) : null
@@ -337,13 +296,23 @@ export function LawyersPage() {
         { key: 'phone', label: t('fields.phone') },
         { key: 'status', label: t('fields.status'), status: true }
       ]}
-      fields={[
-        f(t, 'full_name', { required: true }),
-        f(t, 'phone'),
-        f(t, 'bar_number'),
-        f(t, 'specialization'),
-        f(t, 'status', { type: 'select', options: st(t, ['active', 'inactive']) })
-      ]}
+      fields={[]}
+      onEditRow={(r) =>
+        setPage('staffForm', {
+          employeeId: r.employee_id,
+          lawyerId: r.id,
+          lockRole: 'lawyer',
+          back: 'lawyers'
+        })
+      }
+      onRowOpen={(r) =>
+        setPage('staffForm', {
+          employeeId: r.employee_id,
+          lawyerId: r.id,
+          lockRole: 'lawyer',
+          back: 'lawyers'
+        })
+      }
       rowActions={(r, reload) =>
         can('users.manage') ? (
           <>
@@ -416,6 +385,7 @@ export function EmployeesPage() {
       ]}
       fields={[]}
       onRowOpen={(r) => setPage('staffForm', { employeeId: r.id, lawyerId: r.lawyer_id, userId: r.user_id, back: 'employees' })}
+      onEditRow={(r) => setPage('staffForm', { employeeId: r.id, lawyerId: r.lawyer_id, userId: r.user_id, back: 'employees' })}
     />
   )
 }

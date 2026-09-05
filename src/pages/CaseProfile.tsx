@@ -5,6 +5,10 @@ import { invoke } from '../lib/api'
 import { useApp } from '../store'
 import { Button, Card, Field, InfoGrid, Input, MiniTable, Modal, PageHeader, Select, StatusBadge, UiTabs } from '../components/ui'
 import { EntitySelect } from '../components/EntitySelect'
+import { FormFields } from '../components/CrudPage'
+import { CaseFormExtras } from '../components/CaseFormExtras'
+import { caseFormFields, hydrateCaseForm } from '../lib/caseForm'
+import { caseSchema } from '@shared/schemas'
 import { onDataChanged } from '../lib/bus'
 import { formatCourtNumber, formatProgramCode } from '../lib/courtNumber'
 import { cleanPartyName } from '../lib/partyName'
@@ -52,23 +56,13 @@ export function CaseProfilePage() {
   const [partiesOpen, setPartiesOpen] = useState<'clients' | 'opponents' | null>(null)
   const [tab, setTab] = useState<CaseTab>('hearings')
   const [feesEdit, setFeesEdit] = useState('')
-  const [editing, setEditing] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [form, setForm] = useState<Record<string, unknown>>({})
   const [payOpen, setPayOpen] = useState(false)
   const [pay, setPay] = useState({ amount: '', payment_date: new Date().toISOString().slice(0, 10), payment_method: 'cash', notes: '' })
-  const [edit, setEdit] = useState({ circuit: '', court: '', session_place: '', office_case_number: '', case_year: '' })
   const id = String(pageMeta.id || '')
   const canFinance = can('accounts.view')
-  const load = () =>
-    invoke<Record<string, unknown>>('cases:get', id).then((r) => {
-      setRow(r)
-      setEdit({
-        circuit: String(r.circuit ?? r.circuit_number ?? ''),
-        court: String(r.court ?? ''),
-        session_place: String(r.session_place ?? ''),
-        office_case_number: String(r.office_case_number ?? ''),
-        case_year: String(r.case_year ?? '')
-      })
-    })
+  const load = () => invoke<Record<string, unknown>>('cases:get', id).then(setRow)
   useEffect(() => {
     load().catch((e) => toast(e.message, 'err'))
   }, [id])
@@ -161,17 +155,16 @@ export function CaseProfilePage() {
             <Button
               variant="outline"
               onClick={async () => {
-                if (!editing) {
-                  setEditing(true)
-                  return
+                try {
+                  const full = await invoke<Record<string, unknown>>('cases:get', id)
+                  setForm(hydrateCaseForm(row, full))
+                  setEditOpen(true)
+                } catch (e) {
+                  toast((e as Error).message, 'err')
                 }
-                await invoke('cases:update', id, { ...row, ...edit })
-                toast(t('savedOk'))
-                setEditing(false)
-                load()
               }}
             >
-              {editing ? t('save') : t('edit')}
+              {t('edit')}
             </Button>
           )}
           <Button
@@ -301,35 +294,7 @@ export function CaseProfilePage() {
         </div>
 
       <Card>
-        {editing ? (
-          <div className="grid gap-2 md:grid-cols-3">
-            <label className="text-sm">
-              {t('fields.court')}
-              <Input value={edit.court} onChange={(e) => setEdit({ ...edit, court: e.target.value })} />
-            </label>
-            <label className="text-sm">
-              {t('fields.circuit')}
-              <Input value={edit.circuit} onChange={(e) => setEdit({ ...edit, circuit: e.target.value })} />
-            </label>
-            <label className="text-sm">
-              {t('fields.session_place')}
-              <Input value={edit.session_place} onChange={(e) => setEdit({ ...edit, session_place: e.target.value })} />
-            </label>
-            <label className="text-sm">
-              {t('fields.court_number')}
-              <Input
-                dir="ltr"
-                value={edit.office_case_number}
-                onChange={(e) => setEdit({ ...edit, office_case_number: e.target.value })}
-              />
-            </label>
-            <label className="text-sm">
-              {t('fields.case_year')}
-              <Input dir="ltr" value={edit.case_year} onChange={(e) => setEdit({ ...edit, case_year: e.target.value })} />
-            </label>
-          </div>
-        ) : (
-          <InfoGrid
+        <InfoGrid
             items={[
               { label: t('fields.court'), value: String(row.court ?? '—') },
               { label: t('fields.circuit'), value: String(row.circuit ?? row.circuit_number ?? '—') },
@@ -342,7 +307,6 @@ export function CaseProfilePage() {
               { label: t('fields.status'), value: <StatusBadge value={String(row.status)} /> }
             ]}
           />
-        )}
       </Card>
 
       <PageHeader
@@ -475,6 +439,42 @@ export function CaseProfilePage() {
               {t('save')}
             </Button>
           </div>
+        </div>
+      </Modal>
+      <Modal open={editOpen} title={t('edit')} onClose={() => setEditOpen(false)} wide>
+        <div className="mb-3 text-center text-4xl font-black text-red-600">{formatProgramCode(form)}</div>
+        <CaseFormExtras
+          form={form}
+          setField={(n, v) => setForm((prev) => ({ ...prev, [n]: v }))}
+        />
+        <FormFields
+          fields={caseFormFields(t)}
+          values={form}
+          onChange={(n, v) => setForm((prev) => ({ ...prev, [n]: v }))}
+        />
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="outline" onClick={() => setEditOpen(false)}>
+            {t('cancel')}
+          </Button>
+          <Button
+            onClick={async () => {
+              const parsed = caseSchema.safeParse(form)
+              if (!parsed.success) {
+                toast(parsed.error.issues[0]?.message || t('error'), 'err')
+                return
+              }
+              try {
+                await invoke('cases:update', id, form)
+                toast(t('savedOk'))
+                setEditOpen(false)
+                await load()
+              } catch (e) {
+                toast((e as Error).message, 'err')
+              }
+            }}
+          >
+            {t('save')}
+          </Button>
         </div>
       </Modal>
     </div>

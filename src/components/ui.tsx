@@ -43,17 +43,20 @@ export function Button({
   )
 }
 
-export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return (
-    <input
-      {...props}
-      className={cn(
-        'flex h-9 w-full rounded-md border border-navy-200 bg-white px-3 py-1 text-sm text-navy-900 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-gold-400 dark:bg-navy-900 dark:border-navy-700 dark:text-navy-50',
-        props.className
-      )}
-    />
-  )
-}
+export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
+  function Input(props, ref) {
+    return (
+      <input
+        {...props}
+        ref={ref}
+        className={cn(
+          'flex h-9 w-full rounded-md border border-navy-200 bg-white px-3 py-1 text-sm text-navy-900 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-gold-400 dark:bg-navy-900 dark:border-navy-700 dark:text-navy-50',
+          props.className
+        )}
+      />
+    )
+  }
+)
 
 export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
@@ -151,7 +154,7 @@ export function Modal({
           }}
           className={cn(
             'fixed left-1/2 top-1/2 z-50 flex max-h-[90vh] w-[min(520px,94vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-visible rounded-xl border bg-white p-5 text-start text-navy-900 shadow-xl dark:border-navy-700 dark:bg-navy-900 dark:text-navy-50',
-            wide && 'w-[min(920px,94vw)]'
+            wide && 'w-[min(1100px,96vw)]'
           )}
         >
           <div className="mb-4 flex shrink-0 items-center justify-between">

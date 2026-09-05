@@ -236,6 +236,15 @@ export function UsersPage() {
             back: 'users'
           })
         }
+        onEditRow={(r) =>
+          setPage('staffForm', {
+            userId: r.id,
+            employeeId: r.employee_id,
+            lawyerId: r.lawyer_id,
+            hideType: true,
+            back: 'users'
+          })
+        }
         rowActions={(r) => (
           <>
             <Button variant="ghost" onClick={() => openPerms(r).catch((e) => toast((e as Error).message, 'err'))}>

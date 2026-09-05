@@ -3,7 +3,6 @@ import { PERMISSIONS, ROLE_PERMISSIONS } from '@shared/permissions'
 import { nowIso } from '../utils/time'
 import { newId } from './ids'
 import { PERFORMANCE_INDEXES } from './indexes'
-import { ensureFts } from './fts'
 
 type Db = Database.Database
 
@@ -12,7 +11,11 @@ function tableCols(db: Db, table: string): Set<string> {
 }
 
 function addColumn(db: Db, table: string, column: string, ddl: string) {
-  if (!tableCols(db, table).has(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`)
+  try {
+    if (!tableCols(db, table).has(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`)
+  } catch (err) {
+    console.warn('add column skipped', table, column, err)
+  }
 }
 
 const LOOKUP_SEEDS: Record<string, string[]> = {
@@ -52,6 +55,8 @@ const LOOKUP_SEEDS: Record<string, string[]> = {
 }
 
 export function patchSchema(db: Db): void {
+  addColumn(db, 'clients', 'nickname', 'TEXT')
+  addColumn(db, 'opponents', 'nickname', 'TEXT')
   addColumn(db, 'hearings', 'previous_decision', 'TEXT')
   addColumn(db, 'hearings', 'hall', 'TEXT')
   addColumn(db, 'hearings', 'floor', 'TEXT')
@@ -92,18 +97,25 @@ export function patchSchema(db: Db): void {
   addColumn(db, 'tasks', 'work_kind', "TEXT NOT NULL DEFAULT 'admin'")
   addColumn(db, 'lawyers', 'sort_order', 'INTEGER NOT NULL DEFAULT 0')
   addColumn(db, 'opponents', 'lawyer_phone', 'TEXT')
-  addColumn(db, 'clients', 'nickname', 'TEXT')
-  addColumn(db, 'opponents', 'nickname', 'TEXT')
-  ensurePermissions(db)
+  addColumn(db, 'clients', 'id_kind', "TEXT NOT NULL DEFAULT 'national_id'")
+  addColumn(db, 'clients', 'passport_country', 'TEXT')
+  addColumn(db, 'clients', 'phone_home', 'TEXT')
+  addColumn(db, 'clients', 'phone_work', 'TEXT')
+  addColumn(db, 'clients', 'address2', 'TEXT')
   seedLookups(db)
-  db.exec(PERFORMANCE_INDEXES)
-  ensureFts(db)
+  for (const stmt of PERFORMANCE_INDEXES.split(';').map((s) => s.trim()).filter(Boolean)) {
+    try {
+      db.exec(stmt)
+    } catch (err) {
+      console.warn('index skipped', stmt.slice(0, 80), err)
+    }
+  }
 }
 
-function ensurePermissions(db: Db): void {
+export function ensurePermissions(db: Db): void {
   const ts = nowIso()
   const existing = new Set(
-    (db.prepare('SELECT code FROM permissions WHERE deleted_at IS NULL').all() as { code: string }[]).map((r) => r.code)
+    (db.prepare('SELECT code FROM permissions').all() as { code: string }[]).map((r) => r.code)
   )
   const insertPerm = db.prepare(
     'INSERT INTO permissions (id, code, name_ar, name_en, module, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
@@ -122,7 +134,7 @@ function ensurePermissions(db: Db): void {
     `SELECT 1 FROM role_permissions WHERE role_id = ? AND permission_id = ? AND deleted_at IS NULL`
   )
   const insertRp = db.prepare(
-    'INSERT INTO role_permissions (id, role_id, permission_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+    'INSERT OR IGNORE INTO role_permissions (id, role_id, permission_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
   )
   const roles = db.prepare(`SELECT id, code FROM roles WHERE deleted_at IS NULL`).all() as { id: string; code: string }[]
   for (const role of roles) {
