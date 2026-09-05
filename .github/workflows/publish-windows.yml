@@ -1,0 +1,69 @@
+name: Publish Windows release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Git tag to build and attach the installer to
+        required: true
+        default: v1.0.8
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install and rebuild native modules
+        run: |
+          npm ci
+          npm run rebuild
+
+      - name: Build NSIS installer
+        run: npm run dist
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Upload installer to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $exe = Get-ChildItem release -Filter "Law Office Management System-Setup-*.exe" |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          if (-not $exe) { throw "Installer not found in release/" }
+          $hyphen = Join-Path $exe.DirectoryName ($exe.Name -replace ' ','-')
+          Copy-Item $exe.FullName $hyphen -Force
+          $blockSrc = "$($exe.FullName).blockmap"
+          $blockDst = "$hyphen.blockmap"
+          if (Test-Path $blockSrc) { Copy-Item $blockSrc $blockDst -Force }
+          $bytes = [System.Security.Cryptography.SHA512]::Create().ComputeHash([IO.File]::ReadAllBytes($hyphen))
+          $sha = [Convert]::ToBase64String($bytes)
+          $size = (Get-Item $hyphen).Length
+          $ver = (Get-Content package.json | ConvertFrom-Json).version
+          $date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+          $yml = @(
+            "version: $ver"
+            "files:"
+            "  - url: $name"
+            "    sha512: $sha"
+            "    size: $size"
+            "path: $name"
+            "sha512: $sha"
+            "releaseDate: '$date'"
+          )
+          $yml | Set-Content -Path release/latest.yml -Encoding ascii
+          $files = @($hyphen, "release/latest.yml")
+          if (Test-Path $blockDst) { $files += $blockDst }
+          gh release upload "${{ inputs.tag }}" @files --clobber --repo "$env:GITHUB_REPOSITORY"
+          gh release view "${{ inputs.tag }}" --repo "$env:GITHUB_REPOSITORY"
