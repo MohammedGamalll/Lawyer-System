@@ -34,36 +34,80 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
-      - name: Upload installer to GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Prepare hyphenated installer and latest.yml
+        shell: pwsh
         run: |
-          $exe = Get-ChildItem release -Filter "Law Office Management System-Setup-*.exe" |
+          $ErrorActionPreference = 'Stop'
+          $exe = Get-ChildItem -LiteralPath release -Filter "Law Office Management System-Setup-*.exe" |
+            Where-Object { $_.Extension -eq '.exe' } |
             Sort-Object LastWriteTime -Descending |
             Select-Object -First 1
           if (-not $exe) { throw "Installer not found in release/" }
-          $hyphen = Join-Path $exe.DirectoryName ($exe.Name -replace ' ','-')
-          Copy-Item $exe.FullName $hyphen -Force
+
+          $fileName = $exe.Name -replace ' ', '-'
+          $hyphen = Join-Path $exe.DirectoryName $fileName
+          Copy-Item -LiteralPath $exe.FullName -Destination $hyphen -Force
+
           $blockSrc = "$($exe.FullName).blockmap"
           $blockDst = "$hyphen.blockmap"
-          if (Test-Path $blockSrc) { Copy-Item $blockSrc $blockDst -Force }
-          $bytes = [System.Security.Cryptography.SHA512]::Create().ComputeHash([IO.File]::ReadAllBytes($hyphen))
-          $sha = [Convert]::ToBase64String($bytes)
-          $size = (Get-Item $hyphen).Length
-          $ver = (Get-Content package.json | ConvertFrom-Json).version
-          $date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
-          $yml = @(
-            "version: $ver"
-            "files:"
-            "  - url: $name"
-            "    sha512: $sha"
-            "    size: $size"
-            "path: $name"
-            "sha512: $sha"
-            "releaseDate: '$date'"
-          )
-          $yml | Set-Content -Path release/latest.yml -Encoding ascii
-          $files = @($hyphen, "release/latest.yml")
-          if (Test-Path $blockDst) { $files += $blockDst }
-          gh release upload "${{ inputs.tag }}" @files --clobber --repo "$env:GITHUB_REPOSITORY"
-          gh release view "${{ inputs.tag }}" --repo "$env:GITHUB_REPOSITORY"
+          if (Test-Path -LiteralPath $blockSrc) {
+            Copy-Item -LiteralPath $blockSrc -Destination $blockDst -Force
+          }
+
+          $ymlPath = Join-Path $exe.DirectoryName 'latest.yml'
+          if (-not (Test-Path -LiteralPath $ymlPath)) { throw 'electron-builder did not write release/latest.yml' }
+          $yml = Get-Content -LiteralPath $ymlPath -Raw
+          Set-Content -LiteralPath $ymlPath -Value ($yml -replace [regex]::Escape($exe.Name), $fileName).TrimEnd() -Encoding ascii
+
+          Write-Host "Prepared $fileName size=$((Get-Item -LiteralPath $hyphen).Length)"
+          Get-Content -LiteralPath $ymlPath
+
+      - name: Keep installer as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-nsis-installer
+          path: |
+            release/Law-Office-Management-System-Setup-*.exe
+            release/Law-Office-Management-System-Setup-*.exe.blockmap
+            release/latest.yml
+          if-no-files-found: error
+
+      - name: Upload installer to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = '${{ inputs.tag }}'
+          $exe = Get-ChildItem -LiteralPath release -Filter 'Law-Office-Management-System-Setup-*.exe' |
+            Where-Object { $_.Extension -eq '.exe' } |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          if (-not $exe) { throw 'Hyphenated installer not found' }
+          $fileName = $exe.Name
+          $ymlPath = Join-Path $exe.DirectoryName 'latest.yml'
+          $blockDst = "$($exe.FullName).blockmap"
+
+          Write-Host "Uploading $($exe.FullName) ($((Get-Item -LiteralPath $exe.FullName).Length) bytes)"
+          gh release upload $tag $exe.FullName --clobber --repo $env:GITHUB_REPOSITORY
+          gh release upload $tag $ymlPath --clobber --repo $env:GITHUB_REPOSITORY
+          if (Test-Path -LiteralPath $blockDst) {
+            gh release upload $tag $blockDst --clobber --repo $env:GITHUB_REPOSITORY
+          }
+
+          function Get-ExeAsset {
+            $rel = gh api "repos/$($env:GITHUB_REPOSITORY)/releases/tags/$tag" | ConvertFrom-Json
+            return $rel.assets | Where-Object { $_.name -eq $fileName }
+          }
+
+          $asset = Get-ExeAsset
+          if (-not $asset) { throw 'Installer asset missing immediately after upload' }
+          $expected = (Get-Item -LiteralPath $exe.FullName).Length
+          Write-Host "Uploaded asset id=$($asset.id) size=$($asset.size) state=$($asset.state)"
+          if ($asset.size -ne $expected) { throw "Size mismatch GitHub=$($asset.size) local=$expected" }
+
+          Start-Sleep -Seconds 45
+          $again = Get-ExeAsset
+          if (-not $again) { throw 'Installer asset disappeared 45s after upload' }
+          Write-Host "Confirmed still present after 45s size=$($again.size)"
+          gh release view $tag --repo $env:GITHUB_REPOSITORY
