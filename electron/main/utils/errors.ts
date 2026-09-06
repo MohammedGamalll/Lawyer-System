@@ -16,5 +16,15 @@ export function mapDbError(err: unknown): Error {
   if (msg.includes('sqlite_busy') || msg.includes('database is locked')) {
     return new Error('قاعدة البيانات مشغولة حالياً. حاول مرة أخرى')
   }
+  if (
+    msg.includes('malformed') ||
+    msg.includes('corrupt') ||
+    msg.includes('disk image') ||
+    msg.includes('file is not a database')
+  ) {
+    return new Error(
+      'تعذر حفظ التعديل لأن ملف قاعدة البيانات تالف. أعد المحاولة، وإذا استمر أغلق البرنامج وافتحه مرة أخرى.'
+    )
+  }
   return err instanceof Error ? err : new Error(raw || 'حدث خطأ غير متوقع')
 }

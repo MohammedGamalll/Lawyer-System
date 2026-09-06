@@ -3,6 +3,7 @@ import path from 'path'
 import crypto from 'crypto'
 import { getDb, closeDatabase, initDatabase } from '../db/database'
 import { getBackupDir, getDbPath, getDataRoot } from '../paths'
+import { checkpointWal, stripSqliteSidecars } from '../db/repair'
 import { nowIso } from '../utils/time'
 import { audit } from './audit'
 import { getSetting, setSettings } from './settings'
@@ -25,7 +26,7 @@ function decrypt(buf: Buffer): Buffer {
 
 export function createBackup(actor: AuthedUser, customDir?: string) {
   const db = getDb()
-  db.pragma('wal_checkpoint(TRUNCATE)')
+  checkpointWal(db)
   const src = getDbPath()
   const dir = customDir || getSetting('backup_path') || getBackupDir()
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
@@ -62,8 +63,10 @@ export function restoreBackup(actor: AuthedUser, filePath: string) {
   }
   closeDatabase()
   const dest = getDbPath()
-  fs.copyFileSync(dest, dest + '.before-restore')
+  if (fs.existsSync(dest)) fs.copyFileSync(dest, dest + '.before-restore')
+  stripSqliteSidecars(dest)
   fs.writeFileSync(dest, raw)
+  stripSqliteSidecars(dest)
   initDatabase(dest)
   audit(actor, 'restore', 'backup', null, `تم استعادة النسخة من ${path.basename(filePath)}`)
   return { ok: true }

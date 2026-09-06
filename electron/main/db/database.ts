@@ -8,10 +8,12 @@ import { assertNetworkDriverConfigured, getDriverName } from './adapter'
 import { newId } from './ids'
 import { migrateToUuidIfNeeded } from './migrateToUuid'
 import { patchSchema, ensurePermissions } from './patch'
-import { ensureFts } from './fts'
+import { dropFtsTriggers, ensureFts } from './fts'
+import { checkpointWal, integrityOk, stripSqliteSidecars } from './repair'
 import log from 'electron-log'
 
 let db: BetterSqlite3.Database | null = null
+let booting = false
 
 function openSqlite(dbPath: string): BetterSqlite3.Database {
   // Keep this require out of static analysis so the packaged CJS bundle does not
@@ -26,58 +28,130 @@ export function getDb(): BetterSqlite3.Database {
   return db
 }
 
-export function initDatabase(dbPath = getDbPath()): BetterSqlite3.Database {
-  const driver = getDriverName()
-  assertNetworkDriverConfigured(driver)
-  if (driver !== 'sqlite') {
-    throw new Error(`تشغيل ${driver} يتطلب مهايئ الشبكة. استخدم LAW_DB_DRIVER=sqlite محلياً.`)
-  }
+function configureSqlite(database: BetterSqlite3.Database): void {
+  database.pragma('journal_mode = WAL')
+  database.pragma('synchronous = FULL')
+  database.pragma('busy_timeout = 15000')
+  database.pragma('foreign_keys = ON')
   try {
-    db = openSqlite(dbPath)
+    database.pragma('cell_size_check = ON')
+  } catch {
+    /* older sqlite */
+  }
+}
+
+function openOrThrow(dbPath: string): BetterSqlite3.Database {
+  try {
+    return openSqlite(dbPath)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     throw new Error(
       `تعذر فتح قاعدة البيانات (${msg}). ثبّت Microsoft Visual C++ Redistributable 2015-2022 (x64) ثم أعد تشغيل الجهاز.`
     )
   }
-  db.pragma('journal_mode = WAL')
-  db.pragma('synchronous = NORMAL')
-  db.pragma('busy_timeout = 5000')
+}
+
+function applySchema(database: BetterSqlite3.Database, dbPath: string): void {
   try {
-    migrateToUuidIfNeeded(db, dbPath)
+    migrateToUuidIfNeeded(database, dbPath)
   } catch (err) {
     log.error(err)
-    db.close()
+    database.close()
     db = null
     throw err
   }
-  db.pragma('foreign_keys = ON')
-  db.exec(SCHEMA_SQL)
+  database.pragma('foreign_keys = ON')
+  database.exec(SCHEMA_SQL)
+  dropFtsTriggers(database)
   try {
-    patchSchema(db)
+    patchSchema(database)
   } catch (err) {
     log.warn('schema patch skipped', err)
   }
   try {
-    seedIfEmpty(db)
+    seedIfEmpty(database)
   } catch (err) {
     log.warn('seed skipped', err)
   }
   try {
-    ensurePermissions(db)
+    ensurePermissions(database)
   } catch (err) {
     log.warn('permissions seed skipped', err)
   }
   try {
-    ensureFts(db)
+    ensureFts(database)
   } catch (err) {
-    log.warn('fts init skipped', err)
+    log.warn('fts init failed, rebuilding', err)
+    try {
+      ensureFts(database, { forceRebuild: true })
+    } catch (err2) {
+      log.warn('fts rebuild skipped', err2)
+    }
   }
-  dedupeSyncQueue(db)
-  ensureSetting(db, 'ui_font_size', '16')
-  ensureSetting(db, 'supabase_url', '')
-  ensureSetting(db, 'supabase_anon_key', '')
-  return db
+  try {
+    dedupeSyncQueue(database)
+  } catch (err) {
+    log.warn('sync queue index skipped', err)
+  }
+  try {
+    ensureSetting(database, 'ui_font_size', '16')
+    ensureSetting(database, 'supabase_url', '')
+    ensureSetting(database, 'supabase_anon_key', '')
+  } catch (err) {
+    log.warn('default settings skipped', err)
+  }
+}
+
+export function initDatabase(dbPath = getDbPath(), attempt = 0): BetterSqlite3.Database {
+  const driver = getDriverName()
+  assertNetworkDriverConfigured(driver)
+  if (driver !== 'sqlite') {
+    throw new Error(`تشغيل ${driver} يتطلب مهايئ الشبكة. استخدم LAW_DB_DRIVER=sqlite محلياً.`)
+  }
+  const prevBooting = booting
+  booting = true
+  try {
+    db = openOrThrow(dbPath)
+    configureSqlite(db)
+    applySchema(db, dbPath)
+    if (!integrityOk(db) && attempt === 0) {
+      log.warn('sqlite integrity check failed; rebuilding search indexes')
+      try {
+        ensureFts(db, { forceRebuild: true })
+      } catch (err) {
+        log.warn('fts force rebuild failed', err)
+      }
+    }
+    if (!integrityOk(db) && attempt === 0) {
+      log.warn('sqlite still corrupt; retrying after clearing WAL files')
+      checkpointWal(db)
+      closeDatabase()
+      stripSqliteSidecars(dbPath)
+      return initDatabase(dbPath, 1)
+    }
+    return db
+  } finally {
+    booting = prevBooting
+  }
+}
+
+export function repairCorruptDatabase(): void {
+  if (booting) return
+  const dbPath = getDbPath()
+  log.warn('repairing sqlite database', dbPath)
+  if (db) {
+    try {
+      dropFtsTriggers(db)
+      ensureFts(db, { forceRebuild: true })
+      if (integrityOk(db)) return
+    } catch (err) {
+      log.warn('in-place sqlite repair failed', err)
+    }
+    checkpointWal(db)
+    closeDatabase()
+  }
+  stripSqliteSidecars(dbPath)
+  initDatabase(dbPath)
 }
 
 function dedupeSyncQueue(database: BetterSqlite3.Database): void {
@@ -96,7 +170,13 @@ function ensureSetting(database: BetterSqlite3.Database, key: string, value: str
 }
 
 export function closeDatabase(): void {
-  db?.close()
+  if (!db) return
+  checkpointWal(db)
+  try {
+    db.close()
+  } catch (err) {
+    log.warn('close database', err)
+  }
   db = null
 }
 

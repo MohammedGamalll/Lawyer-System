@@ -1,6 +1,8 @@
 import type { BrowserWindow } from 'electron'
 import log from 'electron-log'
 import { pendingCount } from './queue'
+import { isCorruptError } from '../db/repair'
+import { repairCorruptDatabase } from '../db/database'
 import { isSyncConfigured } from './client'
 import { isOnline } from './network'
 import { pushQueue } from './push'
@@ -43,6 +45,13 @@ export async function runSyncCycle(): Promise<void> {
       getWin()?.webContents.send('sync:changed', { table: '*' })
     } catch (err) {
       log.warn('sync cycle', err)
+      if (isCorruptError(err)) {
+        try {
+          repairCorruptDatabase()
+        } catch (repairErr) {
+          log.warn('sync sqlite repair failed', repairErr)
+        }
+      }
       emitSyncStatus('offline', String((err as Error).message || err))
     }
   })().finally(() => {

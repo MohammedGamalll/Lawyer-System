@@ -5,6 +5,8 @@ import { writeQueue } from '../queue/writeQueue'
 import { ValidationError } from '@shared/schemas'
 import { mapDbError } from '../utils/errors'
 import { audit } from '../services/audit'
+import { isCorruptError } from '../db/repair'
+import { repairCorruptDatabase } from '../db/database'
 import log from 'electron-log'
 
 export type AuthedUser = {
@@ -34,8 +36,8 @@ export function handle(
   fn: (event: IpcMainInvokeEvent, user: AuthedUser | null, ...args: unknown[]) => unknown
 ): void {
   ipc.handle(channel, async (event, ...args) => {
+    let user: AuthedUser | null = null
     try {
-      let user: AuthedUser | null = null
       if (options.auth !== false) {
         user = getSession(event)
         if (!user) return fail('يجب تسجيل الدخول أولاً')
@@ -44,7 +46,8 @@ export function handle(
         }
       }
       const run = () => fn(event, user, ...args)
-      const result = options.write ? await writeQueue.enqueue(run) : run()
+      const exec = () => (options.write ? writeQueue.enqueue(run) : run())
+      let result = await exec()
       if (options.write && user && shouldAudit(channel) && isOk(result)) {
         const entityId = firstId(args)
         audit(user, channel.split(':')[1] || 'write', channel.split(':')[0], entityId, `تم تنفيذ ${channel}`)
@@ -53,6 +56,22 @@ export function handle(
     } catch (err) {
       if (err instanceof ValidationError) {
         return fail(err.message, err.fieldErrors)
+      }
+      if (isCorruptError(err)) {
+        log.warn(channel, 'sqlite corrupt; repairing and retrying', err)
+        try {
+          repairCorruptDatabase()
+          const retry = () => fn(event, user, ...args)
+          const result = options.write ? await writeQueue.enqueue(retry) : retry()
+          if (options.write && user && shouldAudit(channel) && isOk(result)) {
+            const entityId = firstId(args)
+            audit(user, channel.split(':')[1] || 'write', channel.split(':')[0], entityId, `تم تنفيذ ${channel}`)
+          }
+          return result
+        } catch (err2) {
+          log.error(channel, err2)
+          return fail(mapDbError(err2).message)
+        }
       }
       const mapped = mapDbError(err)
       log.error(channel, err)

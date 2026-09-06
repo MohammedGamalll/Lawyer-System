@@ -1,40 +1,74 @@
 import type Database from 'better-sqlite3'
+import log from 'electron-log'
+
+const FTS_TRIGGERS = [
+  'cases_fts_ai',
+  'cases_fts_ad',
+  'cases_fts_au',
+  'clients_fts_ai',
+  'clients_fts_ad',
+  'clients_fts_au'
+] as const
+
+const CASES_FTS_COLS = ['title', 'category', 'case_number', 'office_case_number', 'opponent_name'] as const
+const CLIENTS_FTS_COLS = ['full_name', 'nickname', 'client_number'] as const
 
 function hasColumn(db: Database.Database, table: string, column: string): boolean {
   return (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === column)
 }
 
-function canSelect(db: Database.Database, sql: string): boolean {
+function tableExists(db: Database.Database, name: string): boolean {
+  return Boolean(
+    db.prepare(`SELECT 1 as x FROM sqlite_master WHERE type IN ('table','view') AND name = ?`).get(name)
+  )
+}
+
+function ftsHasColumns(db: Database.Database, table: string, cols: readonly string[]): boolean {
   try {
-    db.prepare(sql).get()
+    if (!tableExists(db, table)) return false
+    const names = new Set(
+      (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name)
+    )
+    return cols.every((c) => names.has(c))
+  } catch {
+    return false
+  }
+}
+
+function ftsIntegrityOk(db: Database.Database, name: string): boolean {
+  if (!tableExists(db, name)) return false
+  try {
+    db.prepare(`INSERT INTO ${name}(${name}) VALUES('integrity-check')`).run()
     return true
   } catch {
     return false
   }
 }
 
-export function ftsQuery(raw: string): string {
-  const toks = String(raw || '')
-    .replace(/['"^:*()]/g, ' ')
-    .split(/\s+/)
-    .map((s) => s.trim())
-    .filter((s) => s.length >= 2)
-  return toks.map((t) => `${t}*`).join(' AND ')
+export function dropFtsTriggers(db: Database.Database): void {
+  for (const name of FTS_TRIGGERS) {
+    db.exec(`DROP TRIGGER IF EXISTS ${name}`)
+  }
 }
 
-export function ensureFts(db: Database.Database): void {
-  if (!hasColumn(db, 'clients', 'nickname')) {
-    db.exec(`ALTER TABLE clients ADD COLUMN nickname TEXT`)
+function forceDropFtsTable(db: Database.Database, name: string): void {
+  dropFtsTriggers(db)
+  try {
+    db.exec(`DROP TABLE IF EXISTS ${name}`)
+    return
+  } catch (err) {
+    log.warn('drop fts table failed', name, err)
   }
-  if (hasColumn(db, 'opponents', 'id') && !hasColumn(db, 'opponents', 'nickname')) {
-    db.exec(`ALTER TABLE opponents ADD COLUMN nickname TEXT`)
+  try {
+    db.pragma('writable_schema = ON')
+    db.prepare(`DELETE FROM sqlite_master WHERE name = ? OR name LIKE ?`).run(name, `${name}_%`)
+    db.pragma('writable_schema = OFF')
+  } catch (err) {
+    log.warn('force drop fts schema failed', name, err)
   }
-  if (!canSelect(db, `SELECT nickname FROM clients_fts LIMIT 0`)) {
-    db.exec(`DROP TRIGGER IF EXISTS clients_fts_ai`)
-    db.exec(`DROP TRIGGER IF EXISTS clients_fts_ad`)
-    db.exec(`DROP TRIGGER IF EXISTS clients_fts_au`)
-    db.exec(`DROP TABLE IF EXISTS clients_fts`)
-  }
+}
+
+function createFtsObjects(db: Database.Database): void {
   db.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS cases_fts USING fts5(
       title, category, case_number, office_case_number, opponent_name,
@@ -79,10 +113,53 @@ export function ensureFts(db: Database.Database): void {
       VALUES (new.rowid, new.full_name, new.nickname, new.client_number);
     END;
   `)
-  const casesN = (db.prepare(`SELECT COUNT(*) as c FROM cases`).get() as { c: number }).c
-  const casesFts = (db.prepare(`SELECT COUNT(*) as c FROM cases_fts`).get() as { c: number }).c
-  if (casesN > 0 && casesFts === 0) db.exec(`INSERT INTO cases_fts(cases_fts) VALUES('rebuild')`)
-  const clientsN = (db.prepare(`SELECT COUNT(*) as c FROM clients`).get() as { c: number }).c
-  const clientsFts = (db.prepare(`SELECT COUNT(*) as c FROM clients_fts`).get() as { c: number }).c
-  if (clientsN > 0 && clientsFts === 0) db.exec(`INSERT INTO clients_fts(clients_fts) VALUES('rebuild')`)
+}
+
+function rebuildFts(db: Database.Database, name: string): void {
+  db.exec(`INSERT INTO ${name}(${name}) VALUES('rebuild')`)
+}
+
+export function ftsQuery(raw: string): string {
+  const toks = String(raw || '')
+    .replace(/['"^:*()]/g, ' ')
+    .split(/\s+/)
+    .filter((s) => s.trim().length >= 2)
+  return toks.map((t) => `${t}*`).join(' AND ')
+}
+
+export function ensureFts(db: Database.Database, opts?: { forceRebuild?: boolean }): void {
+  if (!hasColumn(db, 'clients', 'nickname')) {
+    db.exec(`ALTER TABLE clients ADD COLUMN nickname TEXT`)
+  }
+  if (hasColumn(db, 'opponents', 'id') && !hasColumn(db, 'opponents', 'nickname')) {
+    db.exec(`ALTER TABLE opponents ADD COLUMN nickname TEXT`)
+  }
+
+  const casesSchemaOk = ftsHasColumns(db, 'cases_fts', CASES_FTS_COLS)
+  const clientsSchemaOk = ftsHasColumns(db, 'clients_fts', CLIENTS_FTS_COLS)
+  const needCases =
+    Boolean(opts?.forceRebuild) || !casesSchemaOk || (tableExists(db, 'cases_fts') && !ftsIntegrityOk(db, 'cases_fts'))
+  const needClients =
+    Boolean(opts?.forceRebuild) ||
+    !clientsSchemaOk ||
+    (tableExists(db, 'clients_fts') && !ftsIntegrityOk(db, 'clients_fts'))
+
+  dropFtsTriggers(db)
+  if (needCases) forceDropFtsTable(db, 'cases_fts')
+  if (needClients) forceDropFtsTable(db, 'clients_fts')
+
+  createFtsObjects(db)
+
+  const rebuildOne = (name: string) => {
+    try {
+      rebuildFts(db, name)
+    } catch (err) {
+      log.warn('fts rebuild failed, recreating', name, err)
+      forceDropFtsTable(db, name)
+      createFtsObjects(db)
+      rebuildFts(db, name)
+    }
+  }
+  rebuildOne('cases_fts')
+  rebuildOne('clients_fts')
 }

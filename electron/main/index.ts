@@ -2,7 +2,7 @@ import "./crashGuard";
 import { app, shell, BrowserWindow, ipcMain, nativeImage, dialog } from "electron";
 import { join } from "path";
 import { existsSync, readFileSync, writeFileSync } from "fs";
-import { initDatabase } from "./db/database";
+import { closeDatabase, initDatabase } from "./db/database";
 import { persistSyncSettingsFromEnv } from "./services/settings";
 import { registerIpc } from "./ipc/register";
 import {
@@ -30,6 +30,12 @@ if (process.env.SECOND_INSTANCE === "true") {
 }
 
 loadDotEnv();
+
+const allowStart =
+  process.env.SECOND_INSTANCE === "true" || app.requestSingleInstanceLock();
+if (!allowStart) {
+  app.quit();
+}
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -151,7 +157,15 @@ function createWindow(): void {
   }
 }
 
+app.on("second-instance", () => {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+});
+
 app.whenReady().then(() => {
+  if (!allowStart) return;
   app.setAppUserModelId("com.lawoffice.management");
   try {
     initDatabase();
@@ -200,6 +214,14 @@ app.whenReady().then(() => {
   });
 }).catch((err) => {
   fatalStartup(err);
+});
+
+app.on("before-quit", () => {
+  try {
+    closeDatabase();
+  } catch (err) {
+    log.warn(err);
+  }
 });
 
 app.on("window-all-closed", () => {
