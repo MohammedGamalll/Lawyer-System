@@ -281,9 +281,23 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
   })
 
   handle(ipc, IPC.documents.list, { permission: 'documents.view' }, (_e, _u, q) => ok(documents.listDocuments(q as never)))
-  handle(ipc, IPC.documents.upload, { permission: 'documents.upload', write: true }, (_e, user, meta, file) => {
-    const f = file as { name: string; data: number[]; mime?: string }
-    return ok(documents.uploadDocument(user!, meta as never, { name: f.name, data: Buffer.from(f.data), mime: f.mime }))
+  handle(ipc, IPC.documents.upload, { permission: 'documents.upload', write: true }, async (_e, user, meta, file) => {
+    const toBuf = (d: unknown) => {
+      if (Buffer.isBuffer(d)) return d
+      if (d instanceof Uint8Array) return Buffer.from(d)
+      if (Array.isArray(d)) return Buffer.from(d as number[])
+      if (d && typeof d === 'object' && Array.isArray((d as { data?: number[] }).data)) {
+        return Buffer.from((d as { data: number[] }).data)
+      }
+      return Buffer.from([])
+    }
+    const f = file as { name?: string; data?: unknown; mime?: string; pages?: { name: string; data: unknown; mime?: string }[]; save_format?: string }
+    const pages = f?.pages?.length
+      ? f.pages.map((p) => ({ name: p.name, data: toBuf(p.data), mime: p.mime }))
+      : [{ name: String(f.name || 'file'), data: toBuf(f.data), mime: f.mime }]
+    return ok(
+      await documents.uploadDocument(user!, { ...(meta as Record<string, unknown>), save_format: f.save_format || (meta as { save_format?: string })?.save_format }, { pages })
+    )
   })
   handle(ipc, IPC.documents.update, { permission: 'documents.upload', write: true }, (_e, user, id, data, file) => {
     const f = file as { name: string; data: number[]; mime?: string } | undefined

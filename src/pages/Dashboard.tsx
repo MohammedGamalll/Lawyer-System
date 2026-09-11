@@ -8,6 +8,7 @@ import { useApp } from '../store'
 import { canAccessPage } from '@shared/permissions'
 import { Button, Card } from '../components/ui'
 import { formatDateTime } from '../lib/datetime'
+import { dashboardCardTheme, DASHBOARD_CHART_WRAP } from '../lib/dashboardCardThemes'
 
 const COLORS = ['#122f4d', '#c9a227', '#3d6d9e', '#8c6b16', '#6e97c0', '#163a5f']
 
@@ -63,19 +64,22 @@ export function DashboardPage() {
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        {cards.map((c) => (
+        {cards.map((c, i) => {
+          const theme = dashboardCardTheme(c.key, i)
+          return (
           <Card
             key={c.key}
-            className="min-h-[92px] cursor-pointer"
+            className={`min-h-[92px] cursor-pointer ${theme.wrap}`}
             onDoubleClick={() => c.page && setPage(c.page)}
           >
-            <div className="text-xs text-navy-500">{c.label}</div>
-            <div className="mt-1 text-2xl font-extrabold text-navy-900 dark:text-white">{String(c.value)}</div>
+            <div className={`text-xs ${theme.label}`}>{c.label}</div>
+            <div className={`mt-1 text-2xl font-extrabold ${theme.value}`}>{String(c.value)}</div>
           </Card>
-        ))}
+          )
+        })}
       </div>
       <div className="grid gap-4 xl:grid-cols-2">
-        <Card>
+        <Card className={DASHBOARD_CHART_WRAP[0]}>
           <h3 className="mb-3 font-bold">{t('dash.casesByMonth')}</h3>
           <div className="h-56">
             <ResponsiveContainer>
@@ -88,7 +92,7 @@ export function DashboardPage() {
             </ResponsiveContainer>
           </div>
         </Card>
-        <Card>
+        <Card className={DASHBOARD_CHART_WRAP[1]}>
           <h3 className="mb-3 font-bold">{t('dash.casesByType')}</h3>
           <div className="h-56">
             <ResponsiveContainer>
@@ -105,7 +109,7 @@ export function DashboardPage() {
           </div>
         </Card>
         {can('accounts.view') && (
-        <Card>
+        <Card className={DASHBOARD_CHART_WRAP[1]}>
           <h3 className="mb-3 font-bold">{t('dash.incomeExpense')}</h3>
           <div className="h-56">
             <ResponsiveContainer>
@@ -121,7 +125,7 @@ export function DashboardPage() {
           </div>
         </Card>
         )}
-        <Card>
+        <Card className={DASHBOARD_CHART_WRAP[2]}>
           <h3 className="mb-3 font-bold">{t('dash.lawyerDist')}</h3>
           <div className="h-56">
             <ResponsiveContainer>
@@ -137,7 +141,7 @@ export function DashboardPage() {
         </Card>
       </div>
       <div className="grid gap-4 xl:grid-cols-2">
-        <Card>
+        <Card className={DASHBOARD_CHART_WRAP[2]}>
           <h3 className="mb-3 font-bold">{t('dash.todayH')}</h3>
           <ul className="space-y-2 text-sm">
             {(s.todayHearingList as { id: string; case_id: string; case_number: string; case_title: string; client_name: string }[]).map((h) => (
@@ -155,7 +159,7 @@ export function DashboardPage() {
             {!(s.todayHearingList as unknown[])?.length && <li className="text-navy-400">{t('noData')}</li>}
           </ul>
         </Card>
-        <Card>
+        <Card className={DASHBOARD_CHART_WRAP[3]}>
           <h3 className="mb-3 font-bold">{t('dash.activity')}</h3>
           <ul className="space-y-2 text-sm">
             {(s.activity as { id: string; description: string; created_at: string; username: string }[]).map((a) => (

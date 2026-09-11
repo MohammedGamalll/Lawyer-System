@@ -10,6 +10,7 @@ import i18n from '../i18n'
 import { formatCell } from '../lib/datetime'
 import { wipeAllBusinessData } from '../lib/wipeData'
 import { applyFontSize, clampFontSize, FONT_SIZE_MAX, FONT_SIZE_MIN } from '../lib/uiPrefs'
+import { parseSourceOrder, serializeSourceOrder, type AttachSource } from '../lib/attachSources'
 import type { SyncSnapshot } from '../store/sync'
 
 const REPORT_KEYS = [
@@ -425,6 +426,45 @@ export function SettingsPage() {
           />
           <p className="mt-1 text-sm text-navy-500">{t('settings.fontSizeHint')}</p>
         </Field>
+        <div className="mt-4">
+          <h4 className="mb-1 font-bold">{t('settings.attachOrder')}</h4>
+          <p className="mb-2 text-sm text-navy-500">{t('settings.attachOrderHint')}</p>
+          <ol className="max-w-md space-y-1">
+            {parseSourceOrder(s.attach_source_order).map((src, i, arr) => (
+              <li key={src} className="flex items-center justify-between gap-2 rounded border border-navy-100 px-2 py-1 dark:border-navy-800">
+                <span>{t(src === 'scanner' ? 'docs.fromScanner' : src === 'camera' ? 'docs.fromCamera' : 'docs.fromFile')}</span>
+                <span className="flex gap-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={i === 0}
+                    onClick={() => {
+                      const next = [...arr]
+                      ;[next[i - 1], next[i]] = [next[i], next[i - 1]]
+                      setS({ ...s, attach_source_order: serializeSourceOrder(next as AttachSource[]) })
+                    }}
+                  >
+                    ↑
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={i === arr.length - 1}
+                    onClick={() => {
+                      const next = [...arr]
+                      ;[next[i + 1], next[i]] = [next[i], next[i + 1]]
+                      setS({ ...s, attach_source_order: serializeSourceOrder(next as AttachSource[]) })
+                    }}
+                  >
+                    ↓
+                  </Button>
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
       </Card>
       <Card>
         <h3 className="mb-3 font-bold">{t('sync.title')}</h3>

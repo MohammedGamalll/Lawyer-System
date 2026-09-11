@@ -241,18 +241,43 @@ const ar = {
     preview: 'معاينة المستند',
     openExternal: 'فتح الملف',
     uploadClient: 'رفع مستندات الموكل',
-    noClientDocs: 'لا توجد مستندات بعد. يمكنك رفع صورة البطاقة أو التوكيل من هنا.'
+    noClientDocs: 'لا توجد مستندات بعد. يمكنك رفع صورة البطاقة أو التوكيل من هنا.',
+    attach: 'إرفاق مستند',
+    catId: 'بطاقة',
+    catPoa: 'توكيل',
+    catPassport: 'جواز سفر',
+    catContract: 'عقد',
+    catBirth: 'شهادة ميلاد',
+    saveFormat: 'صيغة الحفظ',
+    multiPageHint: 'يمكن إضافة وش وظهر البطاقة أو عدة صفحات تحت المستند نفسه.',
+    addPages: 'حفظ المستند',
+    catOther: 'أخرى',
+    sides: 'أوجه المستند',
+    frontOnly: 'وش فقط',
+    frontBack: 'وش وظهر',
+    front: 'الوجه (وش)',
+    back: 'الظهر'
   },
   clients: {
     similarTitle: 'تشابه في الاسم',
-    similarAsk: 'هذا الاسم مسجل بالفعل، هل تريد إضافة هذا البيان؟ هل تقصد هذا الشخص «{{name}}» (كود {{code}}) أم أنه شخص جديد؟',
-    openExisting: 'فتح الموكل المسجل',
+    similarAsk: 'هذا الاسم مسجل بالفعل لشخص «{{name}}» (كود {{code}}). هل تقصد هذا الشخص أم أنه شخص جديد؟',
+    similarAskEdit:
+      'هذا الاسم مسجل لشخص آخر «{{name}}» (كود {{code}}). يمكنك فتح المسجّل، أو حفظ التعديل على السجل الحالي كما هو.',
+    openExisting: 'فتح المسجّل',
     addAsNew: 'شخص جديد',
+    saveOnCurrent: 'حفظ التعديل على الحالي',
     blankForm: 'نموذج بيانات موكل',
     printBlank: 'طباعة نموذج فارغ',
     attachId: 'إرفاق صورة البطاقة',
     attachPoa: 'إرفاق صورة التوكيل',
     addAddress: 'عنوان إضافي'
+  },
+  party: {
+    rating: 'تقييم التعامل',
+    blacklist: 'إدراج في القائمة السوداء',
+    blacklistNote: 'سبب الحظر',
+    blacklistWarn: 'هذا الشخص مدرج في القائمة السوداء — تعامل بحذر.',
+    blacklistPick: 'تنبيه: «{{name}}» مدرج في القائمة السوداء.'
   },
   cases: {
     searchFirst:
@@ -327,6 +352,10 @@ const ar = {
     tax_id: 'البطاقة الضريبية',
     manager_name: 'المدير',
     notes: 'ملاحظات',
+    poa_number: 'رقم التوكيل',
+    poa_year: 'سنة التوكيل',
+    poa_letter: 'حرف التوكيل',
+    poa_office: 'مكتب التوثيق',
     title: 'الاسم',
     client_id: 'الموكل',
     primary_lawyer_id: 'المحامي المسؤول',
@@ -453,7 +482,6 @@ const ar = {
     invoice_number: 'الرقم',
     invoice_date: 'التاريخ',
     total: 'الإجمالي',
-    poa_number: 'رقم التوكيل',
     contract_number: 'الرقم',
     correspondence_number: 'الرقم',
     created_at: 'التاريخ',
@@ -513,7 +541,9 @@ const ar = {
     caseSequenceHint: 'القضية الجديدة التالية ستكون: {{next}}. لا تخفّض الرقم تحت المستخدم.',
     appearance: 'المظهر وحجم الخط',
     fontSize: 'حجم خط البرنامج',
-    fontSizeHint: 'ينطبق على كل الصفحات والجداول والقوائم'
+    fontSizeHint: 'ينطبق على كل الصفحات والجداول والقوائم',
+    attachOrder: 'ترتيب وسائل الإرفاق',
+    attachOrderHint: 'قدّم أو أخّر السكانر والكاميرا ورفع الملف حسب استخدامك.'
   },
   sync: {
     title: 'المزامنة السحابية',

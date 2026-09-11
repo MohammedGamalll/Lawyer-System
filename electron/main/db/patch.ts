@@ -102,6 +102,36 @@ export function patchSchema(db: Db): void {
   addColumn(db, 'clients', 'phone_home', 'TEXT')
   addColumn(db, 'clients', 'phone_work', 'TEXT')
   addColumn(db, 'clients', 'address2', 'TEXT')
+  for (const col of ['poa_number', 'poa_year', 'poa_letter', 'poa_office', 'blacklist_note'] as const) {
+    addColumn(db, 'clients', col, 'TEXT')
+    addColumn(db, 'opponents', col, 'TEXT')
+  }
+  addColumn(db, 'clients', 'rating', 'INTEGER')
+  addColumn(db, 'opponents', 'rating', 'INTEGER')
+  addColumn(db, 'clients', 'is_blacklisted', 'INTEGER NOT NULL DEFAULT 0')
+  addColumn(db, 'opponents', 'is_blacklisted', 'INTEGER NOT NULL DEFAULT 0')
+  addColumn(db, 'opponents', 'id_kind', "TEXT NOT NULL DEFAULT 'national_id'")
+  addColumn(db, 'opponents', 'passport_country', 'TEXT')
+  addColumn(db, 'opponents', 'phone2', 'TEXT')
+  addColumn(db, 'opponents', 'whatsapp', 'TEXT')
+  addColumn(db, 'opponents', 'phone_home', 'TEXT')
+  addColumn(db, 'opponents', 'phone_work', 'TEXT')
+  addColumn(db, 'opponents', 'email', 'TEXT')
+  addColumn(db, 'opponents', 'address2', 'TEXT')
+  addColumn(db, 'documents', 'opponent_id', 'TEXT')
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS document_pages (
+      id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+      page_no INTEGER NOT NULL,
+      file_path TEXT NOT NULL,
+      file_name TEXT,
+      mime_type TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deleted_at TEXT
+    );
+  `)
   seedLookups(db)
   for (const stmt of PERFORMANCE_INDEXES.split(';').map((s) => s.trim()).filter(Boolean)) {
     try {

@@ -17,6 +17,7 @@ import {
   LawyersPage,
   EmployeesPage,
   OpponentsPage,
+  OpponentProfilePage,
   PoaPage,
   ContractsPage,
   ConsultationsPage,
@@ -144,6 +145,7 @@ export default function App() {
         {page === 'poa' && <PoaPage />}
         {page === 'contracts' && <ContractsPage />}
         {page === 'opponents' && <OpponentsPage />}
+        {page === 'opponentProfile' && <OpponentProfilePage />}
         {page === 'lawyers' && <LawyersPage />}
         {page === 'lawyerProfile' && <StaffFormPage />}
         {page === 'employees' && <EmployeesPage />}

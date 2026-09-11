@@ -1,5 +1,7 @@
 import fs from 'fs'
 import path from 'path'
+import { nativeImage } from 'electron'
+import { PDFDocument } from 'pdf-lib'
 import { getDb } from '../db/database'
 import { getDocumentsDir } from '../paths'
 import { nowIso } from '../utils/time'
@@ -9,6 +11,53 @@ import { recordLocalChange, softDelete } from '../sync/queue'
 import type { AuthedUser } from '../ipc/helpers'
 import type { ListQuery } from '@shared/types'
 import { clampPageSize, pageKind } from '../db/queryLimits'
+
+export type UploadPage = { name: string; data: Buffer | Uint8Array | number[]; mime?: string }
+
+function asBuffer(data: Buffer | Uint8Array | number[] | { type?: string; data?: number[] }) {
+  if (Buffer.isBuffer(data)) return data
+  if (data instanceof Uint8Array) return Buffer.from(data)
+  if (data && typeof data === 'object' && Array.isArray((data as { data?: number[] }).data)) {
+    return Buffer.from((data as { data: number[] }).data)
+  }
+  return Buffer.from(data as number[])
+}
+
+function isPdfBuf(buf: Buffer) {
+  return buf.subarray(0, 4).toString() === '%PDF'
+}
+
+function toJpegBuffer(buf: Buffer): Buffer {
+  if (isPdfBuf(buf)) return buf
+  const img = nativeImage.createFromBuffer(buf)
+  if (img.isEmpty()) return buf
+  const jpeg = img.toJPEG(85)
+  return jpeg.length ? Buffer.from(jpeg) : buf
+}
+
+async function pagesToPdf(jpegs: Buffer[]): Promise<Buffer> {
+  const pdf = await PDFDocument.create()
+  for (const jpeg of jpegs) {
+    if (isPdfBuf(jpeg)) {
+      const src = await PDFDocument.load(jpeg)
+      const copied = await pdf.copyPages(src, src.getPageIndices())
+      copied.forEach((p) => pdf.addPage(p))
+      continue
+    }
+    const img = await pdf.embedJpg(jpeg)
+    const page = pdf.addPage([img.width, img.height])
+    page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height })
+  }
+  return Buffer.from(await pdf.save())
+}
+
+function writeDocFile(name: string, buf: Buffer) {
+  const dir = getDocumentsDir()
+  const safe = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${name.replace(/[^\w.\u0600-\u06FF-]+/g, '_')}`
+  const dest = path.join(dir, safe)
+  fs.writeFileSync(dest, buf)
+  return dest
+}
 
 export function listDocuments(query: ListQuery = {}) {
   const db = getDb()
@@ -34,6 +83,10 @@ export function listDocuments(query: ListQuery = {}) {
     where += ' AND d.case_id = ?'
     params.push(f.case_id)
   }
+  if (f.opponent_id) {
+    where += ' AND d.opponent_id = ?'
+    params.push(f.opponent_id)
+  }
   const total = (db.prepare(`SELECT COUNT(*) as c FROM documents d ${where}`).get(...params) as { c: number }).c
   const rows = db
     .prepare(
@@ -47,34 +100,62 @@ export function listDocuments(query: ListQuery = {}) {
   return { rows, total, page, pageSize }
 }
 
-export function uploadDocument(
+export async function uploadDocument(
   actor: AuthedUser,
   meta: Record<string, unknown>,
-  file: { name: string; data: Buffer | Uint8Array; mime?: string }
+  file: UploadPage | { pages?: UploadPage[]; save_format?: string; name?: string; data?: Buffer | Uint8Array | number[]; mime?: string }
 ) {
-  if (!meta.title) throw new Error('عنوان المستند مطلوب')
-  const dir = getDocumentsDir()
-  const safe = `${Date.now()}-${file.name.replace(/[^\w.\u0600-\u06FF-]+/g, '_')}`
-  const dest = path.join(dir, safe)
-  fs.writeFileSync(dest, Buffer.from(file.data))
+  const incoming = (file as { pages?: UploadPage[] }).pages?.length
+    ? (file as { pages: UploadPage[] }).pages
+    : [{ name: (file as UploadPage).name, data: (file as UploadPage).data, mime: (file as UploadPage).mime }]
+  if (!incoming.length || incoming.some((p) => !p?.data)) throw new Error('اختر ملفاً أولاً')
+  const title = String(meta.title || incoming[0].name || 'مستند')
+  const saveFormat = String(meta.save_format || (file as { save_format?: string }).save_format || (incoming.length > 1 ? 'pdf' : 'jpeg'))
   const ts = nowIso()
   const db = getDb()
   const id = newId()
+
+  const pageFiles: { dest: string; name: string; mime: string; buf: Buffer }[] = []
+  for (let i = 0; i < incoming.length; i++) {
+    const raw = asBuffer(incoming[i].data)
+    const jpegOrPdf = toJpegBuffer(raw)
+    const isPdf = isPdfBuf(jpegOrPdf)
+    const mime = isPdf ? 'application/pdf' : 'image/jpeg'
+    const name = isPdf ? incoming[i].name || `page-${i + 1}.pdf` : `page-${i + 1}.jpg`
+    const dest = writeDocFile(name, jpegOrPdf)
+    pageFiles.push({ dest, name, mime, buf: jpegOrPdf })
+  }
+
+  let dest = pageFiles[0].dest
+  let fileName = pageFiles[0].name
+  let mime = pageFiles[0].mime
+  let size = pageFiles[0].buf.length
+  if (saveFormat === 'pdf' || (pageFiles.length > 1 && saveFormat !== 'jpeg')) {
+    const pdfBuf = await pagesToPdf(pageFiles.map((p) => p.buf)).catch(() => null)
+    if (pdfBuf) {
+      fileName = `${path.parse(String(incoming[0].name || 'document')).name || 'document'}.pdf`
+      dest = writeDocFile(fileName, pdfBuf)
+      mime = 'application/pdf'
+      size = pdfBuf.length
+    }
+  }
+
   db.prepare(
-    `INSERT INTO documents (id, title, category, client_id, case_id, hearing_id, contract_id, file_path, file_name, mime_type, file_size, current_version, notes, created_by, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?)`
+    `INSERT INTO documents (id, title, category, client_id, opponent_id, case_id, hearing_id, contract_id, file_path, file_name, mime_type, file_size, current_version, notes, created_by, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?)`
   ).run(
     id,
-    meta.title,
+    title,
     meta.category ?? 'other',
     asIdOrNull(meta.client_id),
+    asIdOrNull(meta.opponent_id),
     asIdOrNull(meta.case_id),
     asIdOrNull(meta.hearing_id),
     asIdOrNull(meta.contract_id),
     dest,
-    file.name,
-    file.mime ?? null,
-    Buffer.from(file.data).length,
+    fileName,
+    mime,
+    size,
     meta.notes ?? null,
     actor.id,
     ts,
@@ -84,9 +165,17 @@ export function uploadDocument(
   const vid = newId()
   db.prepare(
     `INSERT INTO document_versions (id, document_id, version, file_path, file_name, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)`
-  ).run(vid, id, 1, dest, file.name, actor.id, ts, ts)
+  ).run(vid, id, 1, dest, fileName, actor.id, ts, ts)
   recordLocalChange('document_versions', vid, 'INSERT')
-  audit(actor, 'create', 'documents', id, `تم رفع المستند ${meta.title}`)
+  const insertPage = db.prepare(
+    `INSERT INTO document_pages (id, document_id, page_no, file_path, file_name, mime_type, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)`
+  )
+  pageFiles.forEach((p, i) => {
+    const pid = newId()
+    insertPage.run(pid, id, i + 1, p.dest, p.name, p.mime, ts, ts)
+    recordLocalChange('document_pages', pid, 'INSERT')
+  })
+  audit(actor, 'create', 'documents', id, `تم رفع المستند ${title}`)
   return { id }
 }
 
@@ -116,12 +205,13 @@ export function updateDocument(
     recordLocalChange('document_versions', vid, 'INSERT')
   }
   db.prepare(
-    `UPDATE documents SET title=?, category=?, client_id=?, case_id=?, hearing_id=?, contract_id=?, notes=?,
+    `UPDATE documents SET title=?, category=?, client_id=?, opponent_id=?, case_id=?, hearing_id=?, contract_id=?, notes=?,
       file_path=COALESCE(?, file_path), file_name=COALESCE(?, file_name), current_version=?, updated_at=? WHERE id=?`
   ).run(
     data.title ?? old.title,
     data.category ?? 'other',
     asIdOrNull(data.client_id),
+    asIdOrNull(data.opponent_id),
     asIdOrNull(data.case_id),
     asIdOrNull(data.hearing_id),
     asIdOrNull(data.contract_id),
@@ -148,6 +238,20 @@ export function removeDocument(actor: AuthedUser, id: string) {
     file_path: string
   }[]
   for (const v of versions) softDelete('document_versions', v.id)
+  const pages = db.prepare(`SELECT id, file_path FROM document_pages WHERE document_id = ? AND ${notDeleted()}`).all(id) as {
+    id: string
+    file_path: string
+  }[]
+  for (const p of pages) {
+    softDelete('document_pages', p.id)
+    if (p.file_path && fs.existsSync(p.file_path) && p.file_path !== doc.file_path) {
+      try {
+        fs.unlinkSync(p.file_path)
+      } catch {
+        /* ignore */
+      }
+    }
+  }
   softDelete('documents', id)
   for (const v of versions) {
     if (v.file_path && fs.existsSync(v.file_path)) fs.unlinkSync(v.file_path)
@@ -183,7 +287,13 @@ export function collectReferencedFiles(): Set<string> {
   const set = new Set<string>()
   const docs = db.prepare('SELECT file_path FROM documents').all() as { file_path: string }[]
   const vers = db.prepare('SELECT file_path FROM document_versions').all() as { file_path: string }[]
-  for (const r of [...docs, ...vers]) if (r.file_path) set.add(path.normalize(r.file_path))
+  let pages: { file_path: string }[] = []
+  try {
+    pages = db.prepare('SELECT file_path FROM document_pages').all() as { file_path: string }[]
+  } catch {
+    pages = []
+  }
+  for (const r of [...docs, ...vers, ...pages]) if (r.file_path) set.add(path.normalize(r.file_path))
   return set
 }
 
@@ -234,8 +344,15 @@ export function moveDocument(
 ) {
   const db = getDb()
   db.prepare(
-    'UPDATE documents SET client_id=COALESCE(?, client_id), case_id=COALESCE(?, case_id), category=COALESCE(?, category), updated_at=? WHERE id=?'
-  ).run(asIdOrNull(data.client_id), asIdOrNull(data.case_id), data.category ?? null, nowIso(), id)
+    'UPDATE documents SET client_id=COALESCE(?, client_id), opponent_id=COALESCE(?, opponent_id), case_id=COALESCE(?, case_id), category=COALESCE(?, category), updated_at=? WHERE id=?'
+  ).run(
+    asIdOrNull(data.client_id),
+    asIdOrNull((data as { opponent_id?: string }).opponent_id),
+    asIdOrNull(data.case_id),
+    data.category ?? null,
+    nowIso(),
+    id
+  )
   recordLocalChange('documents', id, 'UPDATE')
   audit(actor, 'update', 'documents', id, 'تم نقل/إعادة تصنيف المستند')
   return { id }
@@ -265,26 +382,45 @@ export function downloadDocument(id: string, versionId?: string) {
 
 const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'])
 
+function previewFile(file_path: string, file_name: string, mime_type: string | null) {
+  if (!fs.existsSync(file_path)) throw new Error('الملف غير موجود على القرص')
+  const ext = path.extname(file_name || file_path).toLowerCase()
+  const mime = String(mime_type || '')
+  const buf = fs.readFileSync(file_path)
+  const isImage = IMAGE_EXT.has(ext) || mime.startsWith('image/')
+  const isPdf = ext === '.pdf' || mime === 'application/pdf' || isPdfBuf(buf)
+  if (isImage) {
+    const kind = mime.startsWith('image/') ? mime : `image/${ext.replace('.', '') === 'jpg' ? 'jpeg' : ext.replace('.', '')}`
+    if (buf.length > 2_500_000) {
+      return { kind: 'image_large' as const, name: file_name, mime: kind }
+    }
+    return { kind: 'image' as const, name: file_name, mime: kind, dataUrl: `data:${kind};base64,${buf.toString('base64')}` }
+  }
+  if (isPdf) {
+    return { kind: 'pdf' as const, name: file_name, data: Array.from(buf) }
+  }
+  return { kind: 'other' as const, name: file_name }
+}
+
 export function previewDocument(id: string) {
   const db = getDb()
   const d = db.prepare(`SELECT file_path, file_name, mime_type FROM documents WHERE id = ? AND ${notDeleted()}`).get(id) as
     | { file_path: string; file_name: string; mime_type: string | null }
     | undefined
-  if (!d || !fs.existsSync(d.file_path)) throw new Error('الملف غير موجود على القرص')
-  const ext = path.extname(d.file_name || d.file_path).toLowerCase()
-  const mime = String(d.mime_type || '')
-  const buf = fs.readFileSync(d.file_path)
-  const isImage = IMAGE_EXT.has(ext) || mime.startsWith('image/')
-  const isPdf = ext === '.pdf' || mime === 'application/pdf'
-  if (isImage) {
-    const kind = mime.startsWith('image/') ? mime : `image/${ext.replace('.', '') === 'jpg' ? 'jpeg' : ext.replace('.', '')}`
-    if (buf.length > 2_500_000) {
-      return { kind: 'image_large' as const, name: d.file_name, mime: kind }
-    }
-    return { kind: 'image' as const, name: d.file_name, mime: kind, dataUrl: `data:${kind};base64,${buf.toString('base64')}` }
+  if (!d) throw new Error('الملف غير موجود على القرص')
+  let pages: { page_no: number; file_path: string; file_name: string | null; mime_type: string | null }[] = []
+  try {
+    pages = db
+      .prepare(
+        `SELECT page_no, file_path, file_name, mime_type FROM document_pages WHERE document_id = ? AND ${notDeleted()} ORDER BY page_no`
+      )
+      .all(id) as typeof pages
+  } catch {
+    pages = []
   }
-  if (isPdf) {
-    return { kind: 'pdf' as const, name: d.file_name, data: Array.from(buf) }
-  }
-  return { kind: 'other' as const, name: d.file_name }
+  const items = pages.length
+    ? pages.map((p) => previewFile(p.file_path, p.file_name || d.file_name, p.mime_type))
+    : [previewFile(d.file_path, d.file_name, d.mime_type)]
+  if (items.length === 1) return items[0]
+  return { kind: 'multi' as const, name: d.file_name, pages: items }
 }

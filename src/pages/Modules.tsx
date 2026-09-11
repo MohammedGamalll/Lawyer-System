@@ -21,13 +21,15 @@ import {
   reminderSchema
 } from '@shared/schemas'
 import { ClientForm, uploadClientPendingDocs } from '../components/ClientForm'
+import { PartyForm, uploadOpponentPendingDocs } from '../components/PartyForm'
 import { caseFormFields } from '../lib/caseForm'
 import { clientBlankFormHtml } from '../lib/clientBlankForm'
 import { StaffFormPage } from './StaffForm'
 import { ClientProfilePage } from './ClientProfile'
+import { OpponentProfilePage } from './OpponentProfile'
 import { CaseProfilePage } from './CaseProfile'
 
-export { ClientProfilePage, CaseProfilePage, StaffFormPage }
+export { ClientProfilePage, CaseProfilePage, StaffFormPage, OpponentProfilePage }
 
 const st = (t: (k: string) => string, arr: readonly string[]) => arr.map((v) => ({ value: v, label: t(`status.${v}`) }))
 
@@ -396,6 +398,7 @@ export function EmployeeProfilePage() {
 
 export function OpponentsPage() {
   const { t } = useTranslation()
+  const { setPage, toast } = useApp()
   return (
     <CrudPage
       title={t('nav.opponents')}
@@ -407,24 +410,33 @@ export function OpponentsPage() {
       updatePerm="opponents.manage"
       deletePerm="opponents.manage"
       schema={opponentSchema}
+      defaults={{ id_kind: 'national_id' }}
       columns={[
-        { key: 'full_name', label: t('fields.full_name') },
+        {
+          key: 'full_name',
+          label: t('fields.full_name'),
+          onCellClick: (r) => setPage('opponentProfile', { id: r.id })
+        },
         { key: 'national_id', label: t('fields.national_id') },
         { key: 'phone', label: t('fields.phone') },
+        { key: 'poa_number', label: t('fields.poa_number') },
         { key: 'lawyer_name', label: t('fields.lawyer_name') },
         { key: 'lawyer_phone', label: t('fields.lawyer_phone') }
       ]}
-      fields={[
-        f(t, 'full_name', { required: true }),
-        f(t, 'nickname'),
-        f(t, 'national_id'),
-        f(t, 'phone'),
-        f(t, 'address'),
-        f(t, 'lawyer_name'),
-        f(t, 'lawyer_phone'),
-        f(t, 'case_id', { lookup: 'cases' }),
-        f(t, 'notes', { type: 'textarea' })
-      ]}
+      fields={[]}
+      formBody={(form, setField, errors) => (
+        <PartyForm entity="opponent" values={form} onChange={setField} errors={errors} partyId={String(form.id || '')} />
+      )}
+      afterSave={async ({ result, form }) => {
+        const id = String((result as { id?: string })?.id || form.id || '')
+        if (!id) return
+        try {
+          await uploadOpponentPendingDocs(id, form)
+        } catch (e) {
+          toast((e as Error).message, 'err')
+        }
+      }}
+      onRowOpen={(r) => setPage('opponentProfile', { id: r.id })}
     />
   )
 }

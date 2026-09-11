@@ -39,17 +39,24 @@ export class WriteQueue {
     const next = this.queue.shift()
     if (!next) return
     this.running = true
+    const finish = () => {
+      this.running = false
+      if (this.queue.length) setImmediate(() => this.drain())
+    }
     try {
-      const result = next.run()
+      const result = next.run() as unknown
+      if (result && typeof (result as Promise<unknown>).then === 'function') {
+        ;(result as Promise<unknown>)
+          .then((value) => next.resolve(value))
+          .catch((err) => next.reject(err))
+          .finally(finish)
+        return
+      }
       next.resolve(result)
     } catch (err) {
       next.reject(err)
-    } finally {
-      this.running = false
-      if (this.queue.length) {
-        setImmediate(() => this.drain())
-      }
     }
+    finish()
   }
 }
 

@@ -1,7 +1,8 @@
 import { ValidationError } from '@shared/schemas'
+import { isValidationError } from '../services/personIdentity'
 
 export function mapDbError(err: unknown): Error {
-  if (err instanceof ValidationError) return err
+  if (isValidationError(err) || err instanceof ValidationError) return err as Error
   const raw = err instanceof Error ? err.message : String(err)
   const msg = raw.toLowerCase()
   if (msg.includes('unique constraint') || msg.includes('unique')) {

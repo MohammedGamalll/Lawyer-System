@@ -4,10 +4,39 @@ export const msg = {
   required: 'هذا الحقل مطلوب',
   phone: 'رقم الهاتف غير صالح',
   nationalId: 'الرقم القومي يجب أن يتكون من 14 رقماً',
+  passport: 'رقم الجواز يجب أن يحتوي حروفاً إنجليزية وأرقاماً فقط',
   email: 'البريد الإلكتروني غير صالح',
   min6: 'يجب ألا يقل عن 6 أحرف',
   amount: 'المبلغ يجب أن يكون أكبر من صفر',
   date: 'التاريخ غير صالح'
+}
+
+export function normalizeDigits(value: unknown): string {
+  return String(value ?? '')
+    .trim()
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 1632))
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 1776))
+}
+
+function refineIdentity(
+  data: { id_kind?: unknown; national_id?: unknown; client_type?: unknown },
+  ctx: z.RefinementCtx
+) {
+  const raw = String(data.national_id ?? '').trim()
+  if (!raw || raw === '***') return
+  const kind = String(data.id_kind ?? 'national_id')
+  if (kind === 'passport') {
+    if (!/^[A-Za-z0-9]{4,20}$/.test(raw)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: msg.passport, path: ['national_id'] })
+    }
+    return
+  }
+  const nid = normalizeDigits(raw).replace(/\D/g, '')
+  const company = data.client_type === 'company' || data.client_type === 'institution'
+  if (company) return
+  if (!/^\d{14}$/.test(nid)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: msg.nationalId, path: ['national_id'] })
+  }
 }
 
 const empty = (v: unknown) => v === '' || v === undefined || v === null
@@ -34,7 +63,8 @@ export const phoneSchema = z.preprocess(
 
 export const nationalIdSchema = z.preprocess((v) => {
   if (empty(v)) return undefined
-  return String(v).trim()
+  const nid = normalizeDigits(v).replace(/\D/g, '')
+  return nid
 }, z.string().regex(/^\d{14}$/, msg.nationalId).optional())
 
 export const emailSchema = z.preprocess(
@@ -67,20 +97,20 @@ export const clientSchema = z
     commercial_register: optStr,
     tax_id: optStr,
     manager_name: optStr,
+    poa_number: optStr,
+    poa_year: optStr,
+    poa_letter: optStr,
+    poa_office: optStr,
+    rating: optNum,
+    is_blacklisted: z.preprocess((v) => {
+      if (v === undefined || v === null || v === '') return undefined
+      return v === true || v === 1 || v === '1' ? 1 : 0
+    }, z.number().optional()),
+    blacklist_note: optStr,
     contacts: z.array(z.object({ name: reqStr, position: optStr, phone: phoneSchema, email: emailSchema })).optional(),
     force_similar: z.coerce.boolean().optional()
   })
-  .superRefine((data, ctx) => {
-    const kind = String(data.id_kind ?? 'national_id')
-    if (kind === 'passport') return
-    const nid = String(data.national_id ?? '').trim()
-    if (!nid || nid === '***') return
-    const company = data.client_type === 'company' || data.client_type === 'institution'
-    if (company) return
-    if (!/^\d{14}$/.test(nid)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: msg.nationalId, path: ['national_id'] })
-    }
-  })
+  .superRefine(refineIdentity)
 
 export const clientUpdateSchema = clientSchema
 
@@ -373,18 +403,39 @@ export const leaveSchema = z.object({
   notes: optStr
 })
 
-export const opponentSchema = z.object({
-  full_name: reqStr,
-  nickname: optStr,
-  national_id: nationalIdSchema,
-  phone: phoneSchema,
-  address: optStr,
-  lawyer_name: optStr,
-  lawyer_phone: phoneSchema,
-  extra_data: optStr,
-  notes: optStr,
-  case_id: optId
-})
+export const opponentSchema = z
+  .object({
+    full_name: reqStr,
+    nickname: optStr,
+    national_id: optStr,
+    id_kind: optStr,
+    passport_country: optStr,
+    phone: phoneSchema,
+    phone2: phoneSchema,
+    whatsapp: phoneSchema,
+    phone_home: phoneSchema,
+    phone_work: phoneSchema,
+    email: emailSchema,
+    address: optStr,
+    address2: optStr,
+    lawyer_name: optStr,
+    lawyer_phone: phoneSchema,
+    extra_data: optStr,
+    notes: optStr,
+    poa_number: optStr,
+    poa_year: optStr,
+    poa_letter: optStr,
+    poa_office: optStr,
+    rating: optNum,
+    is_blacklisted: z.preprocess((v) => {
+      if (v === undefined || v === null || v === '') return undefined
+      return v === true || v === 1 || v === '1' ? 1 : 0
+    }, z.number().optional()),
+    blacklist_note: optStr,
+    case_id: optId,
+    force_similar: z.coerce.boolean().optional()
+  })
+  .superRefine(refineIdentity)
 
 export const poaSchema = z.object({
   poa_type: optStr,

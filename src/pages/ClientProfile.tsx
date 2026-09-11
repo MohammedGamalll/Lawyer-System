@@ -8,6 +8,9 @@ import { useApp } from '../store'
 import { Button, Card, Field, InfoGrid, Input, MiniTable, Modal, PageHeader, UiTabs } from '../components/ui'
 import { ClientForm, uploadClientPendingDocs } from '../components/ClientForm'
 import { ClientDocumentUpload, DocumentPreviewModal, DocumentThumb } from '../components/DocumentTools'
+import { PartyRatingCard } from '../components/PartyRating'
+import { SimilarClientModal } from '../components/SimilarClientModal'
+import { similarFromError, type SimilarHit } from '../lib/similarError'
 import { ContactActions } from '../components/ContactActions'
 import { formatCell } from '../lib/datetime'
 import { onDataChanged } from '../lib/bus'
@@ -22,6 +25,8 @@ export function ClientProfilePage() {
   const [form, setForm] = useState<Record<string, unknown>>({})
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [previewId, setPreviewId] = useState<string | null>(null)
+  const [similar, setSimilar] = useState<SimilarHit | null>(null)
+  const [pendingPayload, setPendingPayload] = useState<Record<string, unknown> | null>(null)
   const id = String(pageMeta.id || '')
   const rhf = useForm({ resolver: zodResolver(contactSchema), values: contact, mode: 'onChange' })
 
@@ -66,6 +71,10 @@ export function ClientProfilePage() {
     { name: 'email', label: t('fields.email') },
     { name: 'address', label: t('fields.address') },
     ...(c.address2 ? [{ name: 'address2', label: t('fields.address2') }] : []),
+    { name: 'poa_number', label: t('fields.poa_number') },
+    { name: 'poa_year', label: t('fields.poa_year') },
+    { name: 'poa_letter', label: t('fields.poa_letter') },
+    { name: 'poa_office', label: t('fields.poa_office') },
     { name: 'profession', label: t('fields.profession') },
     { name: 'commercial_register', label: t('fields.commercial_register') },
     { name: 'tax_id', label: t('fields.tax_id') },
@@ -129,6 +138,13 @@ export function ClientProfilePage() {
         </Card>
         )}
       </div>
+      {Number(c.is_blacklisted) ? (
+        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/50 dark:text-red-200">
+          {t('party.blacklistWarn')}
+          {c.blacklist_note ? ` — ${String(c.blacklist_note)}` : ''}
+        </div>
+      ) : null}
+      <div className="grid gap-3 md:grid-cols-[1fr_16rem]">
       <Card>
         <UiTabs
           tabs={[
@@ -213,7 +229,12 @@ export function ClientProfilePage() {
                     <div className="space-y-2">
                       {(p.documents as { id: string; title: string; category: string }[]).map((doc) => (
                         <div key={doc.id} className="flex items-center justify-between gap-2 rounded border border-navy-100 px-2 py-1 dark:border-navy-800">
-                          <DocumentThumb id={doc.id} title={`${doc.title} — ${doc.category}`} onOpen={() => setPreviewId(doc.id)} />
+                          <DocumentThumb
+                            id={doc.id}
+                            title={`${doc.title} — ${doc.category}`}
+                            onOpen={() => setPreviewId(doc.id)}
+                            onOpenExternal={() => invoke('documents:open', doc.id).catch((e) => toast((e as Error).message, 'err'))}
+                          />
                         </div>
                       ))}
                     </div>
@@ -301,6 +322,29 @@ export function ClientProfilePage() {
           ]}
         />
       </Card>
+      <PartyRatingCard
+        rating={Number(c.rating || 0)}
+        blacklisted={Boolean(Number(c.is_blacklisted))}
+        note={String(c.blacklist_note || '')}
+        canEdit={can('clients.update')}
+        onChange={async (patch) => {
+          try {
+            const payload: Record<string, unknown> = { ...c, ...patch, id }
+            delete payload.contacts
+            await invoke('clients:update', id, payload)
+            toast(t('savedOk'))
+            await load()
+          } catch (e) {
+            const hit = similarFromError(e)
+            if (hit) {
+              setSimilar(hit)
+              return
+            }
+            toast((e as Error).message, 'err')
+          }
+        }}
+      />
+      </div>
       <Modal open={editing} title={t('edit')} onClose={() => setEditing(false)} wide>
         <ClientForm
           values={form}
@@ -345,6 +389,12 @@ export function ClientProfilePage() {
                 setEditing(false)
                 await load()
               } catch (e) {
+                const hit = similarFromError(e)
+                if (hit) {
+                  setSimilar(hit)
+                  setPendingPayload(payload)
+                  return
+                }
                 toast((e as Error).message, 'err')
               }
             }}
@@ -354,6 +404,35 @@ export function ClientProfilePage() {
         </div>
       </Modal>
       <DocumentPreviewModal id={previewId} onClose={() => setPreviewId(null)} />
+      <SimilarClientModal
+        open={!!similar}
+        name={similar?.full_name}
+        code={similar?.client_number}
+        isEdit
+        canOpenExisting={Boolean(similar?.id)}
+        onClose={() => setSimilar(null)}
+        onOpenExisting={() => {
+          if (similar?.id) useApp.getState().setPage('clientProfile', { id: similar.id })
+          setSimilar(null)
+        }}
+        onAddAsNew={async () => {
+          if (!pendingPayload) {
+            setSimilar(null)
+            return
+          }
+          try {
+            await invoke('clients:update', id, { ...pendingPayload, force_similar: true })
+            await uploadClientPendingDocs(id, form)
+            toast(t('savedOk'))
+            setSimilar(null)
+            setPendingPayload(null)
+            setEditing(false)
+            await load()
+          } catch (e) {
+            toast((e as Error).message, 'err')
+          }
+        }}
+      />
     </div>
   )
 }

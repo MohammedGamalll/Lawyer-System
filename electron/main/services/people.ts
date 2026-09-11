@@ -18,8 +18,10 @@ import {
   leaveSchema,
   opponentSchema,
   parseSchema,
-  staffSchema
+  staffSchema,
+  normalizeDigits
 } from '@shared/schemas'
+import { assertPersonIdentity } from './personIdentity'
 
 function photoDataUrl(filePath?: string | null) {
   if (!filePath || !fs.existsSync(filePath)) return null
@@ -804,7 +806,11 @@ export function addLeave(actor: AuthedUser, data: Record<string, unknown>) {
 }
 
 export function listOpponents(q: ListQuery = {}) {
-  return paged('opponents', ['full_name', 'nickname', 'national_id', 'phone', 'lawyer_name'], q)
+  return paged(
+    'opponents',
+    ['full_name', 'nickname', 'national_id', 'phone', 'lawyer_name', 'poa_number', 'poa_year', 'poa_letter', 'poa_office'],
+    q
+  )
 }
 
 export function getOpponent(id: string) {
@@ -822,27 +828,59 @@ export function getOpponent(id: string) {
   return { opponent, cases }
 }
 
+function storedNationalId(data: Record<string, unknown>) {
+  const raw = String(data.national_id ?? '').trim()
+  if (!raw) return null
+  if (String(data.id_kind || 'national_id') === 'passport') return raw
+  const nid = normalizeDigits(raw).replace(/\D/g, '')
+  return nid || raw
+}
+
+function flagInt(v: unknown) {
+  return v === true || v === 1 || v === '1' ? 1 : 0
+}
+
 export function createOpponent(actor: AuthedUser, data: Record<string, unknown>) {
+  const forceSimilar = Boolean(data.force_similar)
   data = parseSchema(opponentSchema, data) as Record<string, unknown>
   if (!String(data.full_name ?? '').trim()) throw new Error('اسم الخصم مطلوب')
+  assertPersonIdentity('opponents', data, { forceSimilar })
   const id = newId()
   const ts = nowIso()
   getDb()
     .prepare(
-      `INSERT INTO opponents (id, full_name, nickname, national_id, phone, address, lawyer_name, lawyer_phone, extra_data, notes, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+      `INSERT INTO opponents (
+        id, full_name, nickname, national_id, id_kind, passport_country, phone, phone2, whatsapp,
+        phone_home, phone_work, email, address, address2, lawyer_name, lawyer_phone, extra_data, notes,
+        poa_number, poa_year, poa_letter, poa_office, rating, is_blacklisted, blacklist_note, created_at, updated_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     )
     .run(
       id,
       data.full_name,
       data.nickname ?? null,
-      data.national_id ?? null,
+      storedNationalId(data),
+      data.id_kind || 'national_id',
+      data.passport_country ?? null,
       data.phone ?? null,
+      data.phone2 ?? null,
+      data.whatsapp ?? null,
+      data.phone_home ?? null,
+      data.phone_work ?? null,
+      data.email ?? null,
       data.address ?? null,
+      data.address2 ?? null,
       data.lawyer_name ?? null,
       data.lawyer_phone ?? null,
       data.extra_data ?? null,
       data.notes ?? null,
+      data.poa_number ?? null,
+      data.poa_year ?? null,
+      data.poa_letter ?? null,
+      data.poa_office ?? null,
+      data.rating ?? null,
+      flagInt(data.is_blacklisted),
+      data.blacklist_note ?? null,
       ts,
       ts
     )
@@ -854,21 +892,43 @@ export function createOpponent(actor: AuthedUser, data: Record<string, unknown>)
 }
 
 export function updateOpponent(actor: AuthedUser, id: string, data: Record<string, unknown>) {
+  const forceSimilar = Boolean(data.force_similar)
   data = parseSchema(opponentSchema, data) as Record<string, unknown>
-  getDb()
-    .prepare(
-      `UPDATE opponents SET full_name=?, nickname=?, national_id=?, phone=?, address=?, lawyer_name=?, lawyer_phone=?, extra_data=?, notes=?, updated_at=? WHERE id=?`
+  const db = getDb()
+  const old = db.prepare(`SELECT * FROM opponents WHERE id = ? AND ${notDeleted()}`).get(id) as Record<string, unknown> | undefined
+  if (!old) throw new Error('الخصم غير موجود')
+  assertPersonIdentity('opponents', data, { excludeId: id, forceSimilar, old })
+  db.prepare(
+      `UPDATE opponents SET full_name=?, nickname=?, national_id=?, id_kind=?, passport_country=?, phone=?, phone2=?,
+        whatsapp=?, phone_home=?, phone_work=?, email=?, address=?, address2=?, lawyer_name=?, lawyer_phone=?,
+        extra_data=?, notes=?, poa_number=?, poa_year=?, poa_letter=?, poa_office=?, rating=?, is_blacklisted=?,
+        blacklist_note=?, updated_at=? WHERE id=?`
     )
     .run(
       data.full_name,
       data.nickname ?? null,
-      data.national_id ?? null,
+      storedNationalId(data),
+      data.id_kind || old.id_kind || 'national_id',
+      data.passport_country ?? null,
       data.phone ?? null,
+      data.phone2 ?? null,
+      data.whatsapp ?? null,
+      data.phone_home ?? null,
+      data.phone_work ?? null,
+      data.email ?? null,
       data.address ?? null,
+      data.address2 ?? null,
       data.lawyer_name ?? null,
       data.lawyer_phone ?? null,
       data.extra_data ?? null,
       data.notes ?? null,
+      data.poa_number ?? null,
+      data.poa_year ?? null,
+      data.poa_letter ?? null,
+      data.poa_office ?? null,
+      data.rating ?? old.rating ?? null,
+      data.is_blacklisted === undefined ? old.is_blacklisted ?? 0 : flagInt(data.is_blacklisted),
+      data.blacklist_note ?? old.blacklist_note ?? null,
       nowIso(),
       id
     )

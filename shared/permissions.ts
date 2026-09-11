@@ -176,6 +176,7 @@ export const PAGE_ACCESS: Record<string, PermissionCode | PermissionCode[] | []>
   poa: 'poa.view',
   contracts: 'contracts.view',
   opponents: 'opponents.view',
+  opponentProfile: 'opponents.view',
   lawyers: 'lawyers.view',
   lawyerProfile: 'lawyers.view',
   employees: 'employees.view',

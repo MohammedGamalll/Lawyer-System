@@ -24,7 +24,15 @@ type ExtraOpp = {
   capacity_cassation: string
 }
 
-type Snap = { national_id?: string; address?: string; phone?: string; phone2?: string; nickname?: string }
+type Snap = {
+  national_id?: string
+  address?: string
+  phone?: string
+  phone2?: string
+  nickname?: string
+  full_name?: string
+  is_blacklisted?: number
+}
 
 const emptyClient = (): ExtraClient => ({
   client_id: '',
@@ -60,12 +68,20 @@ function ContactSnap({ id, kind }: { id: string; kind: 'clients' | 'opponents' }
           address: c.address,
           phone: c.phone,
           phone2: c.phone2,
-          nickname: (c as Snap).nickname
+          nickname: (c as Snap).nickname,
+          full_name: c.full_name,
+          is_blacklisted: Number(c.is_blacklisted || 0)
         })
       })
       .catch(() => setSnap(null))
   }, [id, kind])
   return (
+    <div className="space-y-1.5">
+      {Number(snap?.is_blacklisted) ? (
+        <div className="rounded bg-red-50 px-2 py-1 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-300">
+          {t('party.blacklistPick', { name: snap?.full_name || snap?.nickname || '' })}
+        </div>
+      ) : null}
     <div className="flex flex-wrap gap-1.5 text-xs">
       <div className="max-w-full" style={{ width: '14ch' }}>
       <Field label={t('fields.nickname')}>
@@ -87,6 +103,7 @@ function ContactSnap({ id, kind }: { id: string; kind: 'clients' | 'opponents' }
         <Input readOnly dir="ltr" value={snap?.phone || snap?.phone2 || '—'} className="h-8 bg-navy-50" />
       </Field>
       </div>
+    </div>
     </div>
   )
 }

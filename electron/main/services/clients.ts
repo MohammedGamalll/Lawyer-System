@@ -6,10 +6,13 @@ import { recordLocalChange, softDelete } from '../sync/queue'
 import type { AuthedUser } from '../ipc/helpers'
 import type { ListQuery } from '@shared/types'
 import { shouldMaskClientContact } from '@shared/permissions'
-import { clientSchema, parseSchema, ValidationError } from '@shared/schemas'
+import { clientSchema, parseSchema, normalizeDigits } from '@shared/schemas'
 import { rememberLookup } from './lookups'
 import { clampPageSize, pageKind, pickSort, sqlDir } from '../db/queryLimits'
 import { ftsQuery } from '../db/fts'
+import { assertPersonIdentity, normalizePersonName } from './personIdentity'
+
+export { normalizePersonName }
 
 export function listClients(query: ListQuery = {}, actor?: AuthedUser | null) {
   const db = getDb()
@@ -22,9 +25,10 @@ export function listClients(query: ListQuery = {}, actor?: AuthedUser | null) {
     where += ` AND c.rowid IN (SELECT rowid FROM clients_fts WHERE clients_fts MATCH ?)`
     params.push(fts)
   } else if (query.search) {
-    where += ` AND (c.full_name LIKE ? OR c.client_number LIKE ? OR c.phone LIKE ? OR c.national_id LIKE ? OR c.profession LIKE ? OR c.nickname LIKE ?)`
+    where += ` AND (c.full_name LIKE ? OR c.client_number LIKE ? OR c.phone LIKE ? OR c.national_id LIKE ? OR c.profession LIKE ? OR c.nickname LIKE ?
+          OR c.poa_number LIKE ? OR c.poa_year LIKE ? OR c.poa_letter LIKE ? OR c.poa_office LIKE ?)`
     const s = `%${query.search}%`
-    params.push(s, s, s, s, s, s)
+    params.push(s, s, s, s, s, s, s, s, s, s)
   }
   if (query.filters?.client_type) {
     where += ' AND c.client_type = ?'
@@ -43,7 +47,7 @@ export function listClients(query: ListQuery = {}, actor?: AuthedUser | null) {
   const rows = db
     .prepare(
       `SELECT c.id, c.client_number, c.full_name, c.nickname, c.national_id, c.phone, c.phone2, c.whatsapp, c.email,
-              c.profession, c.governorate, c.client_type, COALESCE(d.due, 0) as due
+              c.profession, c.governorate, c.client_type, c.poa_number, c.rating, c.is_blacklisted, COALESCE(d.due, 0) as due
        FROM clients c
        LEFT JOIN (
          SELECT cs.client_id as cid, SUM(cf.remaining) as due
@@ -67,10 +71,10 @@ export function searchClients(term: string, actor?: AuthedUser | null) {
       `SELECT DISTINCT c.* FROM clients c
        LEFT JOIN cases cs ON cs.client_id = c.id AND ${notDeleted('cs')}
        WHERE ${notDeleted('c')} AND (c.full_name LIKE ? OR c.client_number LIKE ? OR c.phone LIKE ? OR c.national_id LIKE ?
-          OR cs.case_number LIKE ?)
+          OR cs.case_number LIKE ? OR c.poa_number LIKE ? OR c.poa_office LIKE ?)
        LIMIT 50`
     )
-    .all(s, s, s, s, s)
+    .all(s, s, s, s, s, s, s)
   return maskClientRows(rows, actor)
 }
 
@@ -121,7 +125,7 @@ export function createClient(actor: AuthedUser, data: Record<string, unknown>) {
   const fullName = String(data.full_name ?? '').trim()
   if (!fullName) throw new Error('اسم العميل مطلوب')
   const db = getDb()
-  assertClientIdentity(db, data, { forceSimilar })
+  assertPersonIdentity('clients', data, { forceSimilar })
   const ts = nowIso()
   const number = nextNumber(db, 'client')
   const id = newId()
@@ -130,15 +134,16 @@ export function createClient(actor: AuthedUser, data: Record<string, unknown>) {
         id, client_number, full_name, trade_name, nickname, national_id, phone, phone2, whatsapp, email, address,
         governorate, district, client_type, profession, birth_date, extra_data, notes,
         commercial_register, tax_id, manager_name, id_kind, passport_country, phone_home, phone_work, address2,
+        poa_number, poa_year, poa_letter, poa_office, rating, is_blacklisted, blacklist_note,
         created_at, updated_at, created_by
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).run(
     id,
     number,
     fullName,
     data.trade_name ?? null,
     data.nickname ?? null,
-    data.national_id ?? null,
+    storedNationalId(data),
     data.phone ?? null,
     data.phone2 ?? null,
     data.whatsapp ?? null,
@@ -159,6 +164,13 @@ export function createClient(actor: AuthedUser, data: Record<string, unknown>) {
     data.phone_home ?? null,
     data.phone_work ?? null,
     data.address2 ?? null,
+    data.poa_number ?? null,
+    data.poa_year ?? null,
+    data.poa_letter ?? null,
+    data.poa_office ?? null,
+    data.rating ?? null,
+    flagInt(data.is_blacklisted),
+    data.blacklist_note ?? null,
     ts,
     ts,
     actor.id
@@ -184,18 +196,19 @@ export function updateClient(actor: AuthedUser, id: string, data: Record<string,
   const db = getDb()
   const old = db.prepare(`SELECT * FROM clients WHERE id = ? AND ${notDeleted()}`).get(id) as Record<string, unknown> | undefined
   if (!old) throw new Error('العميل غير موجود')
-  assertClientIdentity(db, data, { excludeId: id, forceSimilar })
+  assertPersonIdentity('clients', data, { excludeId: id, forceSimilar, old })
   const keepContact = shouldMask(actor)
   db.prepare(
     `UPDATE clients SET full_name=?, trade_name=?, nickname=?, national_id=?, phone=?, phone2=?, whatsapp=?, email=?,
       address=?, governorate=?, district=?, client_type=?, profession=?, birth_date=?, extra_data=?, notes=?,
       commercial_register=?, tax_id=?, manager_name=?, id_kind=?, passport_country=?, phone_home=?, phone_work=?,
-      address2=?, updated_at=? WHERE id=?`
+      address2=?, poa_number=?, poa_year=?, poa_letter=?, poa_office=?, rating=?, is_blacklisted=?, blacklist_note=?,
+      updated_at=? WHERE id=?`
   ).run(
     data.full_name,
     data.trade_name ?? null,
     data.nickname ?? null,
-    data.national_id ?? null,
+    storedNationalId(data),
     keepContact ? old.phone : data.phone ?? null,
     keepContact ? old.phone2 : data.phone2 ?? null,
     keepContact ? old.whatsapp : data.whatsapp ?? null,
@@ -216,6 +229,13 @@ export function updateClient(actor: AuthedUser, id: string, data: Record<string,
     keepContact ? old.phone_home : data.phone_home ?? null,
     keepContact ? old.phone_work : data.phone_work ?? null,
     data.address2 ?? null,
+    data.poa_number ?? null,
+    data.poa_year ?? null,
+    data.poa_letter ?? null,
+    data.poa_office ?? null,
+    data.rating ?? old.rating ?? null,
+    data.is_blacklisted === undefined ? old.is_blacklisted ?? 0 : flagInt(data.is_blacklisted),
+    data.blacklist_note ?? null,
     nowIso(),
     id
   )
@@ -254,63 +274,22 @@ export function removeClient(actor: AuthedUser, id: string) {
   audit(actor, 'delete', 'clients', id, `تم حذف العميل ${old.full_name}`)
 }
 
+function storedNationalId(data: Record<string, unknown>) {
+  const raw = String(data.national_id ?? '').trim()
+  if (!raw) return null
+  if (String(data.id_kind || 'national_id') === 'passport') return raw
+  const nid = normalizeDigits(raw).replace(/\D/g, '')
+  return nid || raw
+}
+
+function flagInt(v: unknown) {
+  return v === true || v === 1 || v === '1' ? 1 : 0
+}
+
 function rememberClientLookups(data: Record<string, unknown>) {
   rememberLookup('governorate', data.governorate)
   rememberLookup('district', data.district)
   rememberLookup('profession', data.profession)
-}
-
-function digitsNid(value: unknown) {
-  const s = String(value ?? '').replace(/\D/g, '')
-  return s.length === 14 ? s : ''
-}
-
-export function normalizePersonName(value: unknown) {
-  return String(value ?? '')
-    .trim()
-    .replace(/\s+/g, ' ')
-    .replace(/[أإآٱ]/g, 'ا')
-    .replace(/ى/g, 'ي')
-    .replace(/ة/g, 'ه')
-}
-
-function assertClientIdentity(
-  db: ReturnType<typeof getDb>,
-  data: Record<string, unknown>,
-  opts: { excludeId?: string; forceSimilar?: boolean }
-) {
-  const nid = digitsNid(data.national_id)
-  const name = normalizePersonName(data.full_name)
-  const rows = db
-    .prepare(
-      `SELECT id, client_number, full_name, national_id FROM clients WHERE ${notDeleted()}${opts.excludeId ? ' AND id != ?' : ''}`
-    )
-    .all(...(opts.excludeId ? [opts.excludeId] : [])) as {
-    id: string
-    client_number: string
-    full_name: string
-    national_id: string | null
-  }[]
-  if (nid) {
-    const hit = rows.find((r) => digitsNid(r.national_id) === nid)
-    if (hit) {
-      throw new Error(`هذا العميل مسجل من قبل (كود ${hit.client_number} — ${hit.full_name})`)
-    }
-  }
-  if (opts.forceSimilar || !name) return
-  const similar = rows.find((r) => normalizePersonName(r.full_name) === name)
-  if (!similar) return
-  throw new ValidationError(
-    `هذا الاسم مسجل بالفعل، هل تريد إضافة هذا البيان؟ هل تقصد هذا الشخص «${similar.full_name}» (كود ${similar.client_number}) أم أنه شخص جديد؟`,
-    {
-      _similar: JSON.stringify({
-        id: similar.id,
-        client_number: similar.client_number,
-        full_name: similar.full_name,
-        national_id: similar.national_id
-      })
-    }
-  )
 }
 
 function shouldMask(user?: AuthedUser | null) {

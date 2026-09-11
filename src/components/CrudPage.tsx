@@ -5,6 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { invoke } from '../lib/api'
 import { ApiError } from '../lib/api'
+import { similarFromError } from '../lib/similarError'
 import { useApp } from '../store'
 import { Button, Field, Input, Select, Textarea, Modal, PageHeader, StatusBadge, ConfirmBar, RowMenu } from './ui'
 import { DatePicker, DateTimePicker, TimePicker } from './DateTimePicker'
@@ -374,6 +375,17 @@ export function CrudPage({
       try {
         const full = await invoke<Record<string, unknown>>('clients:get', row.id)
         next = { ...next, ...full }
+        delete next.contacts
+        if (next.address2) next.__show_address2 = true
+      } catch {
+        /* keep list row */
+      }
+    }
+    if (listChannel === 'opponents:list' && row.id) {
+      try {
+        const full = await invoke<Record<string, unknown>>('opponents:get', row.id)
+        const opp = (full.opponent as Record<string, unknown> | undefined) || full
+        next = { ...next, ...opp }
         if (next.address2) next.__show_address2 = true
       } catch {
         /* keep list row */
@@ -429,13 +441,10 @@ export function CrudPage({
       await load()
     } catch (e) {
       const err = e as ApiError
-      if (err.fieldErrors?._similar) {
-        try {
-          setSimilar(JSON.parse(err.fieldErrors._similar))
-          setPendingPayload(payload)
-        } catch {
-          toast(err.message, 'err')
-        }
+      const hit = similarFromError(err)
+      if (hit) {
+        setSimilar(hit)
+        setPendingPayload(payload)
         return
       }
       toast(err.message, 'err')
@@ -723,7 +732,7 @@ export function CrudPage({
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               {t('cancel')}
             </Button>
-            <Button type="submit" disabled={saving || !rhf.formState.isValid}>
+            <Button type="submit" disabled={saving}>
               {saving ? t('saving') : t('save')}
             </Button>
           </div>
@@ -738,27 +747,31 @@ export function CrudPage({
         name={similar?.full_name}
         code={similar?.client_number}
         saving={saving}
+        isEdit={Boolean(editing)}
+        canOpenExisting={Boolean(similar?.id)}
         onClose={() => setSimilar(null)}
         onOpenExisting={() => {
-          if (similar) useApp.getState().setPage('clientProfile', { id: similar.id })
+          if (!similar?.id) return
+          const page = listChannel === 'opponents:list' ? 'opponentProfile' : 'clientProfile'
+          useApp.getState().setPage(page, { id: similar.id })
           setSimilar(null)
           setOpen(false)
         }}
         onAddAsNew={async () => {
-          if (!pendingPayload || !createChannel) return
+          if (!pendingPayload) return
           setSaving(true)
           try {
             if (editing && updateChannel) await invoke(updateChannel, editing.id, { ...pendingPayload, force_similar: true })
-            else await invoke(createChannel, { ...pendingPayload, force_similar: true })
+            else if (createChannel) await invoke(createChannel, { ...pendingPayload, force_similar: true })
             toast(t('savedOk'))
             setSimilar(null)
             setPendingPayload(null)
             setOpen(false)
             await load()
           } catch (e) {
-            const err = e as ApiError
-            if (err.fieldErrors?._similar) return
-            toast(err.message, 'err')
+            const hit = similarFromError(e)
+            if (hit) return
+            toast((e as Error).message, 'err')
           } finally {
             setSaving(false)
           }

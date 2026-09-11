@@ -21,6 +21,24 @@ describe('clientSchema', () => {
     expect(r.success).toBe(true)
   })
 
+  it('accepts arabic-indic 14-digit national id', () => {
+    const r = clientSchema.safeParse({
+      full_name: 'أحمد علي',
+      national_id: '٢٩٠٠١٠١١٢٣٤٥٦٧',
+      id_kind: 'national_id'
+    })
+    expect(r.success).toBe(true)
+  })
+
+  it('rejects a passport with arabic letters', () => {
+    const r = clientSchema.safeParse({
+      full_name: 'John Smith',
+      national_id: 'أ1234',
+      id_kind: 'passport'
+    })
+    expect(r.success).toBe(false)
+  })
+
   it('allows a passport number that is not 14 digits', () => {
     const r = clientSchema.safeParse({
       full_name: 'John Smith',

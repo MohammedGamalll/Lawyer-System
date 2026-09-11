@@ -2,7 +2,7 @@ import type { IpcMain, IpcMainInvokeEvent } from 'electron'
 import type { IpcResult } from '@shared/ipc'
 import { getSession, hasAnyPermission } from './session'
 import { writeQueue } from '../queue/writeQueue'
-import { ValidationError } from '@shared/schemas'
+import { isValidationError } from '../services/personIdentity'
 import { mapDbError } from '../utils/errors'
 import { audit } from '../services/audit'
 import { isCorruptError } from '../db/repair'
@@ -54,8 +54,8 @@ export function handle(
       }
       return result
     } catch (err) {
-      if (err instanceof ValidationError) {
-        return fail(err.message, err.fieldErrors)
+      if (isValidationError(err)) {
+        return fail((err as Error).message, err.fieldErrors)
       }
       if (isCorruptError(err)) {
         log.warn(channel, 'sqlite corrupt; repairing and retrying', err)
@@ -70,11 +70,13 @@ export function handle(
           return result
         } catch (err2) {
           log.error(channel, err2)
+          if (isValidationError(err2)) return fail((err2 as Error).message, err2.fieldErrors)
           return fail(mapDbError(err2).message)
         }
       }
       const mapped = mapDbError(err)
       log.error(channel, err)
+      if (isValidationError(mapped)) return fail(mapped.message, mapped.fieldErrors)
       return fail(mapped.message)
     }
   })

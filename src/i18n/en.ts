@@ -241,18 +241,43 @@ const en = {
     preview: 'Document preview',
     openExternal: 'Open file',
     uploadClient: 'Upload client documents',
-    noClientDocs: 'No documents yet. You can upload the ID or power of attorney here.'
+    noClientDocs: 'No documents yet. You can upload the ID or power of attorney here.',
+    attach: 'Attach document',
+    catId: 'ID card',
+    catPoa: 'Power of attorney',
+    catPassport: 'Passport',
+    catContract: 'Contract',
+    catBirth: 'Birth certificate',
+    saveFormat: 'Save format',
+    multiPageHint: 'Add front and back of an ID or several pages under the same document.',
+    addPages: 'Save document',
+    catOther: 'Other',
+    sides: 'Document sides',
+    frontOnly: 'Front only',
+    frontBack: 'Front and back',
+    front: 'Front',
+    back: 'Back'
   },
   clients: {
     similarTitle: 'Similar name',
-    similarAsk: 'This name already exists. Do you mean «{{name}}» (code {{code}}) or a new person?',
-    openExisting: 'Open existing client',
+    similarAsk: 'This name already exists for «{{name}}» (code {{code}}). Is this the same person or a new one?',
+    similarAskEdit:
+      'This name is already used by «{{name}}» (code {{code}}). Open that record, or save the changes on the current one.',
+    openExisting: 'Open existing',
     addAsNew: 'New person',
+    saveOnCurrent: 'Save on current record',
     blankForm: 'Client intake form',
     printBlank: 'Print blank form',
     attachId: 'Attach national ID',
     attachPoa: 'Attach power of attorney',
     addAddress: 'Add address'
+  },
+  party: {
+    rating: 'Dealings rating',
+    blacklist: 'Add to blacklist',
+    blacklistNote: 'Blacklist reason',
+    blacklistWarn: 'This person is blacklisted — proceed with caution.',
+    blacklistPick: 'Warning: “{{name}}” is on the blacklist.'
   },
   cases: {
     searchFirst:
@@ -327,6 +352,10 @@ const en = {
     tax_id: 'Tax ID',
     manager_name: 'Manager',
     notes: 'Notes',
+    poa_number: 'POA number',
+    poa_year: 'POA year',
+    poa_letter: 'POA letter',
+    poa_office: 'Notary office',
     title: 'Title',
     client_id: 'Client',
     primary_lawyer_id: 'Primary lawyer',
@@ -453,7 +482,6 @@ const en = {
     invoice_number: 'Number',
     invoice_date: 'Date',
     total: 'Total',
-    poa_number: 'POA number',
     contract_number: 'Number',
     correspondence_number: 'Number',
     created_at: 'Date',
@@ -513,7 +541,9 @@ const en = {
     caseSequenceHint: 'The next new case will be: {{next}}. Do not lower below used numbers.',
     appearance: 'Appearance and font size',
     fontSize: 'App font size',
-    fontSizeHint: 'Applies to all pages, tables, and menus'
+    fontSizeHint: 'Applies to all pages, tables, and menus',
+    attachOrder: 'Attachment source order',
+    attachOrderHint: 'Move scanner, camera, and file upload earlier or later to match how you work.'
   },
   sync: {
     title: 'Cloud sync',
