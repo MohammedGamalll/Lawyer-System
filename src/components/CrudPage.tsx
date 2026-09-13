@@ -13,6 +13,18 @@ import { EntitySelect } from './EntitySelect'
 import { LookupCombo } from './LookupCombo'
 import { formatCell } from '../lib/datetime'
 import { formatProgramCode } from '../lib/courtNumber'
+
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
+
+function storedListPageSize(channel: string) {
+  try {
+    const n = Number(localStorage.getItem(`listPageSize:${channel}`))
+    if (PAGE_SIZE_OPTIONS.includes(n)) return n
+  } catch {
+    /* ignore */
+  }
+  return 10
+}
 import type { LookupKind } from '../lib/lookups'
 import { emailSchema, msg, nationalIdSchema, phoneSchema } from '@shared/schemas'
 import { TableVirtuoso } from 'react-virtuoso'
@@ -199,7 +211,7 @@ export function CrudPage({
   emptyHint,
   compactForm,
   onRowsLoaded,
-  pageSize: pageSizeProp,
+  pageSize: _pageSizeProp,
   embedded
 }: {
   title: string
@@ -256,11 +268,11 @@ export function CrudPage({
   const [sortKey, setSortKey] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [colFilters, setColFilters] = useState<Record<string, string>>({})
+  const [listPageSize, setListPageSize] = useState(() => storedListPageSize(listChannel))
   const zodSchema = (editing ? updateSchema : createSchema) ?? schema ?? schemaFromFields(fields)
   const rhf = useForm<Record<string, unknown>>({ resolver: zodResolver(zodSchema as never), values: form, mode: 'onChange' })
 
   const hasListFilter = Object.values(listFilters || {}).some((v) => String(v ?? '').trim())
-  const listPageSize = Math.min(pageSizeProp || 50, 100)
   const queryPayload = {
     page,
     pageSize: listPageSize,
@@ -323,11 +335,11 @@ export function CrudPage({
 
   useEffect(() => {
     load().catch((e) => toast(e.message, 'err'))
-  }, [page, debouncedQ, listChannel, JSON.stringify(listFilters), sortKey, sortDir, idleUntilSearch])
+  }, [page, debouncedQ, listChannel, JSON.stringify(listFilters), sortKey, sortDir, idleUntilSearch, listPageSize])
 
   useEffect(() => onDataChanged(() => {
     load().catch(() => undefined)
-  }), [listChannel, page, debouncedQ, JSON.stringify(listFilters), sortKey, sortDir])
+  }), [listChannel, page, debouncedQ, JSON.stringify(listFilters), sortKey, sortDir, listPageSize])
 
   useEffect(() => {
     if (!pageMeta.edit_id) return
@@ -517,7 +529,8 @@ export function CrudPage({
       {columns.map((c) => (
         <td
           key={c.key}
-          className={`whitespace-nowrap px-3 py-2 text-start align-middle leading-relaxed text-navy-900 dark:text-white ${c.onCellClick ? 'cursor-pointer underline decoration-navy-300' : ''}`}
+          title={c.render ? undefined : formatCell(c.key, row[c.key], i18n.language, t)}
+          className={`max-w-[12rem] truncate px-2 py-1.5 text-start align-middle leading-relaxed text-navy-900 dark:text-white ${c.onCellClick ? 'cursor-pointer underline decoration-navy-300' : ''}`}
           onClick={(e) => {
             if (!c.onCellClick) return
             e.stopPropagation()
@@ -556,7 +569,7 @@ export function CrudPage({
     <>
       <tr>
         {columns.map((c) => (
-          <th key={c.key} className="whitespace-nowrap px-3 py-2 text-start font-semibold">
+          <th key={c.key} className="max-w-[12rem] truncate px-2 py-1.5 text-start font-semibold">
             <button type="button" className="inline-flex items-center gap-1" onClick={() => toggleSort(c.key)}>
               {c.label}
               <span className="text-[10px] opacity-80">
@@ -676,11 +689,34 @@ export function CrudPage({
         </table>
         )}
       </div>
-      <div className="mt-3 flex items-center justify-between text-sm text-navy-600 dark:text-navy-200">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm text-navy-600 dark:text-navy-200">
         <span>
           {t('page')} {page} {t('of')} {pages} — {data.total}
         </span>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-1">
+            <span>{t('rowsPerPage')}</span>
+            <Select
+              className="h-8 w-20"
+              value={String(listPageSize)}
+              onChange={(e) => {
+                const n = Number(e.target.value)
+                setListPageSize(n)
+                setPage(1)
+                try {
+                  localStorage.setItem(`listPageSize:${listChannel}`, String(n))
+                } catch {
+                  /* ignore */
+                }
+              }}
+            >
+              {PAGE_SIZE_OPTIONS.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </Select>
+          </label>
           <Button variant="outline" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
             {t('prev')}
           </Button>

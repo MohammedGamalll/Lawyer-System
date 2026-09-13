@@ -38,14 +38,37 @@ export function rememberLookup(kind: string, raw?: unknown): void {
   recordLocalChange('lookup_values', id, 'INSERT')
 }
 
+export function updateLookup(kind: string, oldRaw: unknown, newRaw: unknown): void {
+  const from = String(oldRaw ?? '').trim()
+  const to = String(newRaw ?? '').trim()
+  if (!kind || !from || !to) throw new Error('قيمة غير صالحة')
+  if (from === to) return
+  const db = getDb()
+  const row = db
+    .prepare(`SELECT id FROM lookup_values WHERE kind = ? AND value = ? AND ${notDeleted()}`)
+    .get(kind, from) as { id: string } | undefined
+  if (!row) throw new Error('العنصر غير موجود في القائمة')
+  const clash = db
+    .prepare(`SELECT id FROM lookup_values WHERE kind = ? AND value = ? AND ${notDeleted()}`)
+    .get(kind, to) as { id: string } | undefined
+  const ts = nowIso()
+  if (clash) {
+    db.prepare('UPDATE lookup_values SET deleted_at = ?, updated_at = ? WHERE id = ?').run(ts, ts, row.id)
+    recordLocalChange('lookup_values', row.id, 'UPDATE')
+    return
+  }
+  db.prepare('UPDATE lookup_values SET value = ?, updated_at = ? WHERE id = ?').run(to, ts, row.id)
+  recordLocalChange('lookup_values', row.id, 'UPDATE')
+}
+
 export function removeLookup(kind: string, raw?: unknown): void {
   const value = String(raw ?? '').trim()
-  if (!kind || !value) return
+  if (!kind || !value) throw new Error('قيمة غير صالحة')
   const db = getDb()
   const row = db
     .prepare(`SELECT id FROM lookup_values WHERE kind = ? AND value = ? AND ${notDeleted()}`)
     .get(kind, value) as { id: string } | undefined
-  if (!row) return
+  if (!row) throw new Error('العنصر غير موجود في القائمة')
   const ts = nowIso()
   db.prepare('UPDATE lookup_values SET deleted_at = ?, updated_at = ? WHERE id = ?').run(ts, ts, row.id)
   recordLocalChange('lookup_values', row.id, 'UPDATE')

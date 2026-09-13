@@ -119,6 +119,20 @@ export function patchSchema(db: Db): void {
   addColumn(db, 'opponents', 'email', 'TEXT')
   addColumn(db, 'opponents', 'address2', 'TEXT')
   addColumn(db, 'documents', 'opponent_id', 'TEXT')
+  addColumn(db, 'documents', 'lawyer_id', 'TEXT')
+  addColumn(db, 'documents', 'employee_id', 'TEXT')
+  addColumn(db, 'lawyers', 'whatsapp', 'TEXT')
+  addColumn(db, 'lawyers', 'phone_home', 'TEXT')
+  addColumn(db, 'lawyers', 'phone_other', 'TEXT')
+  addColumn(db, 'lawyers', 'address', 'TEXT')
+  addColumn(db, 'lawyers', 'salary', 'REAL')
+  addColumn(db, 'lawyers', 'rating', 'INTEGER')
+  addColumn(db, 'lawyers', 'bar_degree', 'TEXT')
+  addColumn(db, 'lawyers', 'duties', 'TEXT')
+  addColumn(db, 'employees', 'whatsapp', 'TEXT')
+  addColumn(db, 'employees', 'phone_home', 'TEXT')
+  addColumn(db, 'employees', 'phone_other', 'TEXT')
+  addColumn(db, 'employees', 'address', 'TEXT')
   db.exec(`
     CREATE TABLE IF NOT EXISTS document_pages (
       id TEXT PRIMARY KEY,

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { invoke } from '../lib/api'
 import { useApp } from '../store'
@@ -7,6 +7,95 @@ import { AutoFitInput } from './AutoFitInput'
 import { LookupCombo } from './LookupCombo'
 import { AttachDocumentControl, uploadPendingDocs, type PendingDoc } from './DocumentTools'
 import { clientBlankFormHtml } from '../lib/clientBlankForm'
+import { FloatingMenu } from './FloatingMenu'
+
+type NameHit = { id: string; full_name: string; client_number?: string; national_id?: string | null }
+
+function NameSuggest({
+  value,
+  onChange,
+  onOpenExisting,
+  entity,
+  excludeId
+}: {
+  value: string
+  onChange: (v: string, hit?: NameHit) => void
+  onOpenExisting?: (hit: NameHit) => void
+  entity: 'client' | 'opponent'
+  excludeId?: string
+}) {
+  const { t } = useTranslation()
+  const box = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
+  const [hits, setHits] = useState<NameHit[]>([])
+
+  useEffect(() => {
+    const q = value.trim()
+    if (q.length < 2) {
+      setHits([])
+      return
+    }
+    let cancelled = false
+    const t = window.setTimeout(() => {
+      const req =
+        entity === 'client'
+          ? invoke<NameHit[]>('clients:search', q)
+          : invoke<{ rows: NameHit[] }>('opponents:list', { search: q, page: 1, pageSize: 20 }).then((r) => r.rows || [])
+      req
+        .then((rows) => {
+          if (cancelled) return
+          setHits((rows || []).filter((r) => r.id !== excludeId).slice(0, 12))
+          setOpen(true)
+        })
+        .catch(() => undefined)
+    }, 180)
+    return () => {
+      cancelled = true
+      window.clearTimeout(t)
+    }
+  }, [value, entity, excludeId])
+
+  return (
+    <div ref={box} className="relative">
+      <AutoFitInput
+        maxCh={30}
+        value={value}
+        onChange={(s) => {
+          onChange(s)
+          setOpen(true)
+        }}
+      />
+      <FloatingMenu open={open && hits.length > 0} onClose={() => setOpen(false)} anchor={box} minWidth={240}>
+        <div className="max-h-56 overflow-auto">
+          {hits.map((h) => (
+            <div key={h.id} className="flex items-center gap-1 hover:bg-navy-50 dark:hover:bg-navy-800">
+              <button
+                type="button"
+                className="min-w-0 flex-1 px-2 py-1.5 text-right text-sm"
+                onMouseDown={(e) => e.preventDefault()}
+                onPointerDown={() => {
+                  onChange(h.full_name, h)
+                  setOpen(false)
+                }}
+              >
+                <span className="font-semibold">{h.full_name}</span>
+                {h.client_number ? <span className="ms-2 text-xs text-navy-400">{h.client_number}</span> : null}
+              </button>
+              <button
+                type="button"
+                className="shrink-0 px-2 py-1 text-xs text-navy-500 hover:text-navy-800"
+                onMouseDown={(e) => e.preventDefault()}
+                onPointerDown={() => onOpenExisting?.(h)}
+              >
+                {t('clients.openExisting')}
+              </button>
+            </div>
+          ))}
+        </div>
+      </FloatingMenu>
+    </div>
+  )
+}
 
 type Props = {
   values: Record<string, unknown>
@@ -42,12 +131,13 @@ function Fit({
 
 export function PartyForm({ values, onChange, errors, partyId, entity = 'client' }: Props) {
   const { t } = useTranslation()
-  const { toast, can } = useApp()
+  const { toast, can, setPage } = useApp()
   const v = (k: string) => String(values[k] ?? '')
   const kind = v('id_kind') || 'national_id'
   const showAddress2 = Boolean(v('address2')) || Boolean(values.__show_address2)
   const pending = (values.__pending_docs as PendingDoc[] | undefined) || []
   const [existing, setExisting] = useState<{ id: string; title: string; category: string }[]>([])
+  const [nidDup, setNidDup] = useState('')
 
   const loadDocs = () => {
     if (!partyId) {
@@ -75,11 +165,35 @@ export function PartyForm({ values, onChange, errors, partyId, entity = 'client'
   }
 
   const onIdChange = (raw: string) => {
-    if (kind === 'passport') {
-      onChange('national_id', raw.replace(/[^A-Za-z0-9]/g, '').slice(0, 20))
+    const next =
+      kind === 'passport' ? raw.replace(/[^A-Za-z0-9]/g, '').slice(0, 20) : raw.replace(/[^\d٠-٩۰-۹]/g, '').slice(0, 14)
+    onChange('national_id', next)
+    setNidDup('')
+    if (kind !== 'passport' && next.replace(/\D/g, '').length === 14) void checkNid(next)
+    if (kind === 'passport' && next.length >= 4) void checkNid(next)
+  }
+
+  const checkNid = async (raw: string) => {
+    const val = raw.trim()
+    if (!val || val === '***') {
+      setNidDup('')
       return
     }
-    onChange('national_id', raw.replace(/[^\d٠-٩۰-۹]/g, '').slice(0, 14))
+    if (kind !== 'passport' && val.replace(/\D/g, '').length < 14 && val.length < 14) return
+    try {
+      const channel = entity === 'opponent' ? 'opponents:checkNationalId' : 'clients:checkNationalId'
+      const hit = await invoke<{ full_name?: string; client_number?: string } | null>(channel, {
+        national_id: val,
+        id_kind: kind
+      }, partyId)
+      if (hit?.full_name) {
+        const msg = t('clients.duplicateNationalId', { name: hit.full_name, code: hit.client_number || '' })
+        setNidDup(msg)
+        toast(msg, 'err')
+      } else setNidDup('')
+    } catch {
+      setNidDup('')
+    }
   }
 
   return (
@@ -101,11 +215,56 @@ export function PartyForm({ values, onChange, errors, partyId, entity = 'client'
             onUploaded={loadDocs}
           />
         ) : null}
+        {partyId && entity === 'client' && can('opponents.manage') ? (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={async () => {
+              try {
+                const r = await invoke<{ id: string; existed?: boolean }>('clients:copyToOpponent', partyId)
+                toast(r.existed ? t('clients.copiedExists') : t('clients.copied'))
+                setPage('opponentProfile', { id: r.id })
+              } catch (e) {
+                toast((e as Error).message, 'err')
+              }
+            }}
+          >
+            {t('clients.copyToOpponent')}
+          </Button>
+        ) : null}
+        {partyId && entity === 'opponent' && can('clients.create') ? (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={async () => {
+              try {
+                const r = await invoke<{ id: string; existed?: boolean }>('opponents:copyToClient', partyId)
+                toast(r.existed ? t('clients.copiedExists') : t('clients.copied'))
+                setPage('clientProfile', { id: r.id })
+              } catch (e) {
+                toast((e as Error).message, 'err')
+              }
+            }}
+          >
+            {t('clients.copyToClient')}
+          </Button>
+        ) : null}
       </div>
 
       <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
         <Fit label={t('fields.full_name')} ch={30} required error={errors?.full_name}>
-          <AutoFitInput maxCh={30} value={v('full_name')} onChange={(s) => onChange('full_name', s)} />
+          <NameSuggest
+            value={v('full_name')}
+            entity={entity}
+            excludeId={partyId}
+            onChange={(s, hit) => {
+              onChange('full_name', s)
+              if (hit?.national_id && hit.national_id !== '***') onChange('national_id', hit.national_id)
+            }}
+            onOpenExisting={(hit) => {
+              setPage(entity === 'opponent' ? 'opponentProfile' : 'clientProfile', { id: hit.id })
+            }}
+          />
         </Fit>
         <Fit label={t('fields.nickname')} ch={20} error={errors?.nickname}>
           <AutoFitInput maxCh={20} value={v('nickname')} onChange={(s) => onChange('nickname', s)} />
@@ -120,7 +279,7 @@ export function PartyForm({ values, onChange, errors, partyId, entity = 'client'
           label={kind === 'passport' ? t('fields.passport') : t('fields.national_id')}
           ch={kind === 'passport' ? 22 : 24}
           grow
-          error={errors?.national_id}
+          error={errors?.national_id || nidDup}
         >
           <Input
             dir="ltr"
@@ -128,6 +287,7 @@ export function PartyForm({ values, onChange, errors, partyId, entity = 'client'
             maxLength={kind === 'passport' ? 20 : 14}
             value={v('national_id')}
             onChange={(e) => onIdChange(e.target.value)}
+            onBlur={(e) => void checkNid(e.target.value)}
           />
         </Fit>
         {kind === 'passport' ? (
@@ -200,7 +360,12 @@ export function PartyForm({ values, onChange, errors, partyId, entity = 'client'
       {entity === 'client' ? (
         <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
           <Fit label={t('fields.profession')} ch={16}>
-            <LookupCombo kind="profession" value={v('profession')} onChange={(s) => onChange('profession', s)} />
+            <LookupCombo
+              kind="profession"
+              value={v('profession')}
+              onChange={(s) => onChange('profession', s)}
+              placeholder={t('lookups.typeOrChoose')}
+            />
           </Fit>
           <Fit label={t('fields.commercial_register')} ch={18} error={errors?.commercial_register}>
             <Input dir="ltr" value={v('commercial_register')} onChange={(e) => onChange('commercial_register', e.target.value)} />

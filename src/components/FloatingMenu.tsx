@@ -20,43 +20,23 @@ export function FloatingMenu({
   minWidth?: number
 }) {
   const menuRef = useRef<HTMLDivElement>(null)
-  const [pos, setPos] = useState({ top: 0, left: 0, width: minWidth, absolute: false })
-
-  const dialog =
-    open && typeof document !== 'undefined'
-      ? (anchor.current?.closest('[role="dialog"]') as HTMLElement | null)
-      : null
+  const [pos, setPos] = useState({ top: 0, left: 0, width: minWidth, maxH: 240 })
 
   useLayoutEffect(() => {
     if (!open || !anchor.current) return
-    const host = anchor.current.closest('[role="dialog"]') as HTMLElement | null
     const place = (e?: Event) => {
       if (!anchor.current) return
       if (e && eventHits(e, menuRef.current)) return
       const r = anchor.current.getBoundingClientRect()
       const width = Math.max(r.width, minWidth)
-      const box = host?.getBoundingClientRect()
-      if (host && box) {
-        let left = r.left - box.left
-        let top = r.bottom - box.top + 4
-        if (left + width > box.width - 8) left = Math.max(8, box.width - width - 8)
-        if (top + 160 > box.height && r.top - box.top > 160) top = r.top - box.top - 160
-        setPos((prev) =>
-          prev.top === top && prev.left === left && prev.width === width && prev.absolute
-            ? prev
-            : { top, left, width, absolute: true }
-        )
-        return
-      }
       let left = r.left
       if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - width - 8)
-      let top = r.bottom + 4
-      const estH = 240
-      if (top + estH > window.innerHeight && r.top > estH) top = Math.max(8, r.top - estH - 4)
+      const top = r.bottom + 4
+      const maxH = Math.max(96, Math.min(280, window.innerHeight - top - 8))
       setPos((prev) =>
-        prev.top === top && prev.left === left && prev.width === width && !prev.absolute
+        prev.top === top && prev.left === left && prev.width === width && prev.maxH === maxH
           ? prev
-          : { top, left, width, absolute: false }
+          : { top, left, width, maxH }
       )
     }
     place()
@@ -73,7 +53,7 @@ export function FloatingMenu({
     if (!open || !el) return
     el.removeAttribute('inert')
     el.style.pointerEvents = 'auto'
-  }, [open, pos, dialog])
+  }, [open, pos])
 
   useEffect(() => {
     if (!open) return
@@ -86,22 +66,23 @@ export function FloatingMenu({
   }, [open, onClose, anchor])
 
   if (!open) return null
-  const node = (
+  return createPortal(
     <div
       ref={menuRef}
       data-floating-menu="true"
-      className="z-[400] rounded-md border border-navy-200 bg-white p-1 shadow-xl dark:border-navy-700 dark:bg-navy-900"
+      className="z-[400] overflow-auto rounded-md border border-navy-200 bg-white p-1 shadow-xl dark:border-navy-700 dark:bg-navy-900"
       style={{
-        position: pos.absolute ? 'absolute' : 'fixed',
+        position: 'fixed',
         top: pos.top,
         left: pos.left,
         width: pos.width,
+        maxHeight: pos.maxH,
         pointerEvents: 'auto'
       }}
       onPointerDown={(e) => e.stopPropagation()}
     >
       {children}
-    </div>
+    </div>,
+    document.body
   )
-  return createPortal(node, dialog || document.body)
 }

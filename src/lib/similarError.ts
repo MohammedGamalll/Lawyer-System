@@ -17,6 +17,7 @@ export function similarFromError(err: unknown): SimilarHit | null {
     }
   }
   const msg = err instanceof Error ? err.message : String(err || '')
+  if (msg.includes('الرقم القومي') || msg.includes('national_id') || fe?.national_id) return null
   const m = msg.match(/«([^»]+)»\s*\(كود\s*([^)]+)\)/)
   if (m) return { id: '', client_number: m[2], full_name: m[1] }
   if (msg.includes('هذا الاسم مسجل بالفعل') || msg.includes('هذا العميل مسجل من قبل')) {

@@ -132,7 +132,9 @@ label {
 .data-table-wrap th,
 .data-table-wrap td {
   white-space: nowrap;
-  overflow: visible;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
   overflow-wrap: normal;
   word-break: normal;
   vertical-align: middle;

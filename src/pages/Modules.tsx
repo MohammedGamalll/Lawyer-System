@@ -127,7 +127,6 @@ export function CasesPage() {
       deletePerm="cases.delete"
       schema={caseSchema}
       hideQuickSearch
-      pageSize={200}
       listFilters={applied}
       extraFilters={
         <div className="flex w-full flex-wrap items-end gap-2">
@@ -283,7 +282,6 @@ export function LawyersPage() {
       listChannel="lawyers:list"
       removeChannel="lawyers:remove"
       deletePerm="users.manage"
-      pageSize={200}
       extraActions={
         can('users.manage') ? (
         <Button variant="gold" onClick={() => setPage('staffForm', { lockRole: 'lawyer', back: 'lawyers' })}>
@@ -294,7 +292,8 @@ export function LawyersPage() {
       columns={[
         { key: 'full_name', label: t('fields.full_name') },
         { key: 'bar_number', label: t('fields.bar_number') },
-        { key: 'specialization', label: t('fields.specialization') },
+        { key: 'bar_degree', label: t('fields.bar_degree') },
+        { key: 'duties', label: t('fields.duties') },
         { key: 'phone', label: t('fields.phone') },
         { key: 'status', label: t('fields.status'), status: true }
       ]}

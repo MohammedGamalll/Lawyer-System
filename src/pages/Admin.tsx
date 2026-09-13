@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { invoke } from '../lib/api'
 import { useApp } from '../store'
-import { Button, Card, Field, Input, PageHeader, Select } from '../components/ui'
+import { Button, Card, Field, Input, PageHeader, Select, ConfirmBar, UiTabs } from '../components/ui'
 import { DatePicker } from '../components/DateTimePicker'
 import { LookupCombo } from '../components/LookupCombo'
 import { CrudPage } from '../components/CrudPage'
@@ -192,17 +192,108 @@ export function ArchivePage() {
   )
 }
 
+const PERM_MODULE_ORDER = [
+  'clients',
+  'opponents',
+  'cases',
+  'hearings',
+  'documents',
+  'poa',
+  'contracts',
+  'calendar',
+  'tasks',
+  'reminders',
+  'appointments',
+  'consultations',
+  'correspondence',
+  'accounts',
+  'cashbox',
+  'invoices',
+  'reports',
+  'lawyers',
+  'employees',
+  'users',
+  'settings',
+  'archive',
+  'audit',
+  'backup'
+]
+
+function PermissionGroups({
+  all,
+  selected,
+  setSelected
+}: {
+  all: { code: string; name_ar: string; name_en?: string; module?: string }[]
+  selected: string[]
+  setSelected: (v: string[]) => void
+}) {
+  const { t, i18n } = useTranslation()
+  const groups = new Map<string, typeof all>()
+  for (const p of all) {
+    const m = p.module || p.code.split('.')[0]
+    const list = groups.get(m) || []
+    list.push(p)
+    groups.set(m, list)
+  }
+  const order = [...PERM_MODULE_ORDER, ...[...groups.keys()].filter((k) => !PERM_MODULE_ORDER.includes(k))]
+  return (
+    <div className="grid gap-3 md:grid-cols-2">
+      {order.map((mod) => {
+        const items = groups.get(mod)
+        if (!items?.length) return null
+        const codes = items.map((p) => p.code)
+        const allOn = codes.every((c) => selected.includes(c))
+        return (
+          <div key={mod} className="rounded-lg border border-navy-100 p-3 dark:border-navy-800">
+            <label className="mb-2 flex items-center justify-between gap-2 font-bold">
+              <span>{t(`users.module.${mod}`, { defaultValue: mod })}</span>
+              <span className="flex items-center gap-1 text-xs font-normal">
+                <input
+                  type="checkbox"
+                  checked={allOn}
+                  onChange={(e) => {
+                    if (e.target.checked) setSelected([...new Set([...selected, ...codes])])
+                    else setSelected(selected.filter((c) => !codes.includes(c)))
+                  }}
+                />
+                {t('users.selectAll')}
+              </span>
+            </label>
+            <div className="space-y-1">
+              {items.map((p) => (
+                <label key={p.code} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(p.code)}
+                    onChange={(e) =>
+                      setSelected(e.target.checked ? [...selected, p.code] : selected.filter((c) => c !== p.code))
+                    }
+                  />
+                  {i18n.language === 'en' ? p.name_en || p.name_ar : p.name_ar}
+                </label>
+              ))}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export function UsersPage() {
   const { t } = useTranslation()
   const { toast, setPage, refreshMe } = useApp()
   const [permOpen, setPermOpen] = useState<{ id: string; username: string; full_name: string } | null>(null)
-  const [all, setAll] = useState<{ code: string; name_ar: string }[]>([])
+  const [all, setAll] = useState<{ code: string; name_ar: string; name_en?: string; module?: string }[]>([])
   const [selected, setSelected] = useState<string[]>([])
 
   const openPerms = async (r: Record<string, unknown>) => {
     const id = String(r.id || '')
     const u = await invoke<{ permissions: string[] }>('users:get', id)
-    const cat = await invoke<{ permissions: { code: string; name_ar: string }[] }>('users:permissions')
+    const cat = await invoke<{
+      permissions: { code: string; name_ar: string; name_en?: string; module?: string }[]
+    }>('users:permissions')
     setAll(cat.permissions)
     setSelected(u.permissions)
     setPermOpen({ id, username: String(r.username || ''), full_name: String(r.full_name || '') })
@@ -216,7 +307,7 @@ export function UsersPage() {
         removeChannel="users:remove"
         deletePerm="users.manage"
         extraActions={
-          <Button variant="gold" onClick={() => setPage('staffForm', { hideType: true, back: 'users' })}>
+          <Button variant="gold" onClick={() => setPage('staffForm', { back: 'users' })}>
             {t('hr.addUser')}
           </Button>
         }
@@ -233,7 +324,6 @@ export function UsersPage() {
             userId: r.id,
             employeeId: r.employee_id,
             lawyerId: r.lawyer_id,
-            hideType: true,
             back: 'users'
           })
         }
@@ -242,7 +332,6 @@ export function UsersPage() {
             userId: r.id,
             employeeId: r.employee_id,
             lawyerId: r.lawyer_id,
-            hideType: true,
             back: 'users'
           })
         }
@@ -270,20 +359,7 @@ export function UsersPage() {
           <h3 className="mb-2 font-bold">
             {t('users.permsFor', { name: permOpen.full_name || permOpen.username, username: permOpen.username })}
           </h3>
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
-            {all.map((p) => (
-              <label key={p.code} className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={selected.includes(p.code)}
-                  onChange={(e) =>
-                    setSelected(e.target.checked ? [...selected, p.code] : selected.filter((c) => c !== p.code))
-                  }
-                />
-                {p.name_ar}
-              </label>
-            ))}
-          </div>
+          <PermissionGroups all={all} selected={selected} setSelected={setSelected} />
           <Button
             className="mt-3"
             onClick={async () => {
@@ -321,15 +397,136 @@ export function AuditPage() {
   )
 }
 
+function LookupKindEditor({ kind, title }: { kind: string; title: string }) {
+  const { t } = useTranslation()
+  const { toast } = useApp()
+  const [rows, setRows] = useState<{ value: string }[]>([])
+  const [val, setVal] = useState('')
+  const [editFrom, setEditFrom] = useState<string | null>(null)
+  const [editVal, setEditVal] = useState('')
+  const [pendingDel, setPendingDel] = useState<string | null>(null)
+  const load = () =>
+    invoke<{ value: string }[]>('lookups:list', kind)
+      .then(setRows)
+      .catch((e) => toast((e as Error).message, 'err'))
+  useEffect(() => {
+    load()
+  }, [kind])
+  return (
+    <Card>
+      <h3 className="mb-3 font-bold">{title}</h3>
+      <div className="flex max-w-xl gap-2">
+        <Input value={val} onChange={(e) => setVal(e.target.value)} />
+        <Button
+          onClick={async () => {
+            if (!val.trim()) return
+            try {
+              await invoke('lookups:remember', kind, val.trim())
+              setVal('')
+              await load()
+            } catch (e) {
+              toast((e as Error).message, 'err')
+            }
+          }}
+        >
+          {t('add')}
+        </Button>
+      </div>
+      <ul className="mt-2 max-w-xl space-y-1 text-sm">
+        {rows.map((x) => (
+          <li key={x.value} className="space-y-1">
+            <div className="flex items-center justify-between gap-2">
+            {editFrom === x.value ? (
+              <Input className="flex-1" value={editVal} onChange={(e) => setEditVal(e.target.value)} />
+            ) : (
+              <span className="min-w-0 flex-1 truncate">{x.value}</span>
+            )}
+            <span className="flex shrink-0 gap-1">
+              {editFrom === x.value ? (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        await invoke('lookups:update', kind, x.value, editVal.trim())
+                        setEditFrom(null)
+                        await load()
+                      } catch (e) {
+                        toast((e as Error).message, 'err')
+                      }
+                    }}
+                  >
+                    {t('save')}
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setEditFrom(null)}>
+                    {t('cancel')}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setPendingDel(null)
+                      setEditFrom(x.value)
+                      setEditVal(x.value)
+                    }}
+                  >
+                    {t('edit')}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setEditFrom(null)
+                      setPendingDel(x.value)
+                    }}
+                  >
+                    {t('delete')}
+                  </Button>
+                </>
+              )}
+            </span>
+            </div>
+            {pendingDel === x.value ? (
+              <div className="rounded border border-red-200 bg-red-50 px-3 py-2 dark:border-red-900 dark:bg-red-950/40">
+                <p className="text-sm">{t('lookups.confirmRemove', { value: x.value })}</p>
+                <ConfirmBar
+                  onCancel={() => setPendingDel(null)}
+                  onConfirm={async () => {
+                    try {
+                      await invoke('lookups:remove', kind, x.value)
+                      setPendingDel(null)
+                      await load()
+                    } catch (e) {
+                      toast((e as Error).message, 'err')
+                    }
+                  }}
+                />
+              </div>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </Card>
+  )
+}
+
 export function SettingsPage() {
   const { t } = useTranslation()
-  const { toast, setUser, user, can } = useApp()
+  const { toast, can, setPage } = useApp()
   const [s, setS] = useState<Record<string, string>>({})
   const [pw, setPw] = useState({ current: '', next: '' })
   const [types, setTypes] = useState<{ id: string; name_ar: string }[]>([])
   const [printers, setPrinters] = useState<{ name: string }[]>([])
   const [newType, setNewType] = useState('')
   const [wiping, setWiping] = useState(false)
+  const [editTypeId, setEditTypeId] = useState<string | null>(null)
+  const [editTypeVal, setEditTypeVal] = useState('')
+  const [delTypeId, setDelTypeId] = useState<string | null>(null)
+  const [wipeAsk, setWipeAsk] = useState(false)
 
   useEffect(() => {
     invoke<Record<string, string>>('settings:get').then(setS)
@@ -353,12 +550,25 @@ export function SettingsPage() {
       <PageHeader
         title={t('nav.settings')}
         actions={
-          can('settings.manage') ? (
-          <Button onClick={() => save().catch((e) => toast(e.message, 'err'))}>{t('save')}</Button>
-          ) : undefined
+          <span className="flex flex-wrap gap-2">
+            {can('users.manage') ? (
+              <Button variant="outline" onClick={() => setPage('users')}>
+                {t('nav.users')}
+              </Button>
+            ) : null}
+            {can('settings.manage') ? (
+              <Button onClick={() => save().catch((e) => toast(e.message, 'err'))}>{t('save')}</Button>
+            ) : null}
+          </span>
         }
       />
-      {can('settings.manage') && (
+      <UiTabs
+        tabs={[
+          {
+            id: 'office',
+            label: t('settings.tabOffice'),
+            body: can('settings.manage') ? (
+              <div className="space-y-4">
       <Card>
         <h3 className="mb-3 font-bold">{t('settings.office')}</h3>
         <div className="grid gap-3 md:grid-cols-2">
@@ -394,22 +604,8 @@ export function SettingsPage() {
           </Field>
         </div>
       </Card>
-      )}
-      {can('settings.manage') && (
-      <>
       <Card>
-        <h3 className="mb-3 font-bold">{t('settings.caseSequence')}</h3>
-        <p className="mb-2 text-sm text-navy-500">{t('settings.caseSequenceHint', { next: s.case_sequence_next || '—' })}</p>
-        <Field label={t('settings.caseSequenceCurrent')}>
-          <Input
-            type="number"
-            value={s.case_sequence_current || ''}
-            onChange={(e) => setS({ ...s, case_sequence_current: e.target.value })}
-          />
-        </Field>
-      </Card>
-      <Card>
-        <h3 className="mb-3">{t('settings.appearance')}</h3>
+        <h3 className="mb-3 font-bold">{t('settings.appearance')}</h3>
         <Field label={`${t('settings.fontSize')} (${clampFontSize(Number(s.ui_font_size || 16))}px)`}>
           <input
             type="range"
@@ -552,88 +748,134 @@ export function SettingsPage() {
           >
             {t('settings.checkUpdates')}
           </Button>
-          <Button
-            variant="outline"
-            onClick={async () => {
-              const r = await invoke<{ file: string }>('backup:create')
-              toast(r.file)
-            }}
-          >
-            {t('settings.backupNow')}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={async () => {
-              const r = await invoke<{ deleted: number }>('files:gc')
-              toast(String(r.deleted))
-            }}
-          >
-            {t('settings.gc')}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={async () => {
-              await invoke('demo:seed')
-              toast(t('savedOk'))
-            }}
-          >
-            {t('settings.demo')}
-          </Button>
-          <Button
-            variant="gold"
-            onClick={async () => {
-              const r = await invoke<{ canceled?: boolean }>('print:manual')
-              if (!r?.canceled) toast(t('savedOk'))
-            }}
-          >
-            {t('settings.downloadManual')}
-          </Button>
-          <Button
-            variant="danger"
-            disabled={wiping}
-            onClick={async () => {
-              if (!confirm(t('settings.wipeConfirm'))) return
-              setWiping(true)
-              try {
-                await wipeAllBusinessData()
-                toast(t('settings.wiped'))
-              } catch (e) {
-                toast((e as Error).message, 'err')
-              } finally {
-                setWiping(false)
-              }
-            }}
-          >
-            {wiping ? t('loading') : t('settings.wipeData')}
-          </Button>
         </div>
-        <p className="mt-2 text-xs text-navy-500">{t('settings.wipeDataHint')}</p>
+      </Card>
+              </div>
+            ) : (
+              <p className="text-sm text-navy-500">{t('forbidden')}</p>
+            )
+          },
+          {
+            id: 'lists',
+            label: t('settings.tabLists'),
+            body: can('settings.manage') ? (
+              <div className="space-y-4">
+      <Card>
+        <h3 className="mb-3 font-bold">{t('settings.caseSequence')}</h3>
+        <p className="mb-2 text-sm text-navy-500">{t('settings.caseSequenceHint', { next: s.case_sequence_next || '—' })}</p>
+        <Field label={t('settings.caseSequenceCurrent')}>
+          <Input
+            className="max-w-xs"
+            type="number"
+            value={s.case_sequence_current || ''}
+            onChange={(e) => setS({ ...s, case_sequence_current: e.target.value })}
+          />
+        </Field>
       </Card>
       <Card>
         <h3 className="mb-3 font-bold">{t('settings.caseTypes')}</h3>
-        <div className="flex gap-2">
+        <div className="flex max-w-xl gap-2">
           <Input value={newType} onChange={(e) => setNewType(e.target.value)} />
           <Button
             onClick={async () => {
-              await invoke('caseTypes:create', newType)
-              setTypes(await invoke('caseTypes:list'))
-              setNewType('')
+              try {
+                await invoke('caseTypes:create', newType)
+                setTypes(await invoke('caseTypes:list'))
+                setNewType('')
+              } catch (e) {
+                toast((e as Error).message, 'err')
+              }
             }}
           >
             {t('add')}
           </Button>
         </div>
-        <ul className="mt-2 columns-2 text-sm">
+        <ul className="mt-2 max-w-xl space-y-1 text-sm">
           {types.map((x) => (
-            <li key={x.id}>{x.name_ar}</li>
+            <li key={x.id} className="space-y-1">
+              <div className="flex items-center justify-between gap-2">
+              {editTypeId === x.id ? (
+                <Input className="flex-1" value={editTypeVal} onChange={(e) => setEditTypeVal(e.target.value)} />
+              ) : (
+                <span className="min-w-0 flex-1 truncate">{x.name_ar}</span>
+              )}
+              <span className="flex shrink-0 gap-1">
+                {editTypeId === x.id ? (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={async () => {
+                        try {
+                          await invoke('caseTypes:update', x.id, { name_ar: editTypeVal.trim(), name_en: editTypeVal.trim() })
+                          setEditTypeId(null)
+                          setTypes(await invoke('caseTypes:list'))
+                        } catch (e) {
+                          toast((e as Error).message, 'err')
+                        }
+                      }}
+                    >
+                      {t('save')}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setEditTypeId(null)}>
+                      {t('cancel')}
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setDelTypeId(null)
+                        setEditTypeId(x.id)
+                        setEditTypeVal(x.name_ar)
+                      }}
+                    >
+                      {t('edit')}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setDelTypeId(x.id)}>
+                      {t('delete')}
+                    </Button>
+                  </>
+                )}
+              </span>
+              </div>
+              {delTypeId === x.id ? (
+                <div className="rounded border border-red-200 bg-red-50 px-3 py-2 dark:border-red-900 dark:bg-red-950/40">
+                  <p className="text-sm">{t('confirmDelete')}</p>
+                  <ConfirmBar
+                    onCancel={() => setDelTypeId(null)}
+                    onConfirm={async () => {
+                      try {
+                        await invoke('caseTypes:remove', x.id)
+                        setDelTypeId(null)
+                        setTypes(await invoke('caseTypes:list'))
+                      } catch (e) {
+                        toast((e as Error).message, 'err')
+                      }
+                    }}
+                  />
+                </div>
+              ) : null}
+            </li>
           ))}
         </ul>
       </Card>
-      </>
-      )}
-      <Card>
+      <LookupKindEditor kind="case_subject" title={t('settings.caseSubjects')} />
+      <LookupKindEditor kind="court" title={t('settings.courts')} />
+              </div>
+            ) : (
+              <p className="text-sm text-navy-500">{t('forbidden')}</p>
+            )
+          },
+          {
+            id: 'account',
+            label: t('settings.tabAccount'),
+            body: (
+              <Card>
         <h3 className="mb-3 font-bold">{t('settings.password')}</h3>
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid max-w-xl gap-3 md:grid-cols-2">
           <Field label={t('currentPassword')}>
             <Input type="password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} />
           </Field>
@@ -650,18 +892,90 @@ export function SettingsPage() {
         >
           {t('changePassword')}
         </Button>
-        <Button
-          className="mt-2 mr-2"
-          variant="danger"
-          onClick={async () => {
-            await invoke('auth:logout')
-            setUser(null)
-          }}
-        >
-          {t('logout')} ({user?.username})
-        </Button>
-      </Card>
-      {can('backup.manage') && <BackupRestore />}
+              </Card>
+            )
+          },
+          {
+            id: 'backup',
+            label: t('settings.tabBackup'),
+            body: (
+              <div className="space-y-4">
+                {can('settings.manage') ? (
+                  <Card>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        onClick={async () => {
+                          const r = await invoke<{ file: string }>('backup:create')
+                          toast(r.file)
+                        }}
+                      >
+                        {t('settings.backupNow')}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={async () => {
+                          const r = await invoke<{ deleted: number }>('files:gc')
+                          toast(String(r.deleted))
+                        }}
+                      >
+                        {t('settings.gc')}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={async () => {
+                          await invoke('demo:seed')
+                          toast(t('savedOk'))
+                        }}
+                      >
+                        {t('settings.demo')}
+                      </Button>
+                      <Button
+                        variant="gold"
+                        onClick={async () => {
+                          const r = await invoke<{ canceled?: boolean }>('print:manual')
+                          if (!r?.canceled) toast(t('savedOk'))
+                        }}
+                      >
+                        {t('settings.downloadManual')}
+                      </Button>
+                      <Button
+                        variant="danger"
+                        disabled={wiping}
+                        onClick={() => setWipeAsk(true)}
+                      >
+                        {wiping ? t('loading') : t('settings.wipeData')}
+                      </Button>
+                    </div>
+                    {wipeAsk ? (
+                      <div className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 dark:border-red-900 dark:bg-red-950/40">
+                        <p className="text-sm">{t('settings.wipeConfirm')}</p>
+                        <ConfirmBar
+                          onCancel={() => setWipeAsk(false)}
+                          onConfirm={async () => {
+                            setWiping(true)
+                            try {
+                              await wipeAllBusinessData()
+                              setWipeAsk(false)
+                              toast(t('settings.wiped'))
+                            } catch (e) {
+                              toast((e as Error).message, 'err')
+                            } finally {
+                              setWiping(false)
+                            }
+                          }}
+                        />
+                      </div>
+                    ) : null}
+                    <p className="mt-2 text-xs text-navy-500">{t('settings.wipeDataHint')}</p>
+                  </Card>
+                ) : null}
+                {can('backup.manage') ? <BackupRestore /> : null}
+              </div>
+            )
+          }
+        ]}
+      />
     </div>
   )
 }

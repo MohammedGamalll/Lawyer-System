@@ -12,7 +12,7 @@ import { NAV_ICONS } from '../lib/navIcons'
 
 export function Layout({ children }: { children: ReactNode }) {
   const { t, i18n } = useTranslation()
-  const { page, setPage, goBack, navStack, user, can, theme, setTheme } = useApp()
+  const { page, setPage, goBack, navStack, user, can, theme, setTheme, setUser } = useApp()
   const sync = useSyncStore()
   const [q, setQ] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
@@ -197,6 +197,19 @@ export function Layout({ children }: { children: ReactNode }) {
             {user?.username}
           </button>
           )}
+          <button
+            className="rounded-lg px-2 py-1 text-sm text-red-700 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/40"
+            onClick={async () => {
+              try {
+                await invoke('auth:logout')
+              } catch {
+                /* still sign out locally */
+              }
+              setUser(null)
+            }}
+          >
+            {t('logout')}
+          </button>
         </header>
         <main className="relative flex-1 overflow-auto bg-[#f4f1eb] p-5 text-navy-900 dark:bg-[#07111c] dark:text-navy-50">
           {searchOpen && (

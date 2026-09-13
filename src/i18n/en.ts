@@ -37,6 +37,7 @@ const en = {
   prev: 'Previous',
   of: 'of',
   page: 'Page',
+  rowsPerPage: 'Rows',
   print: 'Print',
   printListCapped: 'Printed first {{count}} rows',
   printVenueSheet: 'Venue work sheet',
@@ -244,14 +245,16 @@ const en = {
     noClientDocs: 'No documents yet. You can upload the ID or power of attorney here.',
     attach: 'Attach document',
     catId: 'ID card',
+    catCard: 'Bar card',
     catPoa: 'Power of attorney',
     catPassport: 'Passport',
     catContract: 'Contract',
     catBirth: 'Birth certificate',
     saveFormat: 'Save format',
-    multiPageHint: 'Add front and back of an ID or several pages under the same document.',
+    multiPageHint: 'Use + to add more pages to the same document. The thumbnail shows the first page; double-click opens the full file.',
     addPages: 'Save document',
     catOther: 'Other',
+    page: 'Page',
     sides: 'Document sides',
     frontOnly: 'Front only',
     frontBack: 'Front and back',
@@ -270,7 +273,12 @@ const en = {
     printBlank: 'Print blank form',
     attachId: 'Attach national ID',
     attachPoa: 'Attach power of attorney',
-    addAddress: 'Add address'
+    addAddress: 'Add address',
+    duplicateNationalId: 'This national ID is already used by “{{name}}” (code {{code}})',
+    copyToOpponent: 'Move to opponents',
+    copyToClient: 'Move to clients',
+    copied: 'Moved to the other list and removed from this one',
+    copiedExists: 'Already in the other list; removed from this one'
   },
   party: {
     rating: 'Dealings rating',
@@ -308,7 +316,12 @@ const en = {
     staffType: 'Staff type',
     addStaff: 'Add employee',
     addLawyer: 'Add lawyer',
-    addUser: 'Add user'
+    addUser: 'Add user',
+    barGeneral: 'General roll',
+    barFirst: 'First instance',
+    barAppeal: 'Appeal',
+    barCassation: 'Cassation',
+    attachAfterSave: 'Save the lawyer first, then attach documents.'
   },
   searchPage: {
     title: 'Advanced search',
@@ -324,7 +337,8 @@ const en = {
     legacyHint: 'Name or number from old data'
   },
   lookups: {
-    confirmRemove: 'Remove “{{value}}” from the quick list?'
+    confirmRemove: 'Remove “{{value}}” from the quick list?',
+    typeOrChoose: 'Type or choose'
   },
   fields: {
     full_name: 'Full name',
@@ -420,6 +434,8 @@ const en = {
     remind_at: 'Date and time',
     notify_before_minutes: 'Notify before',
     bar_number: 'Bar number',
+    bar_degree: 'Bar grade',
+    duties: 'Duties',
     specialization: 'Specialization',
     hire_date: 'Hire date',
     job_title: 'Job title',
@@ -502,8 +518,14 @@ const en = {
   },
   settings: {
     office: 'Office details',
+    tabOffice: 'Office and appearance',
+    tabLists: 'Quick lists',
+    tabAccount: 'Account',
+    tabBackup: 'Backup',
     printing: 'Printing and updates',
     caseTypes: 'Case types',
+    caseSubjects: 'Case subjects',
+    courts: 'Court names',
     password: 'Change password',
     backup: 'Restore backup',
     language: 'Language',
@@ -568,7 +590,34 @@ const en = {
     savePerms: 'Save permissions',
     newPasswordPrompt: 'Enter the new password (at least 6 characters)',
     passwordRequired: 'Password is required when creating a user (at least 6 characters)',
-    passwordHint: 'Leave empty when editing to keep the current password'
+    passwordHint: 'Leave empty when editing to keep the current password',
+    selectAll: 'Select all',
+    module: {
+      clients: 'Clients',
+      opponents: 'Opponents',
+      cases: 'Cases',
+      hearings: 'Hearings',
+      documents: 'Documents',
+      poa: 'Power of attorney',
+      contracts: 'Contracts',
+      calendar: 'Calendar',
+      tasks: 'Tasks',
+      reminders: 'Reminders',
+      appointments: 'Appointments',
+      consultations: 'Consultations',
+      correspondence: 'Correspondence',
+      accounts: 'Accounts',
+      cashbox: 'Cashbox',
+      invoices: 'Invoices',
+      reports: 'Reports',
+      lawyers: 'Lawyers',
+      employees: 'Employees',
+      users: 'Users',
+      settings: 'Settings',
+      archive: 'Archive',
+      audit: 'Audit log',
+      backup: 'Backup'
+    }
   },
   finance: {
     payments: 'Income / payments',

@@ -6,6 +6,7 @@ import { useApp } from '../store'
 import { Button, Card, Field, Input, MiniTable, PageHeader, Select, Textarea, UiTabs } from '../components/ui'
 import { DatePicker, TimePicker } from '../components/DateTimePicker'
 import { toIsoDate } from '../lib/datetime'
+import { AttachDocumentControl, uploadPendingDocs, type PendingDoc } from '../components/DocumentTools'
 
 type Role = { id: string; code: string; name_ar: string; name_en?: string }
 
@@ -32,7 +33,14 @@ const emptyForm = (): Record<string, unknown> => ({
   license_no: '',
   qualification: '',
   bar_number: '',
+  bar_degree: '',
+  duties: '',
   specialization: '',
+  whatsapp: '',
+  phone_home: '',
+  phone_other: '',
+  address: '',
+  rating: '',
   username: '',
   password: '',
   role_id: '',
@@ -51,18 +59,18 @@ export function StaffFormPage() {
   const canEdit = can('users.manage') || can('employees.manage')
 
   const lockRole = String(pageMeta.lockRole || (page === 'lawyerProfile' ? 'lawyer' : ''))
-  const hideType = Boolean(pageMeta.hideType)
   const back = String(pageMeta.back || (page === 'lawyerProfile' ? 'lawyers' : page === 'users' ? 'users' : 'employees'))
   const employeeId = String(pageMeta.employeeId || (page === 'employeeProfile' ? pageMeta.id : '') || '')
   const lawyerId = String(pageMeta.lawyerId || (page === 'lawyerProfile' ? pageMeta.id : '') || '')
   const userId = String(pageMeta.userId || '')
   const isNew = !employeeId && !lawyerId && !userId
-  const staffKey = `${employeeId}-${lawyerId}-${userId}-${lockRole}-${hideType ? 1 : 0}`
+  const staffKey = `${employeeId}-${lawyerId}-${userId}-${lockRole}`
 
   const [roles, setRoles] = useState<Role[]>([])
   const [form, setForm] = useState<Record<string, unknown>>(emptyForm)
   const [photo, setPhoto] = useState('')
   const [pendingPhoto, setPendingPhoto] = useState<{ name: string; data: number[] } | null>(null)
+  const [staffDocs, setStaffDocs] = useState<{ id: string; title: string; category: string }[]>([])
   const [saving, setSaving] = useState(false)
   const [extra, setExtra] = useState<Record<string, unknown>>({})
   const [att, setAtt] = useState({
@@ -146,11 +154,18 @@ export function StaffFormPage() {
           notes: e.notes || l.notes || '',
           job_title: e.job_title || JOB_DEFAULTS[code] || '',
           department: e.department || '',
-          salary: e.salary ?? '',
+          salary: e.salary ?? l.salary ?? '',
           license_no: e.license_no || '',
           qualification: e.qualification || '',
           bar_number: l.bar_number || '',
-          specialization: l.specialization || '',
+          bar_degree: l.bar_degree || '',
+          duties: l.duties || l.specialization || '',
+          specialization: l.duties || l.specialization || '',
+          whatsapp: e.whatsapp || l.whatsapp || '',
+          phone_home: e.phone_home || l.phone_home || '',
+          phone_other: e.phone_other || l.phone_other || '',
+          address: e.address || l.address || '',
+          rating: l.rating ?? '',
           username: a.username || '',
           password: '',
           role_id: a.role_id || '',
@@ -167,6 +182,23 @@ export function StaffFormPage() {
     }
   }, [staffKey])
 
+  useEffect(() => {
+    const lid = String(form.lawyer_id || '')
+    const eid = String(form.employee_id || '')
+    const filters = lid ? { lawyer_id: lid } : eid ? { employee_id: eid } : null
+    if (!filters) {
+      setStaffDocs([])
+      return
+    }
+    invoke<{ rows: { id: string; title: string; category: string }[] }>('documents:list', {
+      page: 1,
+      pageSize: 40,
+      filters
+    })
+      .then((r) => setStaffDocs(r.rows || []))
+      .catch(() => setStaffDocs([]))
+  }, [form.lawyer_id, form.employee_id])
+
   const save = async () => {
     if (!canEdit) return
     const parsed = staffSchema.safeParse({
@@ -175,7 +207,9 @@ export function StaffFormPage() {
       employee_id: form.employee_id ? String(form.employee_id) : undefined,
       user_id: form.user_id ? String(form.user_id) : undefined,
       lawyer_id: form.lawyer_id ? String(form.lawyer_id) : undefined,
-      salary: form.salary === '' || form.salary == null ? undefined : Number(form.salary)
+      salary: form.salary === '' || form.salary == null ? undefined : Number(form.salary),
+      rating: form.rating === '' || form.rating == null ? undefined : Number(form.rating),
+      duties: form.duties || form.specialization
     })
     if (!parsed.success) {
       toast(parsed.error.issues[0]?.message || t('error'), 'err')
@@ -184,6 +218,10 @@ export function StaffFormPage() {
     setSaving(true)
     try {
       const ids = await invoke<{ lawyer_id: string; user_id: string; employee_id: string }>('lawyers:saveStaff', parsed.data)
+      await uploadPendingDocs(
+        ids.lawyer_id ? { lawyer_id: ids.lawyer_id } : { employee_id: ids.employee_id },
+        form
+      )
       if (pendingPhoto) {
         const r = await invoke<{ photo_data: string }>(
           'employees:savePhoto',
@@ -199,7 +237,6 @@ export function StaffFormPage() {
         lawyerId: ids.lawyer_id,
         userId: ids.user_id,
         lockRole,
-        hideType,
         back
       })
     } catch (e) {
@@ -219,7 +256,7 @@ export function StaffFormPage() {
           isNew
             ? lockRole === 'lawyer'
               ? t('hr.addLawyer')
-              : hideType
+              : back === 'users'
                 ? t('hr.addUser')
                 : t('hr.addStaff')
             : `${t('hr.staffTitle')} — ${String(form.full_name || '')}`
@@ -240,8 +277,7 @@ export function StaffFormPage() {
       <p className="rounded-lg border border-navy-200 bg-navy-50 px-3 py-2 text-sm text-navy-800 dark:border-navy-700 dark:bg-navy-900 dark:text-white">
         {t('hr.staffHint')}
       </p>
-      {!hideType && (
-        <Card>
+      <Card>
           <Field label={t('hr.staffType')} required>
             <Select
               value={String(form.role_id || '')}
@@ -257,7 +293,6 @@ export function StaffFormPage() {
             </Select>
           </Field>
         </Card>
-      )}
       <div className="flex flex-wrap items-start gap-4">
         {photo ? (
           <img src={photo} alt="" className="h-32 w-32 rounded-xl object-cover ring-1 ring-navy-200 dark:ring-navy-600" />
@@ -321,10 +356,32 @@ export function StaffFormPage() {
           </Field>
           </div>
           <div style={{ width: '16ch' }} className="max-w-full">
+          <Field label={t('fields.whatsapp')}>
+            <Input dir="ltr" autoComplete="off" value={String(form.whatsapp ?? '')} onChange={(e) => setField('whatsapp', e.target.value)} />
+          </Field>
+          </div>
+          <div style={{ width: '16ch' }} className="max-w-full">
+          <Field label={t('fields.phone_home')}>
+            <Input dir="ltr" autoComplete="off" value={String(form.phone_home ?? '')} onChange={(e) => setField('phone_home', e.target.value)} />
+          </Field>
+          </div>
+          <div style={{ width: '16ch' }} className="max-w-full">
+          <Field label={t('fields.phone_other')}>
+            <Input dir="ltr" autoComplete="off" value={String(form.phone_other ?? '')} onChange={(e) => setField('phone_other', e.target.value)} />
+          </Field>
+          </div>
+          <div style={{ width: '28ch' }} className="max-w-full flex-1">
+          <Field label={t('fields.address')}>
+            <Input autoComplete="off" value={String(form.address ?? '')} onChange={(e) => setField('address', e.target.value)} />
+          </Field>
+          </div>
+          {roleCode !== 'lawyer' ? (
+          <div style={{ width: '16ch' }} className="max-w-full">
           <Field label={t('fields.department')}>
             <Input type="text" autoComplete="off" value={String(form.department ?? '')} onChange={(e) => setField('department', e.target.value)} />
           </Field>
           </div>
+          ) : null}
           <div style={{ width: '12ch' }} className="max-w-full">
           <Field label={t('fields.salary')}>
             <Input type="text" inputMode="decimal" autoComplete="off" value={String(form.salary ?? '')} onChange={(e) => setField('salary', e.target.value)} />
@@ -354,14 +411,85 @@ export function StaffFormPage() {
               <Input type="text" autoComplete="off" value={String(form.bar_number ?? '')} onChange={(e) => setField('bar_number', e.target.value)} />
             </Field>
             </div>
+            <div style={{ width: '18ch' }} className="max-w-full">
+            <Field label={t('fields.bar_degree')}>
+              <Select value={String(form.bar_degree || '')} onChange={(e) => setField('bar_degree', e.target.value)}>
+                <option value="">{t('pickFromList')}</option>
+                <option value="جدول عام">{t('hr.barGeneral')}</option>
+                <option value="ابتدائي">{t('hr.barFirst')}</option>
+                <option value="استئناف">{t('hr.barAppeal')}</option>
+                <option value="نقض">{t('hr.barCassation')}</option>
+              </Select>
+            </Field>
+            </div>
             <div style={{ width: '22ch' }} className="max-w-full">
-            <Field label={t('fields.specialization')}>
-              <Input type="text" autoComplete="off" value={String(form.specialization ?? '')} onChange={(e) => setField('specialization', e.target.value)} />
+            <Field label={t('fields.duties')}>
+              <Input type="text" autoComplete="off" value={String(form.duties ?? '')} onChange={(e) => setField('duties', e.target.value)} />
+            </Field>
+            </div>
+            <div className="max-w-full">
+            <Field label={t('party.rating')}>
+              <div className="flex h-10 items-center gap-1">
+                {[1, 2, 3, 4, 5].map((n) => {
+                  const current = Number(form.rating || 0)
+                  return (
+                    <button
+                      key={n}
+                      type="button"
+                      disabled={!canEdit}
+                      className={`text-lg ${n <= current ? 'text-gold-400' : 'text-navy-300'}`}
+                      onClick={() => canEdit && setField('rating', n === current ? '' : n)}
+                      aria-label={`${n}`}
+                    >
+                      ★
+                    </button>
+                  )
+                })}
+              </div>
             </Field>
             </div>
           </div>
+          {form.lawyer_id ? (
+            <div className="mt-3">
+              <AttachDocumentControl
+                docs={(form.__pending_docs as PendingDoc[]) || []}
+                onChange={(docs) => setField('__pending_docs', docs)}
+                existing={staffDocs}
+                owner={{ lawyer_id: String(form.lawyer_id) }}
+                onUploaded={() => {
+                  invoke<{ rows: { id: string; title: string; category: string }[] }>('documents:list', {
+                    page: 1,
+                    pageSize: 40,
+                    filters: { lawyer_id: String(form.lawyer_id) }
+                  }).then((r) => setStaffDocs(r.rows || []))
+                }}
+              />
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-navy-500">{t('hr.attachAfterSave')}</p>
+          )}
         </Card>
       )}
+      {roleCode !== 'lawyer' && form.employee_id ? (
+        <Card>
+          <h3 className="mb-3 font-bold">{t('docs.upload')}</h3>
+          <AttachDocumentControl
+            docs={(form.__pending_docs as PendingDoc[]) || []}
+            onChange={(docs) => setField('__pending_docs', docs)}
+            existing={staffDocs}
+            owner={{ employee_id: String(form.employee_id) }}
+            onUploaded={() => {
+              invoke<{ rows: { id: string; title: string; category: string }[] }>('documents:list', {
+                page: 1,
+                pageSize: 40,
+                filters: { employee_id: String(form.employee_id) }
+              }).then((r) => setStaffDocs(r.rows || []))
+            }}
+          />
+        </Card>
+      ) : roleCode !== 'lawyer' ? (
+        <p className="text-xs text-navy-500">{t('hr.attachAfterSave')}</p>
+      ) : null}
       {roleCode === 'accountant' && (
         <Card>
           <h3 className="mb-3 font-bold">{t('hr.accountantSection')}</h3>
@@ -392,20 +520,6 @@ export function StaffFormPage() {
             <Input type="password" autoComplete="new-password" value={String(form.password ?? '')} onChange={(e) => setField('password', e.target.value)} />
           </Field>
           </div>
-          {hideType && (
-            <div style={{ width: '18ch' }} className="max-w-full">
-            <Field label={t('hr.staffType')} required>
-              <Select value={String(form.role_id || '')} onChange={(e) => onTypeChange(e.target.value)}>
-                <option value="">{t('pickFromList')}</option>
-                {roleOptions.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {i18n.language === 'en' ? r.name_en || r.name_ar : r.name_ar}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            </div>
-          )}
           <div style={{ width: '12ch' }} className="max-w-full">
           <Field label={t('fields.is_active')}>
             <Select value={String(form.is_active ?? 1)} onChange={(e) => setField('is_active', Number(e.target.value))}>

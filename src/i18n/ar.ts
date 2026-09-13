@@ -37,6 +37,7 @@ const ar = {
   prev: 'السابق',
   of: 'من',
   page: 'صفحة',
+  rowsPerPage: 'عدد الصفوف',
   print: 'طباعة',
   printListCapped: 'تمت طباعة أول {{count}} سجل',
   printVenueSheet: 'شيت الجهة',
@@ -244,14 +245,16 @@ const ar = {
     noClientDocs: 'لا توجد مستندات بعد. يمكنك رفع صورة البطاقة أو التوكيل من هنا.',
     attach: 'إرفاق مستند',
     catId: 'بطاقة',
+    catCard: 'كارنيه',
     catPoa: 'توكيل',
     catPassport: 'جواز سفر',
     catContract: 'عقد',
     catBirth: 'شهادة ميلاد',
     saveFormat: 'صيغة الحفظ',
-    multiPageHint: 'يمكن إضافة وش وظهر البطاقة أو عدة صفحات تحت المستند نفسه.',
+    multiPageHint: 'اضغط + لإضافة صفحات إضافية لنفس المستند. المعاينة تعرض الصفحة الأولى، والنقر المزدوج يفتح المستند كاملاً.',
     addPages: 'حفظ المستند',
     catOther: 'أخرى',
+    page: 'صفحة',
     sides: 'أوجه المستند',
     frontOnly: 'وش فقط',
     frontBack: 'وش وظهر',
@@ -270,7 +273,11 @@ const ar = {
     printBlank: 'طباعة نموذج فارغ',
     attachId: 'إرفاق صورة البطاقة',
     attachPoa: 'إرفاق صورة التوكيل',
-    addAddress: 'عنوان إضافي'
+    duplicateNationalId: 'هذا الرقم القومي مسجل مسبقاً لـ «{{name}}» (كود {{code}})',
+    copyToOpponent: 'نقل إلى قائمة الخصوم',
+    copyToClient: 'نقل إلى قائمة الموكلين',
+    copied: 'تم النقل إلى القائمة الأخرى وإزالته من القائمة الأصلية',
+    copiedExists: 'كان مسجلاً في القائمة الأخرى؛ أُزيل من القائمة الأصلية',
   },
   party: {
     rating: 'تقييم التعامل',
@@ -308,7 +315,12 @@ const ar = {
     staffType: 'نوع الموظف',
     addStaff: 'إضافة موظف',
     addLawyer: 'إضافة محامٍ',
-    addUser: 'إضافة مستخدم'
+    addUser: 'إضافة مستخدم',
+    barGeneral: 'جدول عام',
+    barFirst: 'ابتدائي',
+    barAppeal: 'استئناف',
+    barCassation: 'نقض',
+    attachAfterSave: 'احفظ بيانات المحامي أولاً ثم أرفق المستندات.'
   },
   searchPage: {
     title: 'بحث متقدم',
@@ -324,7 +336,8 @@ const ar = {
     legacyHint: 'اسم أو رقم من البيانات القديمة'
   },
   lookups: {
-    confirmRemove: 'حذف «{{value}}» من القائمة السريعة؟'
+    confirmRemove: 'حذف «{{value}}» من القائمة السريعة؟',
+    typeOrChoose: 'اكتب أو اختر'
   },
   fields: {
     full_name: 'الاسم الكامل',
@@ -420,6 +433,8 @@ const ar = {
     remind_at: 'التاريخ والوقت',
     notify_before_minutes: 'التنبيه قبل',
     bar_number: 'رقم النقابة',
+    bar_degree: 'درجة القيد',
+    duties: 'الصلاحيات',
     specialization: 'التخصص',
     hire_date: 'تاريخ التعيين',
     job_title: 'الوظيفة',
@@ -502,8 +517,14 @@ const ar = {
   },
   settings: {
     office: 'بيانات المكتب',
+    tabOffice: 'المكتب والمظهر',
+    tabLists: 'القوائم السريعة',
+    tabAccount: 'الحساب',
+    tabBackup: 'النسخ الاحتياطي',
     printing: 'الطباعة والتحديثات',
     caseTypes: 'أنواع القضايا',
+    caseSubjects: 'موضوعات الدعوى',
+    courts: 'أسماء المحاكم',
     password: 'تغيير كلمة المرور',
     backup: 'استعادة نسخة احتياطية',
     language: 'اللغة',
@@ -568,7 +589,34 @@ const ar = {
     savePerms: 'حفظ الصلاحيات',
     newPasswordPrompt: 'أدخل كلمة المرور الجديدة (6 أحرف على الأقل)',
     passwordRequired: 'كلمة المرور مطلوبة عند إنشاء مستخدم جديد (6 أحرف على الأقل)',
-    passwordHint: 'عند التعديل اتركها فارغة للإبقاء على كلمة المرور الحالية'
+    passwordHint: 'عند التعديل اتركها فارغة للإبقاء على كلمة المرور الحالية',
+    selectAll: 'تحديد الكل',
+    module: {
+      clients: 'الموكلون',
+      opponents: 'الخصوم',
+      cases: 'القضايا',
+      hearings: 'الجلسات',
+      documents: 'المستندات',
+      poa: 'التوكيلات',
+      contracts: 'العقود',
+      calendar: 'التقويم',
+      tasks: 'المهام',
+      reminders: 'التذكيرات',
+      appointments: 'المواعيد',
+      consultations: 'الاستشارات',
+      correspondence: 'المراسلات',
+      accounts: 'الحسابات',
+      cashbox: 'الخزينة',
+      invoices: 'الفواتير',
+      reports: 'التقارير',
+      lawyers: 'المحامون',
+      employees: 'الموظفون',
+      users: 'المستخدمون',
+      settings: 'الإعدادات',
+      archive: 'الأرشيف',
+      audit: 'سجل العمليات',
+      backup: 'النسخ الاحتياطي'
+    }
   },
   finance: {
     payments: 'الإيرادات / الدفعات',

@@ -21,7 +21,8 @@ import {
   staffSchema,
   normalizeDigits
 } from '@shared/schemas'
-import { assertPersonIdentity } from './personIdentity'
+import { assertPersonIdentity, findDuplicateNationalId } from './personIdentity'
+import { createClient } from './clients'
 
 function photoDataUrl(filePath?: string | null) {
   if (!filePath || !fs.existsSync(filePath)) return null
@@ -75,9 +76,9 @@ export function listLawyers(q: ListQuery = {}) {
   const params: unknown[] = []
   let where = `WHERE ${notDeleted('l')}`
   if (q.search) {
-    where += ' AND (l.full_name LIKE ? OR l.bar_number LIKE ? OR l.specialization LIKE ? OR l.phone LIKE ?)'
+    where += ' AND (l.full_name LIKE ? OR l.bar_number LIKE ? OR l.specialization LIKE ? OR l.duties LIKE ? OR l.phone LIKE ?)'
     const s = `%${q.search}%`
-    params.push(s, s, s, s)
+    params.push(s, s, s, s, s)
   }
   const total = (db.prepare(`SELECT COUNT(*) as c FROM lawyers l ${where}`).get(...params) as { c: number }).c
   const rows = db
@@ -134,6 +135,28 @@ export function getLawyer(id: string) {
   return { lawyer, account, employee, cases, openCount: open.length, closedCount: closed.length, hearings, tasks }
 }
 
+function lawyerFieldValues(data: Record<string, unknown>, photoPath: unknown) {
+  const duties = data.duties ?? data.specialization ?? null
+  return [
+    data.bar_number ?? null,
+    duties,
+    data.phone ?? null,
+    data.email ?? null,
+    data.hire_date ?? null,
+    data.status ?? 'active',
+    data.notes ?? null,
+    data.whatsapp ?? null,
+    data.phone_home ?? null,
+    data.phone_other ?? null,
+    data.address ?? null,
+    data.salary ?? null,
+    data.rating ?? null,
+    data.bar_degree ?? null,
+    duties,
+    photoPath ?? null
+  ]
+}
+
 export function createLawyer(actor: AuthedUser, data: Record<string, unknown>) {
   data = parseSchema(lawyerSchema, data) as Record<string, unknown>
   if (!String(data.full_name ?? '').trim()) throw new Error('اسم المحامي مطلوب')
@@ -144,21 +167,15 @@ export function createLawyer(actor: AuthedUser, data: Record<string, unknown>) {
   ).m
   getDb()
     .prepare(
-      `INSERT INTO lawyers (id, user_id, full_name, photo_path, bar_number, specialization, phone, email, hire_date, status, notes, sort_order, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      `INSERT INTO lawyers (id, user_id, full_name, bar_number, specialization, phone, email, hire_date, status, notes,
+        whatsapp, phone_home, phone_other, address, salary, rating, bar_degree, duties, photo_path, sort_order, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     )
     .run(
       id,
       asIdOrNull(data.user_id),
       data.full_name,
-      data.photo_path ?? null,
-      data.bar_number ?? null,
-      data.specialization ?? null,
-      data.phone ?? null,
-      data.email ?? null,
-      data.hire_date ?? null,
-      data.status ?? 'active',
-      data.notes ?? null,
+      ...lawyerFieldValues(data, data.photo_path),
       maxOrd + 1,
       ts,
       ts
@@ -227,18 +244,12 @@ export function updateLawyer(actor: AuthedUser, id: string, data: Record<string,
     | undefined
   if (!old) throw new Error('المحامي غير موجود')
   db.prepare(
-    `UPDATE lawyers SET user_id=?, full_name=?, photo_path=?, bar_number=?, specialization=?, phone=?, email=?, hire_date=?, status=?, notes=?, updated_at=? WHERE id=?`
+    `UPDATE lawyers SET user_id=?, full_name=?, bar_number=?, specialization=?, phone=?, email=?, hire_date=?, status=?, notes=?,
+      whatsapp=?, phone_home=?, phone_other=?, address=?, salary=?, rating=?, bar_degree=?, duties=?, photo_path=?, updated_at=? WHERE id=?`
   ).run(
     asIdOrNull(data.user_id) || old.user_id,
     data.full_name,
-    data.photo_path ?? old.photo_path,
-    data.bar_number ?? null,
-    data.specialization ?? null,
-    data.phone ?? null,
-    data.email ?? null,
-    data.hire_date ?? null,
-    data.status ?? 'active',
-    data.notes ?? null,
+    ...lawyerFieldValues(data, data.photo_path ?? old.photo_path),
     nowIso(),
     id
   )
@@ -346,18 +357,12 @@ export function saveStaff(actor: AuthedUser, data: Record<string, unknown>) {
       if (lawyerId) {
         const old = db.prepare(`SELECT photo_path FROM lawyers WHERE id = ?`).get(lawyerId) as { photo_path: string | null }
         db.prepare(
-          `UPDATE lawyers SET user_id=?, full_name=?, photo_path=?, bar_number=?, specialization=?, phone=?, email=?, hire_date=?, status=?, notes=?, updated_at=? WHERE id=?`
+          `UPDATE lawyers SET user_id=?, full_name=?, bar_number=?, specialization=?, phone=?, email=?, hire_date=?, status=?, notes=?,
+            whatsapp=?, phone_home=?, phone_other=?, address=?, salary=?, rating=?, bar_degree=?, duties=?, photo_path=?, updated_at=? WHERE id=?`
         ).run(
           userId,
           fullName,
-          old.photo_path,
-          data.bar_number ?? null,
-          data.specialization ?? null,
-          data.phone ?? null,
-          data.email ?? null,
-          data.hire_date ?? null,
-          data.status ?? 'active',
-          data.notes ?? null,
+          ...lawyerFieldValues(data, old.photo_path),
           ts,
           lawyerId
         )
@@ -369,16 +374,25 @@ export function saveStaff(actor: AuthedUser, data: Record<string, unknown>) {
         if (other) {
           lawyerId = other.id
           db.prepare(
-            `UPDATE lawyers SET full_name=?, bar_number=?, specialization=?, phone=?, email=?, hire_date=?, status=?, notes=?, updated_at=? WHERE id=?`
+            `UPDATE lawyers SET full_name=?, bar_number=?, specialization=?, phone=?, email=?, hire_date=?, status=?, notes=?,
+              whatsapp=?, phone_home=?, phone_other=?, address=?, salary=?, rating=?, bar_degree=?, duties=?, updated_at=? WHERE id=?`
           ).run(
             fullName,
             data.bar_number ?? null,
-            data.specialization ?? null,
+            data.duties ?? data.specialization ?? null,
             data.phone ?? null,
             data.email ?? null,
             data.hire_date ?? null,
             data.status ?? 'active',
             data.notes ?? null,
+            data.whatsapp ?? null,
+            data.phone_home ?? null,
+            data.phone_other ?? null,
+            data.address ?? null,
+            data.salary ?? null,
+            data.rating ?? null,
+            data.bar_degree ?? null,
+            data.duties ?? data.specialization ?? null,
             ts,
             lawyerId
           )
@@ -386,19 +400,28 @@ export function saveStaff(actor: AuthedUser, data: Record<string, unknown>) {
         } else {
           lawyerId = newId()
           db.prepare(
-            `INSERT INTO lawyers (id, user_id, full_name, photo_path, bar_number, specialization, phone, email, hire_date, status, notes, created_at, updated_at)
-               VALUES (?,?,?,NULL,?,?,?,?,?,?,?,?,?)`
+            `INSERT INTO lawyers (id, user_id, full_name, bar_number, specialization, phone, email, hire_date, status, notes,
+              whatsapp, phone_home, phone_other, address, salary, rating, bar_degree, duties, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
           ).run(
             lawyerId,
             userId,
             fullName,
             data.bar_number ?? null,
-            data.specialization ?? null,
+            data.duties ?? data.specialization ?? null,
             data.phone ?? null,
             data.email ?? null,
             data.hire_date ?? null,
             data.status ?? 'active',
             data.notes ?? null,
+            data.whatsapp ?? null,
+            data.phone_home ?? null,
+            data.phone_other ?? null,
+            data.address ?? null,
+            data.salary ?? null,
+            data.rating ?? null,
+            data.bar_degree ?? null,
+            data.duties ?? data.specialization ?? null,
             ts,
             ts
           )
@@ -414,7 +437,8 @@ export function saveStaff(actor: AuthedUser, data: Record<string, unknown>) {
 
     if (employeeId) {
       db.prepare(
-        `UPDATE employees SET user_id=?, full_name=?, job_title=?, department=?, salary=?, hire_date=?, phone=?, email=?, status=?, notes=?, license_no=?, qualification=?, updated_at=? WHERE id=?`
+        `UPDATE employees SET user_id=?, full_name=?, job_title=?, department=?, salary=?, hire_date=?, phone=?, email=?, status=?, notes=?, license_no=?, qualification=?,
+          whatsapp=?, phone_home=?, phone_other=?, address=?, updated_at=? WHERE id=?`
       ).run(
         userId,
         fullName,
@@ -428,6 +452,10 @@ export function saveStaff(actor: AuthedUser, data: Record<string, unknown>) {
         data.notes ?? null,
         data.license_no ?? null,
         data.qualification ?? null,
+        data.whatsapp ?? null,
+        data.phone_home ?? null,
+        data.phone_other ?? null,
+        data.address ?? null,
         ts,
         employeeId
       )
@@ -439,7 +467,8 @@ export function saveStaff(actor: AuthedUser, data: Record<string, unknown>) {
       if (existing) {
         employeeId = existing.id
         db.prepare(
-          `UPDATE employees SET full_name=?, job_title=?, department=?, salary=?, hire_date=?, phone=?, email=?, status=?, notes=?, license_no=?, qualification=?, updated_at=? WHERE id=?`
+          `UPDATE employees SET full_name=?, job_title=?, department=?, salary=?, hire_date=?, phone=?, email=?, status=?, notes=?, license_no=?, qualification=?,
+            whatsapp=?, phone_home=?, phone_other=?, address=?, updated_at=? WHERE id=?`
         ).run(
           fullName,
           jobTitle,
@@ -452,6 +481,10 @@ export function saveStaff(actor: AuthedUser, data: Record<string, unknown>) {
           data.notes ?? null,
           data.license_no ?? null,
           data.qualification ?? null,
+          data.whatsapp ?? null,
+          data.phone_home ?? null,
+          data.phone_other ?? null,
+          data.address ?? null,
           ts,
           employeeId
         )
@@ -459,8 +492,9 @@ export function saveStaff(actor: AuthedUser, data: Record<string, unknown>) {
       } else {
         employeeId = newId()
         db.prepare(
-          `INSERT INTO employees (id, user_id, full_name, job_title, department, salary, hire_date, phone, email, status, notes, license_no, qualification, created_at, updated_at)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+          `INSERT INTO employees (id, user_id, full_name, job_title, department, salary, hire_date, phone, email, status, notes, license_no, qualification,
+            whatsapp, phone_home, phone_other, address, created_at, updated_at)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
         ).run(
           employeeId,
           userId,
@@ -475,6 +509,10 @@ export function saveStaff(actor: AuthedUser, data: Record<string, unknown>) {
           data.notes ?? null,
           data.license_no ?? null,
           data.qualification ?? null,
+          data.whatsapp ?? null,
+          data.phone_home ?? null,
+          data.phone_other ?? null,
+          data.address ?? null,
           ts,
           ts
         )
@@ -996,3 +1034,83 @@ export function addClientContact(
 export function removeClientContact(id: string) {
   softDelete('client_contacts', id)
 }
+
+function partyPayload(row: Record<string, unknown>) {
+  return {
+    full_name: row.full_name,
+    nickname: row.nickname,
+    national_id: row.national_id,
+    id_kind: row.id_kind || 'national_id',
+    passport_country: row.passport_country,
+    phone: row.phone,
+    phone2: row.phone2,
+    whatsapp: row.whatsapp,
+    phone_home: row.phone_home,
+    phone_work: row.phone_work,
+    email: row.email,
+    address: row.address,
+    address2: row.address2,
+    notes: row.notes,
+    poa_number: row.poa_number,
+    poa_year: row.poa_year,
+    poa_letter: row.poa_letter,
+    poa_office: row.poa_office,
+    rating: row.rating,
+    is_blacklisted: row.is_blacklisted,
+    blacklist_note: row.blacklist_note,
+    force_similar: true
+  }
+}
+
+export function checkOpponentNationalId(data: Record<string, unknown>, excludeId?: string) {
+  return findDuplicateNationalId('opponents', data, excludeId)
+}
+
+export function copyClientToOpponent(actor: AuthedUser, clientId: string) {
+  const db = getDb()
+  return db.transaction(() => {
+    const row = db.prepare(`SELECT * FROM clients WHERE id = ? AND ${notDeleted()}`).get(clientId) as
+      | Record<string, unknown>
+      | undefined
+    if (!row) throw new Error('العميل غير موجود')
+    const existing = findDuplicateNationalId('opponents', row)
+    const dest = existing
+      ? { id: existing.id, existed: true }
+      : { ...createOpponent(actor, partyPayload(row)), existed: false }
+    const contacts = db.prepare(`SELECT id FROM client_contacts WHERE client_id = ? AND ${notDeleted()}`).all(clientId) as {
+      id: string
+    }[]
+    for (const c of contacts) softDelete('client_contacts', c.id)
+    db.prepare(
+      `UPDATE documents SET opponent_id = COALESCE(opponent_id, ?), client_id = NULL, updated_at = ? WHERE client_id = ? AND ${notDeleted()}`
+    ).run(dest.id, nowIso(), clientId)
+    softDelete('clients', clientId)
+    audit(actor, 'update', 'clients', clientId, `تم نقل الموكل إلى قائمة الخصوم`)
+    return dest
+  })()
+}
+
+export function copyOpponentToClient(actor: AuthedUser, opponentId: string) {
+  const db = getDb()
+  return db.transaction(() => {
+    const row = db.prepare(`SELECT * FROM opponents WHERE id = ? AND ${notDeleted()}`).get(opponentId) as
+      | Record<string, unknown>
+      | undefined
+    if (!row) throw new Error('الخصم غير موجود')
+    const existing = findDuplicateNationalId('clients', row)
+    const dest = existing
+      ? { id: existing.id, existed: true }
+      : { ...createClient(actor, partyPayload(row)), existed: false }
+    const links = db.prepare(`SELECT id FROM case_opponents WHERE opponent_id = ? AND ${notDeleted()}`).all(opponentId) as {
+      id: string
+    }[]
+    for (const l of links) softDelete('case_opponents', l.id)
+    db.prepare(
+      `UPDATE documents SET client_id = COALESCE(client_id, ?), opponent_id = NULL, updated_at = ? WHERE opponent_id = ? AND ${notDeleted()}`
+    ).run(dest.id, nowIso(), opponentId)
+    softDelete('opponents', opponentId)
+    audit(actor, 'update', 'opponents', opponentId, `تم نقل الخصم إلى قائمة الموكلين`)
+    return dest
+  })()
+}
+

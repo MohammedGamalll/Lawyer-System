@@ -84,6 +84,39 @@ export function OpponentProfilePage() {
                 {t('edit')}
               </Button>
             )}
+            {can('clients.create') && (
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  try {
+                    const r = await invoke<{ id: string; existed?: boolean }>('opponents:copyToClient', id)
+                    toast(r.existed ? t('clients.copiedExists') : t('clients.copied'))
+                    useApp.getState().setPage('clientProfile', { id: r.id })
+                  } catch (e) {
+                    toast((e as Error).message, 'err')
+                  }
+                }}
+              >
+                {t('clients.copyToClient')}
+              </Button>
+            )}
+            {can('opponents.manage') && (
+              <Button
+                variant="danger"
+                onClick={async () => {
+                  if (!confirm(t('confirmDelete'))) return
+                  try {
+                    await invoke('opponents:remove', id)
+                    toast(t('deletedOk'))
+                    goBack()
+                  } catch (e) {
+                    toast((e as Error).message, 'err')
+                  }
+                }}
+              >
+                {t('delete')}
+              </Button>
+            )}
             <Button variant="outline" onClick={() => goBack()}>
               {t('back')}
             </Button>

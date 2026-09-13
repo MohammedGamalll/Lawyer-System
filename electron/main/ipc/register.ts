@@ -102,6 +102,12 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
   handle(ipc, IPC.clients.get, { permission: 'clients.view' }, (_e, user, id) => ok(clients.getClient(String(id), user)))
   handle(ipc, IPC.clients.profile, { permission: 'clients.view' }, (_e, user, id) => ok(clients.clientProfile(String(id), user)))
   handle(ipc, IPC.clients.search, { permission: 'clients.view' }, (_e, user, term) => ok(clients.searchClients(String(term), user)))
+  handle(ipc, IPC.clients.checkNationalId, { permission: 'clients.view' }, (_e, _u, data, excludeId) =>
+    ok(clients.checkClientNationalId(data as never, excludeId ? String(excludeId) : undefined))
+  )
+  handle(ipc, IPC.clients.copyToOpponent, { permission: ['clients.view', 'opponents.manage'], write: true }, (_e, user, id) =>
+    ok(people.copyClientToOpponent(user!, String(id)))
+  )
   handle(ipc, IPC.clients.create, { permission: 'clients.create', write: true }, (_e, user, data) => ok(clients.createClient(user!, data as never)))
   handle(ipc, IPC.clients.update, { permission: 'clients.update', write: true }, (_e, user, id, data) => ok(clients.updateClient(user!, String(id), data as never)))
   handle(ipc, IPC.clients.remove, { permission: 'clients.delete', write: true }, (_e, user, id) => {
@@ -231,6 +237,12 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
   })
   handle(ipc, IPC.opponents.linkCase, { permission: 'opponents.manage', write: true }, (_e, user, opponentId, caseId) =>
     ok(people.linkOpponentToCase(user!, String(opponentId), String(caseId)))
+  )
+  handle(ipc, IPC.opponents.checkNationalId, { permission: 'opponents.view' }, (_e, _u, data, excludeId) =>
+    ok(people.checkOpponentNationalId(data as never, excludeId ? String(excludeId) : undefined))
+  )
+  handle(ipc, IPC.opponents.copyToClient, { permission: ['opponents.view', 'clients.create'], write: true }, (_e, user, id) =>
+    ok(people.copyOpponentToClient(user!, String(id)))
   )
 
   handle(ipc, IPC.tasks.list, { permission: 'tasks.view' }, (_e, user, q) => ok(schedule.listTasks(q as never, user?.id)))
@@ -423,6 +435,10 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
   })
   handle(ipc, IPC.lookups.remove, { write: true }, (_e, _u, kind, value) => {
     lookups.removeLookup(String(kind), value)
+    return ok(true)
+  })
+  handle(ipc, IPC.lookups.update, { permission: 'settings.manage', write: true }, (_e, _u, kind, from, to) => {
+    lookups.updateLookup(String(kind), from, to)
     return ok(true)
   })
   handle(ipc, IPC.audit.list, { permission: 'audit.view' }, (_e, _u, q) => ok(reports.listAudit(q as never)))

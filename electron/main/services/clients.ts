@@ -10,7 +10,7 @@ import { clientSchema, parseSchema, normalizeDigits } from '@shared/schemas'
 import { rememberLookup } from './lookups'
 import { clampPageSize, pageKind, pickSort, sqlDir } from '../db/queryLimits'
 import { ftsQuery } from '../db/fts'
-import { assertPersonIdentity, normalizePersonName } from './personIdentity'
+import { assertPersonIdentity, findDuplicateNationalId, normalizePersonName } from './personIdentity'
 
 export { normalizePersonName }
 
@@ -76,6 +76,10 @@ export function searchClients(term: string, actor?: AuthedUser | null) {
     )
     .all(s, s, s, s, s, s, s)
   return maskClientRows(rows, actor)
+}
+
+export function checkClientNationalId(data: Record<string, unknown>, excludeId?: string) {
+  return findDuplicateNationalId('clients', data, excludeId)
 }
 
 export function getClient(id: string, actor?: AuthedUser | null) {

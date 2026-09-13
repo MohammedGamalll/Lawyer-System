@@ -14,12 +14,13 @@ export type PendingDoc = {
   category: string
   title: string
   save_format: 'jpeg' | 'pdf'
-  sides: 'front' | 'front_back'
+  sides?: 'front' | 'front_back'
   pages: PickedFile[]
 }
 
 export const DOC_CATEGORIES = [
   { id: 'id', key: 'docs.catId' },
+  { id: 'card', key: 'docs.catCard' },
   { id: 'poa', key: 'docs.catPoa' },
   { id: 'passport', key: 'docs.catPassport' },
   { id: 'contract', key: 'docs.catContract' },
@@ -294,6 +295,10 @@ export function DocumentThumb({
         type="button"
         className="flex min-w-0 items-center gap-2 text-start"
         onClick={onOpen}
+        onDoubleClick={(e) => {
+          e.preventDefault()
+          onOpen?.()
+        }}
         onContextMenu={(e) => {
           e.preventDefault()
           setMenu({ x: e.clientX, y: e.clientY })
@@ -369,7 +374,7 @@ function LocalFileThumb({
   const pdf = (file.mime || '').includes('pdf') || file.name.toLowerCase().endsWith('.pdf')
   return (
     <div className="flex items-center gap-2 rounded border border-navy-100 px-2 py-1 dark:border-navy-800">
-      <button type="button" className="flex min-w-0 items-center gap-2 text-start" onClick={onOpen}>
+      <button type="button" className="flex min-w-0 items-center gap-2 text-start" onClick={onOpen} onDoubleClick={onOpen}>
         {pdf ? (
           <span className="flex h-12 w-12 items-center justify-center rounded bg-navy-50 text-[10px] font-bold">PDF</span>
         ) : url ? (
@@ -390,7 +395,23 @@ function LocalFileThumb({
   )
 }
 
-function LocalPreviewModal({ file, title, onClose }: { file: PickedFile | null; title: string; onClose: () => void }) {
+function LocalPreviewModal({
+  file,
+  title,
+  onClose,
+  onPrev,
+  onNext,
+  canPrev,
+  canNext
+}: {
+  file: PickedFile | null
+  title: string
+  onClose: () => void
+  onPrev?: () => void
+  onNext?: () => void
+  canPrev?: boolean
+  canNext?: boolean
+}) {
   const { t } = useTranslation()
   const [url, setUrl] = useState<string | null>(null)
   useEffect(() => {
@@ -412,6 +433,16 @@ function LocalPreviewModal({ file, title, onClose }: { file: PickedFile | null; 
       ) : (
         <img src={url} alt={file.name} className="max-h-[70vh] w-full object-contain" />
       )}
+      {onPrev || onNext ? (
+        <div className="mt-3 flex justify-between">
+          <Button type="button" variant="outline" disabled={!canPrev} onClick={onPrev}>
+            {t('prev')}
+          </Button>
+          <Button type="button" variant="outline" disabled={!canNext} onClick={onNext}>
+            {t('next')}
+          </Button>
+        </div>
+      ) : null}
     </Modal>
   )
 }
@@ -426,7 +457,7 @@ export function AttachDocumentControl({
   docs: PendingDoc[]
   onChange: (docs: PendingDoc[]) => void
   existing?: { id?: string; title: string; category: string }[]
-  owner?: { client_id?: string; opponent_id?: string }
+  owner?: { client_id?: string; opponent_id?: string; lawyer_id?: string; employee_id?: string }
   onUploaded?: () => void
 }) {
   const { t } = useTranslation()
@@ -434,30 +465,26 @@ export function AttachDocumentControl({
   const [open, setOpen] = useState(false)
   const [category, setCategory] = useState('id')
   const [saveFormat, setSaveFormat] = useState<'jpeg' | 'pdf'>('jpeg')
-  const [sides, setSides] = useState<'front' | 'front_back'>('front_back')
-  const [front, setFront] = useState<PickedFile | null>(null)
-  const [back, setBack] = useState<PickedFile | null>(null)
+  const [pages, setPages] = useState<PickedFile[]>([])
   const [preview, setPreview] = useState<{ file: PickedFile; title: string } | null>(null)
+  const [previewPages, setPreviewPages] = useState<PickedFile[] | null>(null)
+  const [previewPage, setPreviewPage] = useState(0)
   const [savedPreview, setSavedPreview] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const catLabel = (id: string) => t(DOC_CATEGORIES.find((c) => c.id === id)?.key || 'docs.catId')
-  const hasOwner = Boolean(owner?.client_id || owner?.opponent_id)
+  const hasOwner = Boolean(owner?.client_id || owner?.opponent_id || owner?.lawyer_id || owner?.employee_id)
 
   const resetDraft = () => {
-    setFront(null)
-    setBack(null)
+    setPages([])
   }
 
   const commit = async () => {
-    if (!front) return
-    if (sides === 'front_back' && !back) return toast(t('docs.pickFirst'), 'err')
-    const pages = sides === 'front_back' && back ? [front, back] : [front]
+    if (!pages.length) return toast(t('docs.pickFirst'), 'err')
     const next: PendingDoc = {
       localId: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       category,
-      title: `${catLabel(category)} — ${sides === 'front_back' ? t('docs.frontBack') : t('docs.frontOnly')}`,
+      title: `${catLabel(category)}${pages.length > 1 ? ` — ${pages.length}` : ''}`,
       save_format: pages.length > 1 ? 'pdf' : saveFormat,
-      sides,
       pages
     }
     setBusy(true)
@@ -514,7 +541,6 @@ export function AttachDocumentControl({
                 onSelect={() => {
                   setCategory(c.id)
                   setSaveFormat(c.id === 'poa' || c.id === 'contract' ? 'pdf' : 'jpeg')
-                  setSides(c.id === 'id' || c.id === 'passport' ? 'front_back' : 'front')
                   resetDraft()
                   setOpen(true)
                 }}
@@ -533,6 +559,10 @@ export function AttachDocumentControl({
               type="button"
               className="rounded border border-navy-100 px-2 py-1 text-xs hover:bg-navy-50 dark:border-navy-800"
               onClick={() => d.pages[0] && setPreview({ file: d.pages[0], title: d.title })}
+              onDoubleClick={() => {
+                setPreviewPages(d.pages)
+                setPreviewPage(0)
+              }}
             >
               {d.title}
             </button>
@@ -556,73 +586,72 @@ export function AttachDocumentControl({
       ) : null}
       <Modal open={open} title={`${t('docs.attach')} — ${catLabel(category)}`} onClose={() => setOpen(false)} wide>
         <div className="space-y-3">
-          <Field label={t('docs.sides')}>
-            <Select
-              value={sides}
-              onChange={(e) => {
-                const v = e.target.value as 'front' | 'front_back'
-                setSides(v)
-                if (v === 'front') setBack(null)
-              }}
-            >
-              <option value="front">{t('docs.frontOnly')}</option>
-              <option value="front_back">{t('docs.frontBack')}</option>
-            </Select>
-          </Field>
+          <p className="text-xs text-navy-500">{t('docs.multiPageHint')}</p>
           <Field label={t('docs.saveFormat')}>
             <Select value={saveFormat} onChange={(e) => setSaveFormat(e.target.value as 'jpeg' | 'pdf')}>
               <option value="jpeg">JPEG</option>
               <option value="pdf">PDF</option>
             </Select>
           </Field>
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="space-y-2 rounded-lg border border-navy-100 p-2 dark:border-navy-800">
-              <div className="text-xs font-bold">{t('docs.front')}</div>
-              {front ? (
-                <LocalFileThumb
-                  file={front}
-                  label={t('docs.front')}
-                  onOpen={() => setPreview({ file: front, title: t('docs.front') })}
-                  onClear={() => setFront(null)}
-                />
-              ) : (
-                <UploadSourceMenu onFile={setFront} compact />
-              )}
+          <div className="flex flex-wrap gap-2">
+            {pages.map((p, i) => (
+              <LocalFileThumb
+                key={`${p.name}-${i}`}
+                file={p}
+                label={`${t('docs.page')} ${i + 1}`}
+                onOpen={() => {
+                  setPreviewPages(pages)
+                  setPreviewPage(i)
+                }}
+                onClear={() => setPages((prev) => prev.filter((_, idx) => idx !== i))}
+              />
+            ))}
+            <div className="flex min-h-[4.5rem] min-w-[8rem] flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-navy-200 p-2 dark:border-navy-700">
+              <span className="text-xs font-bold">+</span>
+              <UploadSourceMenu
+                compact
+                multiple
+                onFile={(file) => setPages((prev) => [...prev, file])}
+              />
             </div>
-            {sides === 'front_back' ? (
-              <div className="space-y-2 rounded-lg border border-navy-100 p-2 dark:border-navy-800">
-                <div className="text-xs font-bold">{t('docs.back')}</div>
-                {back ? (
-                  <LocalFileThumb
-                    file={back}
-                    label={t('docs.back')}
-                    onOpen={() => setPreview({ file: back, title: t('docs.back') })}
-                    onClear={() => setBack(null)}
-                  />
-                ) : (
-                  <UploadSourceMenu onFile={setBack} compact />
-                )}
-              </div>
-            ) : null}
           </div>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               {t('cancel')}
             </Button>
-            <Button type="button" disabled={busy || !front || (sides === 'front_back' && !back)} onClick={() => void commit()}>
+            <Button type="button" disabled={busy || !pages.length} onClick={() => void commit()}>
               {busy ? t('saving') : t('docs.addPages')}
             </Button>
           </div>
         </div>
       </Modal>
-      <LocalPreviewModal file={preview?.file || null} title={preview?.title || t('docs.preview')} onClose={() => setPreview(null)} />
+      <LocalPreviewModal
+        file={previewPages ? previewPages[previewPage] || null : preview?.file || null}
+        title={
+          previewPages
+            ? `${t('docs.page')} ${previewPage + 1} / ${previewPages.length}`
+            : preview?.title || t('docs.preview')
+        }
+        onClose={() => {
+          setPreview(null)
+          setPreviewPages(null)
+        }}
+        onPrev={previewPages && previewPages.length > 1 ? () => setPreviewPage((n) => Math.max(0, n - 1)) : undefined}
+        onNext={
+          previewPages && previewPages.length > 1
+            ? () => setPreviewPage((n) => Math.min(previewPages.length - 1, n + 1))
+            : undefined
+        }
+        canPrev={Boolean(previewPages && previewPage > 0)}
+        canNext={Boolean(previewPages && previewPage < previewPages.length - 1)}
+      />
       <DocumentPreviewModal id={savedPreview} onClose={() => setSavedPreview(null)} />
     </div>
   )
 }
 
 export async function uploadPendingDocs(
-  owner: { client_id?: string; opponent_id?: string },
+  owner: { client_id?: string; opponent_id?: string; lawyer_id?: string; employee_id?: string },
   form: Record<string, unknown>
 ) {
   const docs = (form.__pending_docs as PendingDoc[] | undefined) || []
@@ -652,10 +681,14 @@ export async function uploadPendingDocs(
 export function ClientDocumentUpload({
   clientId,
   opponentId,
+  lawyerId,
+  employeeId,
   onDone
 }: {
   clientId?: string
   opponentId?: string
+  lawyerId?: string
+  employeeId?: string
   onDone: () => void
 }) {
   const { can } = useApp()
@@ -665,7 +698,7 @@ export function ClientDocumentUpload({
     <AttachDocumentControl
       docs={docs}
       onChange={setDocs}
-      owner={{ client_id: clientId, opponent_id: opponentId }}
+      owner={{ client_id: clientId, opponent_id: opponentId, lawyer_id: lawyerId, employee_id: employeeId }}
       onUploaded={onDone}
     />
   )

@@ -87,6 +87,14 @@ export function listDocuments(query: ListQuery = {}) {
     where += ' AND d.opponent_id = ?'
     params.push(f.opponent_id)
   }
+  if (f.lawyer_id) {
+    where += ' AND d.lawyer_id = ?'
+    params.push(f.lawyer_id)
+  }
+  if (f.employee_id) {
+    where += ' AND d.employee_id = ?'
+    params.push(f.employee_id)
+  }
   const total = (db.prepare(`SELECT COUNT(*) as c FROM documents d ${where}`).get(...params) as { c: number }).c
   const rows = db
     .prepare(
@@ -141,14 +149,16 @@ export async function uploadDocument(
   }
 
   db.prepare(
-    `INSERT INTO documents (id, title, category, client_id, opponent_id, case_id, hearing_id, contract_id, file_path, file_name, mime_type, file_size, current_version, notes, created_by, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?)`
+    `INSERT INTO documents (id, title, category, client_id, opponent_id, lawyer_id, employee_id, case_id, hearing_id, contract_id, file_path, file_name, mime_type, file_size, current_version, notes, created_by, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?)`
   ).run(
     id,
     title,
     meta.category ?? 'other',
     asIdOrNull(meta.client_id),
     asIdOrNull(meta.opponent_id),
+    asIdOrNull(meta.lawyer_id),
+    asIdOrNull(meta.employee_id),
     asIdOrNull(meta.case_id),
     asIdOrNull(meta.hearing_id),
     asIdOrNull(meta.contract_id),

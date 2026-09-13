@@ -9,7 +9,8 @@ export class ApiError extends Error {
   }
 }
 
-const MUTATION = /:(create|update|remove|upload|delete|move|archive|restore|setPermissions|attendance|leave|linkCase|link|addContact|removeContact|rename|reorder)$/
+const MUTATION =
+  /:(create|update|remove|upload|delete|move|archive|restore|setPermissions|attendance|leave|linkCase|link|addContact|removeContact|rename|reorder|copyToOpponent|copyToClient)$/
 
 export async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
   let res: IpcResult<T>

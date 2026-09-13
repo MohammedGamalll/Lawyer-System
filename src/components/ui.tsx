@@ -191,10 +191,18 @@ export function PageHeader({ title, actions }: { title: string; actions?: React.
   )
 }
 
-export function ConfirmBar({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+export function ConfirmBar({
+  onConfirm,
+  onCancel,
+  className
+}: {
+  onConfirm: () => void
+  onCancel: () => void
+  className?: string
+}) {
   const { t } = useTranslation()
   return (
-    <div className="mt-4 flex justify-end gap-2">
+    <div className={cn('mt-2 flex justify-end gap-2', className)}>
       <Button variant="outline" onClick={onCancel}>
         {t('cancel')}
       </Button>
