@@ -1025,7 +1025,7 @@ export function CashboxPage() {
   useEffect(() => {
     load()
   }, [])
-  useEffect(() => onDataChanged(() => load()), [])
+  useEffect(() => onDataChanged(() => load(), ['cashbox', 'expenses', 'payments']), [])
   useEffect(() => {
     if (sel) invoke<{ rows: object[] }>('cashbox:transactions', sel).then(setTx)
   }, [sel])

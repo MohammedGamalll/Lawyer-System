@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ClipboardList, Gavel, Hammer, Printer, Wallet } from 'lucide-react'
+import { ClipboardList, Gavel, Hammer, Wallet } from 'lucide-react'
 import { invoke } from '../lib/api'
 import { useApp } from '../store'
 import { Button, Card, Field, InfoGrid, Input, MiniTable, Modal, PageHeader, Select, StatusBadge, UiTabs } from '../components/ui'
@@ -15,6 +15,7 @@ import { cleanPartyName } from '../lib/partyName'
 import { AndOthers } from '../components/AndOthers'
 import { caseSheetHtml } from '../components/VenuePrintBar'
 import { HearingsPage, TasksPage } from './WorkPages'
+import { PrintTemplatePicker } from '../components/PrintTemplatePicker'
 
 type CaseTab = 'hearings' | 'admin' | 'execution' | 'finance'
 
@@ -66,7 +67,7 @@ export function CaseProfilePage() {
   useEffect(() => {
     load().catch((e) => toast(e.message, 'err'))
   }, [id])
-  useEffect(() => onDataChanged(() => load().catch(() => undefined)), [id])
+  useEffect(() => onDataChanged(() => load().catch(() => undefined), ['cases', 'hearings', 'tasks', 'payments', 'documents']), [id])
   if (!row) return <div>{t('loading')}</div>
   const fees = (row.fees as Record<string, unknown>) || {}
   const payments = (row.payments as { amount?: number }[]) || []
@@ -167,17 +168,14 @@ export function CaseProfilePage() {
               {t('edit')}
             </Button>
           )}
-          <Button
-            variant="outline"
-            onClick={() =>
+          <PrintTemplatePicker
+            caseId={id}
+            fallback={() => {
               invoke('print:print', 'report', t('printCaseSheet'), caseSheetHtml(row, t)).catch((e) =>
                 toast((e as Error).message, 'err')
               )
-            }
-          >
-            <Printer className="me-1 inline h-4 w-4" />
-            {t('print')}
-          </Button>
+            }}
+          />
           <Button variant="outline" onClick={() => setPartiesOpen('clients')}>
             {t('caseFinance.parties')}
           </Button>

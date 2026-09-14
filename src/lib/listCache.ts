@@ -26,6 +26,12 @@ export function setListCache(key: string, data: unknown): void {
   }
 }
 
-export function invalidateListCache(): void {
-  cache.clear()
+export function invalidateListCache(scope?: string): void {
+  if (!scope || scope === '*') {
+    cache.clear()
+    return
+  }
+  for (const key of [...cache.keys()]) {
+    if (key.startsWith(`${scope}:`)) cache.delete(key)
+  }
 }

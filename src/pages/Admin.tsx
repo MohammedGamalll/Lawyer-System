@@ -8,6 +8,7 @@ import { LookupCombo } from '../components/LookupCombo'
 import { CrudPage } from '../components/CrudPage'
 import i18n from '../i18n'
 import { formatCell } from '../lib/datetime'
+import { PrintDesigner } from './PrintDesigner'
 import { wipeAllBusinessData } from '../lib/wipeData'
 import { applyFontSize, clampFontSize, FONT_SIZE_MAX, FONT_SIZE_MIN } from '../lib/uiPrefs'
 import { parseSourceOrder, serializeSourceOrder, type AttachSource } from '../lib/attachSources'
@@ -397,7 +398,7 @@ export function AuditPage() {
   )
 }
 
-function LookupKindEditor({ kind, title }: { kind: string; title: string }) {
+function LookupKindEditor({ kind, title, hint }: { kind: string; title: string; hint?: string }) {
   const { t } = useTranslation()
   const { toast } = useApp()
   const [rows, setRows] = useState<{ value: string }[]>([])
@@ -414,7 +415,8 @@ function LookupKindEditor({ kind, title }: { kind: string; title: string }) {
   }, [kind])
   return (
     <Card>
-      <h3 className="mb-3 font-bold">{title}</h3>
+      <h3 className="mb-1 font-bold">{title}</h3>
+      {hint ? <p className="mb-3 text-xs text-navy-500">{hint}</p> : null}
       <div className="flex max-w-xl gap-2">
         <Input value={val} onChange={(e) => setVal(e.target.value)} />
         <Button
@@ -760,6 +762,7 @@ export function SettingsPage() {
             label: t('settings.tabLists'),
             body: can('settings.manage') ? (
               <div className="space-y-4">
+      <p className="text-sm text-navy-600 dark:text-navy-300">{t('settings.listsSplitHint')}</p>
       <Card>
         <h3 className="mb-3 font-bold">{t('settings.caseSequence')}</h3>
         <p className="mb-2 text-sm text-navy-500">{t('settings.caseSequenceHint', { next: s.case_sequence_next || '—' })}</p>
@@ -773,7 +776,8 @@ export function SettingsPage() {
         </Field>
       </Card>
       <Card>
-        <h3 className="mb-3 font-bold">{t('settings.caseTypes')}</h3>
+        <h3 className="mb-1 font-bold">{t('settings.caseTypes')}</h3>
+        <p className="mb-3 text-xs text-navy-500">{t('settings.caseTypesHint')}</p>
         <div className="flex max-w-xl gap-2">
           <Input value={newType} onChange={(e) => setNewType(e.target.value)} />
           <Button
@@ -862,9 +866,19 @@ export function SettingsPage() {
           ))}
         </ul>
       </Card>
-      <LookupKindEditor kind="case_subject" title={t('settings.caseSubjects')} />
-      <LookupKindEditor kind="court" title={t('settings.courts')} />
+      <LookupKindEditor kind="case_subject" title={t('settings.caseSubjects')} hint={t('settings.caseSubjectsHint')} />
+      <LookupKindEditor kind="court" title={t('settings.courts')} hint={t('settings.courtsHint')} />
+      <LookupKindEditor kind="doc_category" title={t('settings.docCategories')} />
               </div>
+            ) : (
+              <p className="text-sm text-navy-500">{t('forbidden')}</p>
+            )
+          },
+          {
+            id: 'print',
+            label: t('settings.tabPrint'),
+            body: can('settings.manage') ? (
+              <PrintDesigner />
             ) : (
               <p className="text-sm text-navy-500">{t('forbidden')}</p>
             )

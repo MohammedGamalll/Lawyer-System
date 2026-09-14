@@ -8,7 +8,7 @@ import type { ListQuery } from '@shared/types'
 import { shouldMaskClientContact } from '@shared/permissions'
 import { clientSchema, parseSchema, normalizeDigits } from '@shared/schemas'
 import { rememberLookup } from './lookups'
-import { clampPageSize, pageKind, pickSort, sqlDir } from '../db/queryLimits'
+import { clampPageSize, pageKind, pickSort, sqlDir, includeIds } from '../db/queryLimits'
 import { ftsQuery } from '../db/fts'
 import { assertPersonIdentity, findDuplicateNationalId, normalizePersonName } from './personIdentity'
 
@@ -34,6 +34,8 @@ export function listClients(query: ListQuery = {}, actor?: AuthedUser | null) {
     where += ' AND c.client_type = ?'
     params.push(query.filters.client_type)
   }
+  const isLookup = pageKind(query) === 'lookup'
+  const pinIds = includeIds(query)
   const total = (db.prepare(`SELECT COUNT(*) as c FROM clients c ${where}`).get(...params) as { c: number }).c
   const order = pickSort(query.sortBy, {
     client_number: 'c.client_number',
@@ -44,22 +46,43 @@ export function listClients(query: ListQuery = {}, actor?: AuthedUser | null) {
     governorate: 'c.governorate'
   }, 'c.created_at DESC')
   const dir = query.sortBy ? ` ${sqlDir(query.sortDir)}` : ''
-  const rows = db
-    .prepare(
-      `SELECT c.id, c.client_number, c.full_name, c.nickname, c.national_id, c.phone, c.phone2, c.whatsapp, c.email,
-              c.profession, c.governorate, c.client_type, c.poa_number, c.rating, c.is_blacklisted, COALESCE(d.due, 0) as due
-       FROM clients c
-       LEFT JOIN (
+  const select = isLookup
+    ? `SELECT c.id, c.client_number, c.full_name, c.nickname, c.national_id, c.phone, c.client_type, 0 as due`
+    : `SELECT c.id, c.client_number, c.full_name, c.nickname, c.national_id, c.phone, c.phone2, c.whatsapp, c.email,
+              c.profession, c.governorate, c.client_type, c.poa_number, c.rating, c.is_blacklisted, COALESCE(d.due, 0) as due`
+  const joinDue = isLookup
+    ? ''
+    : `LEFT JOIN (
          SELECT cs.client_id as cid, SUM(cf.remaining) as due
          FROM case_fees cf
          JOIN cases cs ON cs.id = cf.case_id
          WHERE ${notDeleted('cf')} AND ${notDeleted('cs')}
          GROUP BY cs.client_id
-       ) d ON d.cid = c.id
+       ) d ON d.cid = c.id`
+  const rows = db
+    .prepare(
+      `${select}
+       FROM clients c
+       ${joinDue}
        ${where}
        ORDER BY ${order}${dir} LIMIT ? OFFSET ?`
     )
-    .all(...params, pageSize, (page - 1) * pageSize)
+    .all(...params, pageSize, (page - 1) * pageSize) as Record<string, unknown>[]
+  if (pinIds.length) {
+    const have = new Set(rows.map((r) => String(r.id)))
+    const missing = pinIds.filter((id) => !have.has(id))
+    if (missing.length) {
+      const extra = db
+        .prepare(
+          `${select}
+           FROM clients c
+           ${joinDue}
+           WHERE c.id IN (${missing.map(() => '?').join(',')}) AND ${notDeleted('c')}`
+        )
+        .all(...missing) as Record<string, unknown>[]
+      rows.unshift(...extra)
+    }
+  }
   return { rows: maskClientRows(rows, actor), total, page, pageSize }
 }
 

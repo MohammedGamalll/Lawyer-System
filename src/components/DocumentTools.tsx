@@ -6,6 +6,7 @@ import { invoke } from '../lib/api'
 import { useApp } from '../store'
 import { parseSourceOrder, type AttachSource } from '../lib/attachSources'
 import { Button, Field, Modal, Select } from './ui'
+import { LookupCombo } from './LookupCombo'
 
 export type PickedFile = { name: string; data: number[]; mime?: string }
 
@@ -171,28 +172,35 @@ function CameraCapture({
 export type PreviewItem =
   | { kind: 'image'; name: string; mime: string; dataUrl: string }
   | { kind: 'image_large'; name: string; mime: string }
-  | { kind: 'pdf'; name: string; data: number[] }
+  | { kind: 'pdf'; name: string }
   | { kind: 'other'; name: string }
 
 export type PreviewData = PreviewItem | { kind: 'multi'; name: string; pages: PreviewItem[] }
 
-function PreviewBody({ p }: { p: PreviewItem }) {
+function PreviewBody({ p, onOpenFile }: { p: PreviewItem; onOpenFile?: () => void }) {
   const { t } = useTranslation()
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
-  useEffect(() => {
-    if (p.kind !== 'pdf') {
-      setPdfUrl(null)
-      return
-    }
-    const url = URL.createObjectURL(new Blob([new Uint8Array(p.data)], { type: 'application/pdf' }))
-    setPdfUrl(url)
-    return () => URL.revokeObjectURL(url)
-  }, [p])
   if (p.kind === 'image') return <img src={p.dataUrl} alt={p.name} className="max-h-[70vh] w-full object-contain" />
-  if (p.kind === 'pdf' && pdfUrl) return <iframe title={p.name} src={pdfUrl} className="h-[70vh] w-full rounded border" />
+  if (p.kind === 'pdf') {
+    return (
+      <div className="space-y-3 py-8 text-center">
+        <p className="text-sm text-navy-600 dark:text-navy-200">{p.name}</p>
+        <p className="text-sm text-navy-500">{t('docs.pdfExternalHint')}</p>
+        {onOpenFile ? (
+          <Button type="button" onClick={onOpenFile}>
+            {t('docs.openExternal')}
+          </Button>
+        ) : null}
+      </div>
+    )
+  }
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 py-6 text-center">
       <p>{p.name}</p>
+      {onOpenFile ? (
+        <Button type="button" onClick={onOpenFile}>
+          {t('docs.openExternal')}
+        </Button>
+      ) : null}
     </div>
   )
 }
@@ -224,7 +232,16 @@ export function DocumentPreviewModal({
   }, [id])
 
   const items: PreviewItem[] = p ? (p.kind === 'multi' ? p.pages : [p]) : []
-  const current = items[page] || items[0]
+  const pageSafe = items.length ? Math.min(page, items.length - 1) : 0
+  const current = items[pageSafe]
+  const isPdfDoc = items.length > 0 && items.every((it) => it.kind === 'pdf' || it.kind === 'other')
+
+  useEffect(() => {
+    if (!id || !p || !isPdfDoc) return
+    invoke('documents:open', id)
+      .then(() => onClose())
+      .catch((e) => toast((e as Error).message, 'err'))
+  }, [id, p, isPdfDoc])
 
   return (
     <Modal open={!!id} title={t('docs.preview')} onClose={onClose} wide>
@@ -232,16 +249,19 @@ export function DocumentPreviewModal({
         <div>{t('loading')}</div>
       ) : (
         <div className="space-y-3">
-          <PreviewBody p={current} />
+          <PreviewBody
+            p={current}
+            onOpenFile={id ? () => invoke('documents:open', id).catch((e) => toast((e as Error).message, 'err')) : undefined}
+          />
           {items.length > 1 ? (
             <div className="flex items-center justify-between text-sm">
-              <Button type="button" variant="outline" disabled={page <= 0} onClick={() => setPage((n) => n - 1)}>
+              <Button type="button" variant="outline" disabled={pageSafe <= 0} onClick={() => setPage((n) => n - 1)}>
                 {t('prev')}
               </Button>
               <span>
-                {page + 1} / {items.length}
+                {pageSafe + 1} / {items.length}
               </span>
-              <Button type="button" variant="outline" disabled={page >= items.length - 1} onClick={() => setPage((n) => n + 1)}>
+              <Button type="button" variant="outline" disabled={pageSafe >= items.length - 1} onClick={() => setPage((n) => n + 1)}>
                 {t('next')}
               </Button>
             </div>
@@ -273,21 +293,14 @@ export function DocumentThumb({
   const [kind, setKind] = useState<string>('')
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   useEffect(() => {
-    let url: string | null = null
     invoke<PreviewData>('documents:preview', id)
       .then((p) => {
         const first = p.kind === 'multi' ? p.pages[0] : p
         setKind(first.kind)
         if (first.kind === 'image') setSrc(first.dataUrl)
-        else if (first.kind === 'pdf') {
-          url = URL.createObjectURL(new Blob([new Uint8Array(first.data)], { type: 'application/pdf' }))
-          setSrc(url)
-        }
+        else setSrc(null)
       })
       .catch(() => undefined)
-    return () => {
-      if (url) URL.revokeObjectURL(url)
-    }
   }, [id])
   return (
     <div className="relative flex min-w-0 flex-1 items-center gap-2">
@@ -365,23 +378,13 @@ function LocalFileThumb({
   onClear: () => void
 }) {
   const { t } = useTranslation()
-  const [url, setUrl] = useState<string | null>(null)
-  useEffect(() => {
-    const u = fileToUrl(file)
-    setUrl(u)
-    return () => URL.revokeObjectURL(u)
-  }, [file])
   const pdf = (file.mime || '').includes('pdf') || file.name.toLowerCase().endsWith('.pdf')
   return (
     <div className="flex items-center gap-2 rounded border border-navy-100 px-2 py-1 dark:border-navy-800">
       <button type="button" className="flex min-w-0 items-center gap-2 text-start" onClick={onOpen} onDoubleClick={onOpen}>
-        {pdf ? (
-          <span className="flex h-12 w-12 items-center justify-center rounded bg-navy-50 text-[10px] font-bold">PDF</span>
-        ) : url ? (
-          <img src={url} alt="" className="h-12 w-12 rounded object-cover" />
-        ) : (
-          <span className="h-12 w-12 rounded border" />
-        )}
+        <span className="flex h-12 w-12 items-center justify-center rounded bg-navy-50 text-[10px] font-bold">
+          {pdf ? 'PDF' : t('docs.page')}
+        </span>
         <span className="max-w-[9rem] truncate text-xs">
           {label}
           <br />
@@ -414,22 +417,24 @@ function LocalPreviewModal({
 }) {
   const { t } = useTranslation()
   const [url, setUrl] = useState<string | null>(null)
+  const pdf = !!file && ((file.mime || '').includes('pdf') || file.name.toLowerCase().endsWith('.pdf'))
   useEffect(() => {
-    if (!file) {
+    if (!file || pdf) {
       setUrl(null)
       return
     }
     const u = fileToUrl(file)
     setUrl(u)
     return () => URL.revokeObjectURL(u)
-  }, [file])
-  const pdf = !!file && ((file.mime || '').includes('pdf') || file.name.toLowerCase().endsWith('.pdf'))
+  }, [file, pdf])
   return (
     <Modal open={!!file} title={title} onClose={onClose} wide>
-      {!file || !url ? (
+      {!file ? (
         <div>{t('loading')}</div>
       ) : pdf ? (
-        <iframe title={file.name} src={url} className="h-[70vh] w-full rounded border" />
+        <p className="py-8 text-center text-sm text-navy-500">{t('docs.pdfExternalHint')}</p>
+      ) : !url ? (
+        <div>{t('loading')}</div>
       ) : (
         <img src={url} alt={file.name} className="max-h-[70vh] w-full object-contain" />
       )}
@@ -463,7 +468,13 @@ export function AttachDocumentControl({
   const { t } = useTranslation()
   const { toast } = useApp()
   const [open, setOpen] = useState(false)
-  const [category, setCategory] = useState('id')
+  const [category, setCategory] = useState(() => {
+    try {
+      return sessionStorage.getItem('doc.lastCategory') || 'id'
+    } catch {
+      return 'id'
+    }
+  })
   const [saveFormat, setSaveFormat] = useState<'jpeg' | 'pdf'>('jpeg')
   const [pages, setPages] = useState<PickedFile[]>([])
   const [preview, setPreview] = useState<{ file: PickedFile; title: string } | null>(null)
@@ -471,21 +482,55 @@ export function AttachDocumentControl({
   const [previewPage, setPreviewPage] = useState(0)
   const [savedPreview, setSavedPreview] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const catLabel = (id: string) => t(DOC_CATEGORIES.find((c) => c.id === id)?.key || 'docs.catId')
+  const [extraCats, setExtraCats] = useState<string[]>([])
+  const catLabel = (id: string) => {
+    const hit = DOC_CATEGORIES.find((c) => c.id === id)
+    return hit ? t(hit.key) : id
+  }
   const hasOwner = Boolean(owner?.client_id || owner?.opponent_id || owner?.lawyer_id || owner?.employee_id)
+
+  useEffect(() => {
+    invoke<{ value: string }[]>('lookups:list', 'doc_category')
+      .then((rows) =>
+        setExtraCats(
+          rows
+            .map((r) => r.value)
+            .filter((v) => !DOC_CATEGORIES.some((c) => c.id === v || t(c.key) === v))
+        )
+      )
+      .catch(() => undefined)
+  }, [])
+
+  const rememberCat = (id: string) => {
+    try {
+      sessionStorage.setItem('doc.lastCategory', id)
+    } catch {
+      /* ignore */
+    }
+    invoke('lookups:remember', 'doc_category', catLabel(id)).catch(() => undefined)
+  }
+
+  const openDraft = (id: string) => {
+    setCategory(id)
+    setSaveFormat(id === 'poa' || id === 'contract' ? 'pdf' : 'jpeg')
+    resetDraft()
+    setOpen(true)
+  }
 
   const resetDraft = () => {
     setPages([])
   }
 
   const commit = async () => {
-    if (!pages.length) return toast(t('docs.pickFirst'), 'err')
+    const filled = pages.filter((p) => p.data?.length)
+    if (!filled.length) return toast(t('docs.pickFirst'), 'err')
+    rememberCat(category)
     const next: PendingDoc = {
       localId: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       category,
-      title: `${catLabel(category)}${pages.length > 1 ? ` — ${pages.length}` : ''}`,
-      save_format: pages.length > 1 ? 'pdf' : saveFormat,
-      pages
+      title: `${catLabel(category)}${filled.length > 1 ? ` — ${filled.length}` : ''}`,
+      save_format: filled.length > 1 ? 'pdf' : saveFormat,
+      pages: filled
     }
     setBusy(true)
     try {
@@ -538,14 +583,18 @@ export function AttachDocumentControl({
               <DropdownMenu.Item
                 key={c.id}
                 className="cursor-pointer rounded-md px-3 py-2 text-start text-sm outline-none hover:bg-navy-50 dark:text-white dark:hover:bg-navy-800"
-                onSelect={() => {
-                  setCategory(c.id)
-                  setSaveFormat(c.id === 'poa' || c.id === 'contract' ? 'pdf' : 'jpeg')
-                  resetDraft()
-                  setOpen(true)
-                }}
+                onSelect={() => openDraft(c.id)}
               >
                 {t(c.key)}
+              </DropdownMenu.Item>
+            ))}
+            {extraCats.map((c) => (
+              <DropdownMenu.Item
+                key={c}
+                className="cursor-pointer rounded-md px-3 py-2 text-start text-sm outline-none hover:bg-navy-50 dark:text-white dark:hover:bg-navy-800"
+                onSelect={() => openDraft(c)}
+              >
+                {c}
               </DropdownMenu.Item>
             ))}
           </DropdownMenu.Content>
@@ -587,19 +636,30 @@ export function AttachDocumentControl({
       <Modal open={open} title={`${t('docs.attach')} — ${catLabel(category)}`} onClose={() => setOpen(false)} wide>
         <div className="space-y-3">
           <p className="text-xs text-navy-500">{t('docs.multiPageHint')}</p>
+          <Field label={t('docs.customCategory')}>
+            <LookupCombo
+              kind="doc_category"
+              value={DOC_CATEGORIES.some((c) => c.id === category) ? catLabel(category) : category}
+              onChange={(v) => {
+                const hit = DOC_CATEGORIES.find((c) => t(c.key) === v)
+                setCategory(hit?.id || v)
+              }}
+            />
+          </Field>
           <Field label={t('docs.saveFormat')}>
             <Select value={saveFormat} onChange={(e) => setSaveFormat(e.target.value as 'jpeg' | 'pdf')}>
               <option value="jpeg">JPEG</option>
               <option value="pdf">PDF</option>
             </Select>
           </Field>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-end gap-2">
             {pages.map((p, i) => (
               <LocalFileThumb
                 key={`${p.name}-${i}`}
                 file={p}
                 label={`${t('docs.page')} ${i + 1}`}
                 onOpen={() => {
+                  if (!p.data?.length) return
                   setPreviewPages(pages)
                   setPreviewPage(i)
                 }}
@@ -607,11 +667,33 @@ export function AttachDocumentControl({
               />
             ))}
             <div className="flex min-h-[4.5rem] min-w-[8rem] flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-navy-200 p-2 dark:border-navy-700">
-              <span className="text-xs font-bold">+</span>
+              <button
+                type="button"
+                className="flex h-8 w-8 items-center justify-center rounded-md border border-navy-200 text-lg font-bold leading-none text-navy-700 hover:bg-navy-50 dark:border-navy-600 dark:text-navy-100"
+                title={t('docs.addPagesNow')}
+                onClick={() =>
+                  setPages((prev) => [
+                    ...prev,
+                    { name: `${t('docs.page')} ${prev.length + 2}`, data: [], mime: '' }
+                  ])
+                }
+              >
+                +
+              </button>
               <UploadSourceMenu
                 compact
                 multiple
-                onFile={(file) => setPages((prev) => [...prev, file])}
+                onFile={(file) =>
+                  setPages((prev) => {
+                    const i = prev.findIndex((p) => !p.data?.length)
+                    if (i >= 0) {
+                      const next = [...prev]
+                      next[i] = file
+                      return next
+                    }
+                    return [...prev, file]
+                  })
+                }
               />
             </div>
           </div>
@@ -619,7 +701,7 @@ export function AttachDocumentControl({
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               {t('cancel')}
             </Button>
-            <Button type="button" disabled={busy || !pages.length} onClick={() => void commit()}>
+            <Button type="button" disabled={busy || !pages.some((p) => p.data?.length)} onClick={() => void commit()}>
               {busy ? t('saving') : t('docs.addPages')}
             </Button>
           </div>

@@ -16,22 +16,27 @@ export type LookupKind =
 
 export type LookupOption = { value: string; label: string; extra?: Record<string, unknown> }
 
-const q40 = (search?: unknown) => ({
+const q40 = (search?: unknown, includeIds?: unknown) => ({
   page: 1,
   pageSize: 40,
   lookup: true,
-  search: search ? String(search) : undefined
+  search: search ? String(search) : undefined,
+  includeIds: Array.isArray(includeIds) ? includeIds.map(String).filter(Boolean).slice(0, 20) : undefined
 })
 
 export async function fetchLookup(kind: LookupKind, filters?: Record<string, unknown>): Promise<LookupOption[]> {
   const search = filters?.search
+  const includeIds = filters?.includeIds
   if (kind === 'clients') {
-    const r = await invoke<{ rows: { id: string; full_name: string; client_number: string }[] }>('clients:list', q40(search))
+    const r = await invoke<{ rows: { id: string; full_name: string; client_number: string }[] }>(
+      'clients:list',
+      q40(search, includeIds)
+    )
     return r.rows.map((x) => ({ value: x.id, label: `${x.client_number} — ${x.full_name}` }))
   }
   if (kind === 'cases') {
     const r = await invoke<{ rows: { id: string; title: string; case_number: string; client_id?: string }[] }>('cases:list', {
-      ...q40(search),
+      ...q40(search, includeIds),
       filters: filters?.client_id ? { client_id: String(filters.client_id) } : {}
     })
     return r.rows.map((x) => ({
@@ -67,7 +72,7 @@ export async function fetchLookup(kind: LookupKind, filters?: Record<string, unk
     return r.roles.map((x) => ({ value: x.id, label: x.name_ar }))
   }
   if (kind === 'opponents') {
-    const r = await invoke<{ rows: { id: string; full_name: string }[] }>('opponents:list', q40(search)).catch(() => ({
+    const r = await invoke<{ rows: { id: string; full_name: string }[] }>('opponents:list', q40(search, includeIds)).catch(() => ({
       rows: []
     }))
     return r.rows.map((x) => ({ value: x.id, label: x.full_name }))

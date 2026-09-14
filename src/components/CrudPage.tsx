@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -270,7 +270,11 @@ export function CrudPage({
   const [colFilters, setColFilters] = useState<Record<string, string>>({})
   const [listPageSize, setListPageSize] = useState(() => storedListPageSize(listChannel))
   const zodSchema = (editing ? updateSchema : createSchema) ?? schema ?? schemaFromFields(fields)
-  const rhf = useForm<Record<string, unknown>>({ resolver: zodResolver(zodSchema as never), values: form, mode: 'onChange' })
+  const rhf = useForm<Record<string, unknown>>({ resolver: zodResolver(zodSchema as never), values: form, mode: 'onBlur' })
+  const openRef = useRef(open)
+  openRef.current = open
+  const staleRef = useRef(false)
+  const dataScope = listChannel.split(':')[0] || '*'
 
   const hasListFilter = Object.values(listFilters || {}).some((v) => String(v ?? '').trim())
   const queryPayload = {
@@ -337,9 +341,23 @@ export function CrudPage({
     load().catch((e) => toast(e.message, 'err'))
   }, [page, debouncedQ, listChannel, JSON.stringify(listFilters), sortKey, sortDir, idleUntilSearch, listPageSize])
 
-  useEffect(() => onDataChanged(() => {
+  useEffect(
+    () =>
+      onDataChanged(() => {
+        if (openRef.current) {
+          staleRef.current = true
+          return
+        }
+        load().catch(() => undefined)
+      }, dataScope),
+    [listChannel, page, debouncedQ, JSON.stringify(listFilters), sortKey, sortDir, listPageSize, dataScope]
+  )
+
+  useEffect(() => {
+    if (open || !staleRef.current) return
+    staleRef.current = false
     load().catch(() => undefined)
-  }), [listChannel, page, debouncedQ, JSON.stringify(listFilters), sortKey, sortDir, listPageSize])
+  }, [open])
 
   useEffect(() => {
     if (!pageMeta.edit_id) return
@@ -730,7 +748,7 @@ export function CrudPage({
         <form onSubmit={save}>
           {listChannel === 'cases:list' ? (
             <div className="mb-3 text-center text-4xl font-black text-red-600">
-              {editing ? formatProgramCode(editing) : '0'}
+              {editing ? formatProgramCode(editing) : t('caseForm.autoCode')}
             </div>
           ) : null}
           {formPrefix?.(form, (n, v) => {

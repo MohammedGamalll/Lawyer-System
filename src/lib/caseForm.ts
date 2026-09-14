@@ -10,9 +10,8 @@ export function caseFormFields(t: (k: string) => string): FieldDef[] {
     ...extra
   })
   return [
-    f('title', { required: true, type: 'combo', comboKind: 'case_title', label: t('fields.case_subject') }),
-    f('case_type_id', { lookup: 'caseTypes' }),
-    f('category', { type: 'combo', comboKind: 'case_subject' }),
+    f('case_type_id', { lookup: 'caseTypes', label: t('settings.caseTypes') }),
+    f('title', { required: true, type: 'combo', comboKind: 'case_subject', label: t('settings.caseSubjects') }),
     f('court', { type: 'combo', comboKind: 'court' }),
     f('circuit', { size: 'sm' }),
     f('session_place', { size: 'sm' }),

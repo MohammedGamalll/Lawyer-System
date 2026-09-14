@@ -35,7 +35,7 @@ export function LookupCombo({
   useEffect(() => {
     load()
   }, [kind])
-  useEffect(() => onDataChanged(() => load()), [kind])
+  useEffect(() => onDataChanged(() => load(), 'lookups'), [kind])
 
   const remember = (v: string) => {
     const tval = v.trim()
@@ -68,7 +68,7 @@ export function LookupCombo({
         onBlur={() => remember(value)}
       />
       <FloatingMenu open={open} onClose={() => setOpen(false)} anchor={box} minWidth={220}>
-        <div id={listId} className="max-h-56 overflow-auto">
+        <div id={listId} className="max-h-64 overflow-y-auto overscroll-contain" onWheel={(e) => e.stopPropagation()}>
           {filtered.length === 0 && <div className="px-2 py-2 text-center text-xs text-navy-400">{t('noData')}</div>}
           {filtered.map((o) => (
             <div key={o} className="flex items-center gap-1 rounded hover:bg-navy-50 dark:hover:bg-navy-800">

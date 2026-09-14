@@ -94,6 +94,17 @@ export const IPC = {
   settings: { get: 'settings:get', set: 'settings:set', saveLogo: 'settings:saveLogo' },
   backup: { create: 'backup:create', restore: 'backup:restore', list: 'backup:list', schedule: 'backup:schedule' },
   print: { preview: 'print:preview', print: 'print:print', pdf: 'print:pdf', printers: 'print:printers', voucher: 'print:voucher', receipt: 'print:receipt', manual: 'print:manual' },
+  printTemplates: {
+    list: 'printTemplates:list',
+    get: 'printTemplates:get',
+    create: 'printTemplates:create',
+    update: 'printTemplates:update',
+    remove: 'printTemplates:remove',
+    fields: 'printTemplates:fields',
+    context: 'printTemplates:context',
+    print: 'printTemplates:print',
+    printLayout: 'printTemplates:printLayout'
+  },
   files: { gc: 'files:gc', pick: 'files:pick', scan: 'files:scan', openUrl: 'files:openUrl' },
   updater: { check: 'updater:check', version: 'updater:version', install: 'updater:install' },
   demo: { seed: 'demo:seed', wipe: 'demo:wipe' },

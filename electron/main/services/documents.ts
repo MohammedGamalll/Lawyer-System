@@ -407,7 +407,7 @@ function previewFile(file_path: string, file_name: string, mime_type: string | n
     return { kind: 'image' as const, name: file_name, mime: kind, dataUrl: `data:${kind};base64,${buf.toString('base64')}` }
   }
   if (isPdf) {
-    return { kind: 'pdf' as const, name: file_name, data: Array.from(buf) }
+    return { kind: 'pdf' as const, name: file_name }
   }
   return { kind: 'other' as const, name: file_name }
 }

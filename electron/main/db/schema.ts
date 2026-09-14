@@ -809,6 +809,16 @@ CREATE TABLE IF NOT EXISTS lookup_values (
   deleted_at TEXT,
   UNIQUE (kind, value)
 );
+
+CREATE TABLE IF NOT EXISTS print_templates (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  page_size TEXT NOT NULL DEFAULT 'A4',
+  layout_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
+);
 ` + PERFORMANCE_INDEXES
 
 export const SYNC_TABLES = [

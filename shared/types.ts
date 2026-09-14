@@ -24,6 +24,7 @@ export type ListQuery = {
   sortDir?: 'asc' | 'desc'
   print?: boolean
   lookup?: boolean
+  includeIds?: string[]
   filters?: Record<string, string | number | boolean | null | undefined>
 }
 

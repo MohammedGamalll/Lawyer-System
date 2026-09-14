@@ -23,7 +23,7 @@ function pageOpts(kind: PrintKind) {
   return { pageSize: 'A4' as const, margins: paper }
 }
 
-function cairoFace(): string {
+export function cairoFace(): string {
   const candidates = [
     path.join(process.resourcesPath || '', 'fonts', 'Cairo-Regular.woff2'),
     path.join(app.getAppPath(), 'resources/fonts/Cairo-Regular.woff2'),
@@ -52,16 +52,23 @@ function bundledLogoPath(): string | null {
   return candidates.find((p) => fs.existsSync(p)) || null
 }
 
-function logoImg(): string {
+export function officeLogoDataUrl(): string {
   const logo = getSetting('office_logo', '')
   const full = logo && fs.existsSync(logo) ? logo : path.join(getDataRoot(), 'logo.png')
   const file = full && fs.existsSync(full) ? full : bundledLogoPath()
   if (file && fs.existsSync(file)) {
-    const ext = path.extname(file).slice(1) || 'png'
+    const ext = path.extname(file).slice(1).toLowerCase() || 'png'
+    const mime = ext === 'jpg' || ext === 'jpeg' ? 'jpeg' : ext === 'gif' ? 'gif' : ext === 'webp' ? 'webp' : 'png'
+    if (!['png', 'jpeg', 'gif', 'webp'].includes(mime)) return ''
     const b64 = fs.readFileSync(file).toString('base64')
-    return `<img src="data:image/${ext};base64,${b64}" class="logo" alt="logo"/>`
+    return `data:image/${mime};base64,${b64}`
   }
   return ''
+}
+
+function logoImg(): string {
+  const src = officeLogoDataUrl()
+  return src ? `<img src="${src}" class="logo" alt="logo"/>` : ''
 }
 
 export function wrapHtml(title: string, body: string, kind: PrintKind): string {
@@ -92,7 +99,7 @@ async function loadHtmlWindow(html: string, show: boolean, parent?: BrowserWindo
     height: 1100,
     autoHideMenuBar: true,
     parent: parent || undefined,
-    webPreferences: { sandbox: true }
+    webPreferences: { sandbox: true, nodeIntegration: false, contextIsolation: true, javascript: false }
   })
   await win.loadFile(file)
   await new Promise((r) => setTimeout(r, 400))
@@ -150,11 +157,7 @@ export async function printHtml(html: string, kind: PrintKind, parent?: BrowserW
           pageSize: 'A4',
           landscape: kind === 'report',
           margins: {
-            marginType: kind === 'receipt' || kind === 'voucher' ? 'printableArea' : 'custom',
-            top: 16,
-            bottom: 16,
-            left: 16,
-            right: 16
+            marginType: kind === 'receipt' || kind === 'voucher' ? 'printableArea' : 'none'
           }
         },
         (success, error) => {

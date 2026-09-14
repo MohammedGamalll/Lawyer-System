@@ -25,6 +25,7 @@ import * as demo from '../services/demo'
 import * as wipe from '../services/wipe'
 import { getInvoice } from '../services/finance'
 import { wrapHtml } from '../services/print'
+import * as printTemplates from '../services/printTemplates'
 import * as lookups from '../services/lookups'
 import * as scan from '../services/scan'
 import { getSyncState, runSyncCycle } from '../sync/service'
@@ -503,6 +504,37 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
   handle(ipc, IPC.print.voucher, { permission: 'accounts.view' }, (_e, _u, expenseId) =>
     ok(finance.voucherPrintPayload(String(expenseId)))
   )
+
+  handle(ipc, IPC.printTemplates.list, { permission: ['settings.manage', 'cases.view', 'clients.view'] }, () =>
+    ok(printTemplates.listPrintTemplates())
+  )
+  handle(ipc, IPC.printTemplates.get, { permission: ['settings.manage', 'cases.view', 'clients.view'] }, (_e, _u, id) =>
+    ok(printTemplates.getPrintTemplate(String(id)))
+  )
+  handle(ipc, IPC.printTemplates.fields, { permission: ['settings.manage', 'cases.view'] }, () =>
+    ok(printTemplates.printFieldCatalog())
+  )
+  handle(ipc, IPC.printTemplates.context, { permission: ['settings.manage', 'cases.view', 'clients.view'] }, (_e, _u, opts) =>
+    ok(printTemplates.buildPrintContext((opts as { caseId?: string; clientId?: string }) || {}))
+  )
+  handle(ipc, IPC.printTemplates.create, { permission: 'settings.manage', write: true }, (_e, user, data) =>
+    ok(printTemplates.createPrintTemplate(user!, data as never))
+  )
+  handle(ipc, IPC.printTemplates.update, { permission: 'settings.manage', write: true }, (_e, user, id, data) =>
+    ok(printTemplates.updatePrintTemplate(user!, String(id), data as never))
+  )
+  handle(ipc, IPC.printTemplates.remove, { permission: 'settings.manage', write: true }, (_e, user, id) => {
+    printTemplates.removePrintTemplate(user!, String(id))
+    return ok(true)
+  })
+  handle(ipc, IPC.printTemplates.print, { permission: ['settings.manage', 'cases.view', 'clients.view'] }, async (_e, _u, id, opts) => {
+    await printTemplates.printTemplate(String(id), (opts as { caseId?: string; clientId?: string }) || {}, getWin())
+    return ok(true)
+  })
+  handle(ipc, IPC.printTemplates.printLayout, { permission: ['settings.manage', 'cases.view', 'clients.view'] }, async (_e, _u, layout, opts) => {
+    await printTemplates.printLayout(layout, (opts as { caseId?: string; clientId?: string }) || {}, getWin())
+    return ok(true)
+  })
 
   handle(ipc, IPC.updater.check, { auth: false }, async () => ok(await updater.checkUpdates()))
   handle(ipc, IPC.updater.version, { auth: false }, () => ok(updater.appVersion()))

@@ -38,7 +38,7 @@ export function Layout({ children }: { children: ReactNode }) {
     const tmr = setInterval(() => {
       const s = useSyncStore.getState()
       if (s.status === 'syncing' || s.pendingCount > 0) void s.refresh()
-    }, 1500)
+    }, 5000)
     return () => clearInterval(tmr)
   }, [])
 

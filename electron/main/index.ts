@@ -140,7 +140,9 @@ function createWindow(): void {
   setTimeout(() => {
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show();
   }, 2500);
-  mainWindow.webContents.on("did-fail-load", (_e, code, desc) => {
+  mainWindow.webContents.on("did-fail-load", (_e, code, desc, _url, isMainFrame) => {
+    if (!isMainFrame) return;
+    if (code === -3) return;
     log.error("did-fail-load", code, desc);
     dialog.showErrorBox("تعذر فتح الواجهة", `${desc || code}`);
   });

@@ -8,7 +8,7 @@ import type { ListQuery } from '@shared/types'
 import { caseSchema, parseSchema } from '@shared/schemas'
 import { rememberLookup } from './lookups'
 import { maskClientContactFields } from './clients'
-import { clampPageSize, pageKind, pickSort, sqlDir } from '../db/queryLimits'
+import { clampPageSize, pageKind, pickSort, sqlDir, includeIds } from '../db/queryLimits'
 import { ftsQuery } from '../db/fts'
 
 function splitCourtQuery(raw: string): { number: string; year: string } {
@@ -125,6 +125,8 @@ export function listCases(query: ListQuery = {}, archived = 0) {
     where += ' AND c.client_id = ?'
     params.push(f.client_id)
   }
+  const isLookup = pageKind(query) === 'lookup'
+  const pinIds = includeIds(query)
   const total = (
     db.prepare(`SELECT COUNT(*) as c FROM cases c JOIN clients cl ON cl.id = c.client_id ${where}`).get(...params) as {
       c: number
@@ -141,23 +143,46 @@ export function listCases(query: ListQuery = {}, archived = 0) {
     case_type_name: 'ct.name_ar'
   }, 'IFNULL(c.filing_date, IFNULL(c.received_date, c.created_at)) ASC, c.created_at ASC')
   const dir = query.sortBy ? ` ${sqlDir(query.sortDir)}` : ''
+  const extraSelect = isLookup
+    ? `'' as extra_client_names, '' as opponent_names`
+    : `(SELECT GROUP_CONCAT(clx.full_name, '، ') FROM case_clients x JOIN clients clx ON clx.id = x.client_id
+                WHERE x.case_id = c.id AND IFNULL(x.is_primary,0) = 0 AND ${notDeleted('x')} AND ${notDeleted('clx')}) as extra_client_names,
+              (SELECT GROUP_CONCAT(ox.full_name, '، ') FROM case_opponents xo JOIN opponents ox ON ox.id = xo.opponent_id
+                WHERE xo.case_id = c.id AND ${notDeleted('xo')} AND ${notDeleted('ox')}) as opponent_names`
   const rows = db
     .prepare(
       `SELECT c.id, c.case_number, c.office_case_number, c.case_year, c.title, c.category, c.status, c.court, c.circuit,
               c.filing_date, c.received_date, c.client_id, c.opponent_name, c.primary_lawyer_id, c.case_type_id,
               cl.full_name as client_name, cl.client_number, ct.name_ar as case_type_name, l.full_name as lawyer_name,
-              (SELECT GROUP_CONCAT(clx.full_name, '، ') FROM case_clients x JOIN clients clx ON clx.id = x.client_id
-                WHERE x.case_id = c.id AND IFNULL(x.is_primary,0) = 0 AND ${notDeleted('x')} AND ${notDeleted('clx')}) as extra_client_names,
-              (SELECT GROUP_CONCAT(ox.full_name, '، ') FROM case_opponents xo JOIN opponents ox ON ox.id = xo.opponent_id
-                WHERE xo.case_id = c.id AND ${notDeleted('xo')} AND ${notDeleted('ox')}) as opponent_names
+              ${extraSelect}
        FROM cases c
        JOIN clients cl ON cl.id = c.client_id
        LEFT JOIN case_types ct ON ct.id = c.case_type_id AND ${notDeleted('ct')}
        LEFT JOIN lawyers l ON l.id = c.primary_lawyer_id AND ${notDeleted('l')}
        ${where} ORDER BY ${order}${dir} LIMIT ? OFFSET ?`
     )
-    .all(...params, pageSize, (page - 1) * pageSize)
-  const mapped = (rows as Record<string, unknown>[]).map((r) => {
+    .all(...params, pageSize, (page - 1) * pageSize) as Record<string, unknown>[]
+  if (pinIds.length) {
+    const have = new Set(rows.map((r) => String(r.id)))
+    const missing = pinIds.filter((id) => !have.has(id))
+    if (missing.length) {
+      const extra = db
+        .prepare(
+          `SELECT c.id, c.case_number, c.office_case_number, c.case_year, c.title, c.category, c.status, c.court, c.circuit,
+                  c.filing_date, c.received_date, c.client_id, c.opponent_name, c.primary_lawyer_id, c.case_type_id,
+                  cl.full_name as client_name, cl.client_number, ct.name_ar as case_type_name, l.full_name as lawyer_name,
+                  ${extraSelect}
+           FROM cases c
+           JOIN clients cl ON cl.id = c.client_id
+           LEFT JOIN case_types ct ON ct.id = c.case_type_id AND ${notDeleted('ct')}
+           LEFT JOIN lawyers l ON l.id = c.primary_lawyer_id AND ${notDeleted('l')}
+           WHERE c.id IN (${missing.map(() => '?').join(',')}) AND ${notDeleted('c')}`
+        )
+        .all(...missing) as Record<string, unknown>[]
+      rows.unshift(...extra)
+    }
+  }
+  const mapped = rows.map((r) => {
     const extras = String(r.extra_client_names || '')
       .split(/[،,]/)
       .map((s) => s.trim())
@@ -306,6 +331,7 @@ export function createCase(actor: AuthedUser, data: Record<string, unknown>) {
   if (!clientId) throw new Error('لا يمكن إنشاء قضية بدون عميل')
   const title = String(data.title ?? '').trim()
   if (!title) throw new Error('اسم القضية مطلوب')
+  if (!String(data.category ?? '').trim()) data.category = title
   const db = getDb()
   const client = db.prepare(`SELECT id, full_name FROM clients WHERE id = ? AND ${notDeleted()}`).get(clientId)
   if (!client) throw new Error('العميل غير موجود')
@@ -399,6 +425,7 @@ export function updateCase(actor: AuthedUser, id: string, data: Record<string, u
   if (!old) throw new Error('القضية غير موجودة')
   const clientId = asId(data.client_id)
   if (!clientId) throw new Error('لا يمكن حفظ قضية بدون عميل')
+  if (!String(data.category ?? '').trim()) data.category = String(data.title ?? '').trim()
   const allocated = allocateCaseNumber(db, data, id)
   const closedAt = data.status === 'closed' && old.status !== 'closed' ? nowIso() : null
   db.prepare(
@@ -554,6 +581,7 @@ export function removeCaseType(id: string) {
 function rememberCaseLookups(data: Record<string, unknown>) {
   rememberLookup('case_title', data.title)
   rememberLookup('court', data.court)
+  rememberLookup('case_subject', data.title)
   rememberLookup('case_subject', data.category)
   rememberLookup('extra_ref_type', data.extra_ref_type)
   rememberLookup('extra_ref_type', data.extra_ref2_type)
@@ -574,6 +602,9 @@ function allocateCaseNumber(
   const year = String(data.case_year ?? '').trim()
   let office = String(data.office_case_number ?? '').trim()
   if (year && office.endsWith(`/${year}`)) office = office.slice(0, -(year.length + 1)).trim()
+  if (/^CS-/i.test(office)) {
+    throw new Error('رقم المكتب القديم مستقل عن كود البرنامج (CS-). اترك كود CS للعداد التلقائي.')
+  }
   let number: string
   if (excludeId) {
     const old = db.prepare(`SELECT case_number FROM cases WHERE id = ?`).get(excludeId) as { case_number: string }

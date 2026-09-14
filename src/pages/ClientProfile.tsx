@@ -14,6 +14,7 @@ import { similarFromError, type SimilarHit } from '../lib/similarError'
 import { ContactActions } from '../components/ContactActions'
 import { formatCell } from '../lib/datetime'
 import { onDataChanged } from '../lib/bus'
+import { PrintTemplatePicker } from '../components/PrintTemplatePicker'
 
 export function ClientProfilePage() {
   const { t, i18n } = useTranslation()
@@ -35,7 +36,7 @@ export function ClientProfilePage() {
   useEffect(() => {
     load()
   }, [id])
-  useEffect(() => onDataChanged(() => load()), [id])
+  useEffect(() => onDataChanged(() => load(), ['clients', 'cases', 'documents']), [id])
 
   if (!p) return <div>{t('loading')}</div>
   const c = p.client as Record<string, unknown>
@@ -86,7 +87,8 @@ export function ClientProfilePage() {
       <PageHeader
         title={`${String(c.client_number || '')} — ${c.full_name}`}
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <PrintTemplatePicker clientId={id} />
             {can('clients.update') && (
               <Button
                 variant="gold"

@@ -13,6 +13,7 @@ export function EntitySelect({
   onChange,
   clientId,
   excludeIds,
+  extraOptions,
   className
 }: {
   kind: LookupKind
@@ -20,6 +21,7 @@ export function EntitySelect({
   onChange: (v: string) => void
   clientId?: string | number
   excludeIds?: Array<string | number>
+  extraOptions?: LookupOption[]
   className?: string
 }) {
   const { t } = useTranslation()
@@ -29,22 +31,43 @@ export function EntitySelect({
   const [opts, setOpts] = useState<LookupOption[]>([])
   const [missingLabel, setMissingLabel] = useState('')
   const box = useRef<HTMLDivElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const includeIds = [
+    ...((extraOptions || []).map((o) => String(o.value))),
+    ...(value ? [String(value)] : [])
+  ].filter(Boolean)
 
   const load = (search?: string) => {
-    fetchLookup(kind, { client_id: clientId, search })
+    fetchLookup(kind, { client_id: clientId, search, includeIds })
       .then(setOpts)
       .catch(() => setOpts([]))
   }
   useEffect(() => {
     if (!open) return
     load(dq)
-  }, [open, kind, clientId, dq])
-  useEffect(() => onDataChanged(() => open && load(dq)), [kind, clientId, open, dq])
+  }, [open, kind, clientId, dq, includeIds.join('|')])
+  useEffect(() => {
+    if (!open) return
+    const t = window.setTimeout(() => searchRef.current?.focus(), 0)
+    return () => window.clearTimeout(t)
+  }, [open])
+  useEffect(
+    () =>
+      onDataChanged(() => {
+        if (open) load(dq)
+      }, kind),
+    [kind, clientId, open, dq]
+  )
 
   useEffect(() => {
     const id = String(value ?? '')
     if (!id) {
       setMissingLabel('')
+      return
+    }
+    const extra = extraOptions?.find((o) => String(o.value) === id)
+    if (extra) {
+      setMissingLabel(extra.label)
       return
     }
     if (opts.some((o) => String(o.value) === id)) {
@@ -62,14 +85,21 @@ export function EntitySelect({
         setMissingLabel(code ? `${code} — ${name}` : name)
       })
       .catch(() => setMissingLabel(''))
-  }, [kind, value, opts])
+  }, [kind, value, opts, extraOptions])
 
-  const selected = opts.find((o) => String(o.value) === String(value ?? ''))
+  const selected = opts.find((o) => String(o.value) === String(value ?? '')) || extraOptions?.find((o) => String(o.value) === String(value ?? ''))
   const display = selected?.label || missingLabel
   const filtered = useMemo(() => {
     const excluded = new Set((excludeIds ?? []).map((x) => String(x)))
-    return opts.filter((o) => !excluded.has(String(o.value)))
-  }, [opts, excludeIds])
+    const merged = [...(extraOptions || []), ...opts]
+    const seen = new Set<string>()
+    return merged.filter((o) => {
+      const id = String(o.value)
+      if (excluded.has(id) || seen.has(id)) return false
+      seen.add(id)
+      return true
+    })
+  }, [opts, extraOptions, excludeIds])
 
   return (
     <div ref={box} className={cn('relative', className)}>
@@ -84,13 +114,14 @@ export function EntitySelect({
       <FloatingMenu open={open} onClose={() => setOpen(false)} anchor={box} minWidth={240}>
         <div className="p-1">
           <input
-            autoFocus
+            ref={searchRef}
             className="mb-2 h-8 w-full rounded border border-navy-200 px-2 text-sm outline-none focus:ring-2 focus:ring-gold-400 dark:bg-navy-950 dark:border-navy-700"
             placeholder={t('typeToFilter')}
             value={q}
             onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => e.stopPropagation()}
           />
-          <div className="max-h-56 overflow-auto">
+          <div className="max-h-64 overflow-y-auto overscroll-contain" onWheel={(e) => e.stopPropagation()}>
             <button
               type="button"
               className="block w-full px-2 py-1.5 text-right text-sm text-navy-400 hover:bg-navy-50 dark:hover:bg-navy-800"

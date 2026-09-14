@@ -1,3 +1,5 @@
+import { escapeHtml } from '@shared/printTemplate'
+
 export type PrintKind = 'invoice' | 'receipt' | 'voucher' | 'report' | 'a4'
 
 export function buildPrintHtml(opts: {
@@ -21,7 +23,8 @@ export function buildPrintHtml(opts: {
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="utf-8"/>
-<title>${opts.title}</title>
+<title>${escapeHtml(opts.title)}</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; base-uri 'none'; form-action 'none';"/>
 <style>
   ${opts.fontFace || ''}
   * { box-sizing: border-box; }
@@ -43,13 +46,13 @@ export function buildPrintHtml(opts: {
   <div class="head">
     <div>
       ${opts.logo || ''}
-      <h1>${opts.office}</h1>
-      <div class="muted">${opts.address || ''} ${opts.phone || ''}</div>
+      <h1>${escapeHtml(opts.office)}</h1>
+      <div class="muted">${escapeHtml(opts.address || '')} ${escapeHtml(opts.phone || '')}</div>
     </div>
-    <div class="gold">${opts.title}</div>
+    <div class="gold">${escapeHtml(opts.title)}</div>
   </div>
   ${opts.body}
-  <p class="muted">طُبع بتاريخ ${opts.printedAt || ''}</p>
+  <p class="muted">طُبع بتاريخ ${escapeHtml(opts.printedAt || '')}</p>
 </body>
 </html>`
 }

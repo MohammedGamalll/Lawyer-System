@@ -153,7 +153,7 @@ export function Modal({
             if (t?.closest?.('[data-floating-menu]')) e.preventDefault()
           }}
           className={cn(
-            'fixed left-1/2 top-1/2 z-50 flex max-h-[90vh] w-[min(520px,94vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-visible rounded-xl border bg-white p-5 text-start text-navy-900 shadow-xl dark:border-navy-700 dark:bg-navy-900 dark:text-navy-50',
+            'fixed inset-x-0 top-[4vh] z-50 mx-auto flex max-h-[92vh] w-[min(520px,94vw)] flex-col overflow-visible rounded-xl border bg-white p-5 text-start text-navy-900 shadow-xl dark:border-navy-700 dark:bg-navy-900 dark:text-navy-50',
             wide && 'w-[min(1100px,96vw)]'
           )}
         >

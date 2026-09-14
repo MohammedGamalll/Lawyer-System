@@ -39,7 +39,7 @@ export function OpponentProfilePage() {
   useEffect(() => {
     load().catch((e) => toast((e as Error).message, 'err'))
   }, [id])
-  useEffect(() => onDataChanged(() => load().catch(() => undefined)), [id])
+  useEffect(() => onDataChanged(() => load().catch(() => undefined), ['opponents', 'cases', 'documents']), [id])
 
   if (!p) return <div>{t('loading')}</div>
   const o = (p.opponent as Record<string, unknown>) || {}

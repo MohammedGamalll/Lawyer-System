@@ -17,6 +17,21 @@ export function sqlDir(dir?: string): 'ASC' | 'DESC' {
   return String(dir).toLowerCase() === 'desc' ? 'DESC' : 'ASC'
 }
 
+export function includeIds(query: { includeIds?: unknown }): string[] {
+  const raw = query.includeIds
+  if (!Array.isArray(raw)) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const item of raw) {
+    const id = String(item || '').trim()
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    out.push(id)
+    if (out.length >= 20) break
+  }
+  return out
+}
+
 export function pickSort(sortBy: string | undefined, allowed: Record<string, string>, fallback: string): string {
   if (!sortBy) return fallback
   return allowed[sortBy] || fallback

@@ -2,7 +2,7 @@ import { getDb } from '../db/database'
 import { nowIso } from '../utils/time'
 import { audit } from './audit'
 import { newId, asId, asIdOrNull, notDeleted } from '../db/ids'
-import { clampPageSize, pageKind } from '../db/queryLimits'
+import { clampPageSize, pageKind, includeIds } from '../db/queryLimits'
 import { recordLocalChange, softDelete } from '../sync/queue'
 import type { AuthedUser } from '../ipc/helpers'
 import type { ListQuery } from '@shared/types'
@@ -62,10 +62,23 @@ function paged(table: string, searchCols: string[], query: ListQuery, extraWhere
     const s = `%${query.search}%`
     searchCols.forEach(() => params.push(s))
   }
+  const pinIds = includeIds(query)
   const total = (db.prepare(`SELECT COUNT(*) as c FROM ${table} ${where}`).get(...params) as { c: number }).c
   const rows = db
     .prepare(`SELECT * FROM ${table} ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
-    .all(...params, pageSize, (page - 1) * pageSize)
+    .all(...params, pageSize, (page - 1) * pageSize) as Record<string, unknown>[]
+  if (pinIds.length) {
+    const have = new Set(rows.map((r) => String(r.id)))
+    const missing = pinIds.filter((id) => !have.has(id))
+    if (missing.length) {
+      const extra = db
+        .prepare(
+          `SELECT * FROM ${table} WHERE id IN (${missing.map(() => '?').join(',')}) AND ${notDeleted()}`
+        )
+        .all(...missing) as Record<string, unknown>[]
+      rows.unshift(...extra)
+    }
+  }
   return { rows, total, page, pageSize }
 }
 

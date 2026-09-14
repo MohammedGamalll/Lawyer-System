@@ -51,7 +51,8 @@ const LOOKUP_SEEDS: Record<string, string[]> = {
   execution_action: ['إعلان بالحكم', 'صيغة تنفيذية', 'تنفيذ حكم', 'إنذار على يد محضر', 'حجز'],
   venue: ['شبرا الخيمة', '6 أكتوبر', 'منيا القمح'],
   capacity: ['مدعي', 'مدعى عليه', 'متهم', 'مجني عليه', 'مستأنف', 'مستأنف ضده', 'طاعن', 'مطعون ضده'],
-  profession: ['شخص', 'مدير شركة', 'رئيس مجلس إدارة', 'عضو منتدب', 'محام', 'موظف']
+  profession: ['شخص', 'مدير شركة', 'رئيس مجلس إدارة', 'عضو منتدب', 'محام', 'موظف'],
+  doc_category: ['بطاقة', 'كارنيه', 'توكيل', 'جواز سفر', 'عقد', 'شهادة ميلاد', 'أخرى']
 }
 
 export function patchSchema(db: Db): void {
@@ -141,6 +142,17 @@ export function patchSchema(db: Db): void {
       file_path TEXT NOT NULL,
       file_name TEXT,
       mime_type TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deleted_at TEXT
+    );
+  `)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS print_templates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      page_size TEXT NOT NULL DEFAULT 'A4',
+      layout_json TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       deleted_at TEXT

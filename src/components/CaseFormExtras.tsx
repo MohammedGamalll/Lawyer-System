@@ -7,6 +7,7 @@ import { Button, Field, Input } from './ui'
 import { EntitySelect } from './EntitySelect'
 import { LookupCombo } from './LookupCombo'
 import { SimilarClientModal } from './SimilarClientModal'
+import type { LookupOption } from '../lib/lookups'
 
 type ExtraClient = {
   client_id: string
@@ -158,6 +159,8 @@ export function CaseFormExtras({
   const [quickOpp, setQuickOpp] = useState({ full_name: '', national_id: '' })
   const [similar, setSimilar] = useState<{ id: string; client_number: string; full_name: string } | null>(null)
   const [savingSimilar, setSavingSimilar] = useState(false)
+  const [pinnedClients, setPinnedClients] = useState<LookupOption[]>([])
+  const [pinnedOpps, setPinnedOpps] = useState<LookupOption[]>([])
   const extras = (form.extra_clients as ExtraClient[]) || []
   const extraOpps = (form.extra_opponents as ExtraOpp[]) || []
 
@@ -167,12 +170,14 @@ export function CaseFormExtras({
   const createInline = async (force = false) => {
     if (!quick.full_name.trim()) return
     try {
-      const created = await invoke<{ id: string }>('clients:create', {
+      const created = await invoke<{ id: string; client_number?: string }>('clients:create', {
         full_name: quick.full_name,
         national_id: quick.national_id || (quick.client_type === 'company' ? '***' : ''),
         client_type: quick.client_type,
         force_similar: force || undefined
       })
+      const label = `${created.client_number || ''} — ${quick.full_name}`.replace(/^ — /, '')
+      setPinnedClients((prev) => [{ value: created.id, label }, ...prev.filter((x) => x.value !== created.id)])
       setField('client_id', created.id)
       setField('__quick_client', false)
       setQuick({ full_name: '', national_id: '', client_type: 'individual' })
@@ -198,10 +203,12 @@ export function CaseFormExtras({
         full_name: quickOpp.full_name,
         national_id: quickOpp.national_id || undefined
       })
-      const packed = await invoke<{ opponent?: { full_name?: string }; full_name?: string }>('opponents:get', created.id)
-      const name = packed.opponent?.full_name || packed.full_name || quickOpp.full_name
+      setPinnedOpps((prev) => [
+        { value: created.id, label: quickOpp.full_name },
+        ...prev.filter((x) => x.value !== created.id)
+      ])
       setField('opponent_id', created.id)
-      setField('opponent_name', name)
+      setField('opponent_name', quickOpp.full_name)
       setField('__quick_opponent', false)
       setQuickOpp({ full_name: '', national_id: '' })
     } catch (e) {
@@ -225,25 +232,60 @@ export function CaseFormExtras({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end gap-2">
-        <Field label={t('fields.court_number')}>
-          <Input
-            className="w-32"
-            dir="ltr"
-            value={String(form.office_case_number || '')}
-            onChange={(e) => setField('office_case_number', e.target.value)}
-          />
+      <div className="space-y-1">
+        <Field label={t('caseForm.numberingMode')}>
+          <select
+            className="flex h-9 w-full max-w-xs rounded-md border border-navy-200 bg-white px-3 text-sm dark:border-navy-700 dark:bg-navy-900"
+            value={String(form.__numbering_mode || (String(form.office_case_number || '').trim() ? 'manual' : 'auto'))}
+            onChange={(e) => {
+              const mode = e.target.value
+              setField('__numbering_mode', mode)
+              if (mode === 'auto') setField('office_case_number', '')
+            }}
+          >
+            <option value="auto">{t('caseForm.numberingAuto')}</option>
+            <option value="manual">{t('caseForm.numberingManual')}</option>
+          </select>
         </Field>
-        <span className="pb-2 text-sm font-bold text-navy-700 dark:text-navy-200">لسنة</span>
-        <Field label={t('fields.case_year')}>
-          <Input
-            className="w-24"
-            dir="ltr"
-            value={String(form.case_year || '')}
-            onChange={(e) => setField('case_year', e.target.value)}
-          />
-        </Field>
-        <span className="pb-2 text-sm font-bold text-navy-700 dark:text-navy-200">ق</span>
+        {String(form.__numbering_mode || (String(form.office_case_number || '').trim() ? 'manual' : 'auto')) === 'auto' ? (
+          <>
+            <p className="text-xs text-navy-500">{t('caseForm.numberingAutoHint')}</p>
+            <div className="max-w-[8rem]">
+              <Field label={t('fields.case_year')}>
+                <Input
+                  dir="ltr"
+                  value={String(form.case_year || '')}
+                  onChange={(e) => setField('case_year', e.target.value)}
+                />
+              </Field>
+            </div>
+          </>
+        ) : (
+          <>
+        <div className="flex flex-wrap items-end gap-2">
+          <Field label={t('fields.office_case_number')}>
+            <Input
+              className="w-32"
+              dir="ltr"
+              value={String(form.office_case_number || '')}
+              onChange={(e) => setField('office_case_number', e.target.value)}
+              placeholder="6720"
+            />
+          </Field>
+          <span className="pb-2 text-sm font-bold text-navy-700 dark:text-navy-200">لسنة</span>
+          <Field label={t('fields.case_year')}>
+            <Input
+              className="w-24"
+              dir="ltr"
+              value={String(form.case_year || '')}
+              onChange={(e) => setField('case_year', e.target.value)}
+            />
+          </Field>
+          <span className="pb-2 text-sm font-bold text-navy-700 dark:text-navy-200">ق</span>
+        </div>
+        <p className="text-xs text-navy-500">{t('caseForm.numberingManualHint')}</p>
+          </>
+        )}
       </div>
 
       <div className="space-y-2 rounded-lg border border-navy-100 p-2 dark:border-navy-700">
@@ -290,6 +332,7 @@ export function CaseFormExtras({
                       kind="clients"
                       value={form.client_id as string | number | undefined}
                       excludeIds={extras.map((x) => x.client_id).filter(Boolean)}
+                      extraOptions={pinnedClients}
                       onChange={(v) => setField('client_id', v === '' ? '' : v)}
                     />
                   </div>
@@ -327,6 +370,7 @@ export function CaseFormExtras({
                     <EntitySelect
                       kind="clients"
                       value={row.client_id}
+                      extraOptions={pinnedClients}
                       excludeIds={[String(form.client_id || ''), ...extras.map((x) => x.client_id)].filter(
                         (id) => id && id !== row.client_id
                       )}
@@ -406,6 +450,7 @@ export function CaseFormExtras({
                       kind="opponents"
                       value={form.opponent_id as string | number | undefined}
                       excludeIds={extraOpps.map((x) => x.opponent_id).filter(Boolean)}
+                      extraOptions={pinnedOpps}
                       onChange={(v) => onPickOpponent(v)}
                     />
                   </div>
@@ -443,6 +488,7 @@ export function CaseFormExtras({
                     <EntitySelect
                       kind="opponents"
                       value={row.opponent_id}
+                      extraOptions={pinnedOpps}
                       excludeIds={[String(form.opponent_id || ''), ...extraOpps.map((x) => x.opponent_id)].filter(
                         (id) => id && id !== row.opponent_id
                       )}
