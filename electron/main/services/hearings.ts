@@ -10,17 +10,18 @@ import { hearingSchema, parseSchema } from '@shared/schemas'
 import { rememberLookup } from './lookups'
 import { createTask } from './schedule'
 import { clampPageSize, pageKind, pickSort, sqlDir } from '../db/queryLimits'
+import { casePrintJoinSql, casePrintSelectSql, enrichPrintRows } from './printCaseFields'
 
 export function listHearings(query: ListQuery = {}) {
   const db = getDb()
   const page = query.page ?? 1
   const pageSize = clampPageSize(query.pageSize, pageKind(query))
   const params: unknown[] = []
-  let where = `WHERE ${notDeleted('h')} AND ${notDeleted('cs')} AND ${notDeleted('cl')}`
+  let where = `WHERE ${notDeleted('h')}`
   if (query.search) {
-    where += ` AND (cs.title LIKE ? OR cs.case_number LIKE ? OR cl.full_name LIKE ?)`
+    where += ` AND (cs.title LIKE ? OR cs.case_number LIKE ? OR cl.full_name LIKE ? OR h.expert_name LIKE ?)`
     const s = `%${query.search}%`
-    params.push(s, s, s)
+    params.push(s, s, s, s)
   }
   const f = query.filters ?? {}
   if (f.status) {
@@ -49,7 +50,10 @@ export function listHearings(query: ListQuery = {}) {
   const total = (
     db
       .prepare(
-        `SELECT COUNT(*) as c FROM hearings h JOIN cases cs ON cs.id = h.case_id JOIN clients cl ON cl.id = cs.client_id ${where}`
+        `SELECT COUNT(*) as c FROM hearings h
+         LEFT JOIN cases cs ON cs.id = h.case_id AND ${notDeleted('cs')}
+         LEFT JOIN clients cl ON cl.id = cs.client_id AND ${notDeleted('cl')}
+         ${where}`
       )
       .get(...params) as { c: number }
   ).c
@@ -65,21 +69,35 @@ export function listHearings(query: ListQuery = {}) {
   const rows = db
     .prepare(
       `SELECT h.id, h.case_id, h.hearing_date, h.hearing_time, h.hearing_type, h.previous_decision, h.court_decision,
-              h.hall, h.floor, h.venue, h.status, h.result, h.lawyer_id,
-              cs.title as case_title, cs.case_number, cs.court, cs.circuit, cs.client_id, cl.full_name as client_name,
-              l.full_name as lawyer_name
+              h.hall, h.floor, h.venue, h.expert_name, h.expert_office, h.status, h.result, h.lawyer_id,
+              h.what_happened, h.next_actions, h.notes, cs.client_id,
+              ${casePrintSelectSql('cs')},
+              cl.full_name as client_name,
+              l.full_name as lawyer_name,
+              (SELECT t.description FROM tasks t
+                WHERE t.hearing_id = h.id AND ${notDeleted('t')} AND IFNULL(t.work_kind, 'admin') = 'admin'
+                  AND t.status NOT IN ('completed', 'cancelled')
+                ORDER BY t.due_date IS NULL, t.due_date ASC, t.created_at DESC LIMIT 1) as current_admin_action,
+              (SELECT t.id FROM tasks t
+                WHERE t.hearing_id = h.id AND ${notDeleted('t')} AND IFNULL(t.work_kind, 'admin') = 'admin'
+                  AND t.status NOT IN ('completed', 'cancelled')
+                ORDER BY t.due_date IS NULL, t.due_date ASC, t.created_at DESC LIMIT 1) as current_admin_task_id,
+              (SELECT COUNT(*) FROM tasks t
+                WHERE t.case_id = h.case_id AND ${notDeleted('t')} AND IFNULL(t.work_kind, 'admin') = 'admin'
+                  AND t.status NOT IN ('cancelled')) as case_admin_count
        FROM hearings h
-       JOIN cases cs ON cs.id = h.case_id
-       JOIN clients cl ON cl.id = cs.client_id
+       ${casePrintJoinSql('h.case_id')}
+       LEFT JOIN clients cl ON cl.id = cs.client_id AND ${notDeleted('cl')}
        LEFT JOIN lawyers l ON l.id = h.lawyer_id AND ${notDeleted('l')}
        ${where} ORDER BY ${order}${dir} LIMIT ? OFFSET ?`
     )
     .all(...params, pageSize, (page - 1) * pageSize)
-  return { rows, total, page, pageSize }
+  return { rows: enrichPrintRows(rows), total, page, pageSize }
 }
 
 export function getHearing(id: string) {
-  const row = getDb()
+  const db = getDb()
+  const row = db
     .prepare(
       `SELECT h.*, cs.title as case_title, cs.case_number, cl.full_name as client_name
        FROM hearings h JOIN cases cs ON cs.id = h.case_id JOIN clients cl ON cl.id = cs.client_id
@@ -87,7 +105,16 @@ export function getHearing(id: string) {
     )
     .get(id)
   if (!row) throw new Error('الجلسة غير موجودة')
-  return row
+  const upcoming_procedures = db
+    .prepare(
+      `SELECT t.id, COALESCE(NULLIF(TRIM(t.description), ''), t.title) as title, t.due_date
+       FROM tasks t
+       WHERE t.hearing_id = ? AND ${notDeleted('t')} AND IFNULL(t.work_kind, 'admin') = 'admin'
+         AND t.status NOT IN ('cancelled')
+       ORDER BY t.due_date IS NULL, t.due_date ASC, t.created_at ASC`
+    )
+    .all(id)
+  return { ...(row as object), upcoming_procedures }
 }
 
 function attachHearingReminder(hearingId: string, caseId: string, date: string, time?: string | null) {
@@ -122,8 +149,8 @@ export function createHearing(actor: AuthedUser, data: Record<string, unknown>) 
   db.prepare(
     `INSERT INTO hearings (
         id, case_id, hearing_date, hearing_time, hearing_type, previous_decision, hall, floor, venue, lawyer_id, status, result, court_decision,
-        postponement_reason, next_hearing_date, what_happened, required_documents, next_actions, notes, created_at, updated_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        postponement_reason, next_hearing_date, what_happened, required_documents, next_actions, notes, expert_name, expert_office, created_at, updated_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).run(
     id,
     caseId,
@@ -144,11 +171,14 @@ export function createHearing(actor: AuthedUser, data: Record<string, unknown>) 
     data.required_documents ?? null,
     data.next_actions ?? null,
     data.notes ?? null,
+    data.expert_name ?? null,
+    data.expert_office ?? null,
     ts,
     ts
   )
   recordLocalChange('hearings', id, 'INSERT')
   rememberLookup('hearing_type', data.hearing_type)
+  rememberLookup('hearing_status', data.status)
   rememberLookup('venue', data.venue)
   attachHearingReminder(id, caseId, String(data.hearing_date), data.hearing_time as string | undefined)
   const blob = [data.court_decision, data.postponement_reason, data.next_hearing_date, data.result, data.notes]
@@ -172,7 +202,7 @@ export function createHearing(actor: AuthedUser, data: Record<string, unknown>) 
     )
   }
   const followUp = judgmentFollowUp(String(data.court_decision ?? data.result ?? blob))
-  const autoTasks = migrateAdminFromHearing(actor, caseId, data)
+  const autoTasks = migrateAdminFromHearing(actor, caseId, id, data)
   audit(actor, 'create', 'hearings', id, `تم إنشاء جلسة للقضية بتاريخ ${data.hearing_date}`)
   return { id, autoHearing, followUp, autoTasks }
 }
@@ -203,7 +233,7 @@ export function updateHearing(actor: AuthedUser, id: string, data: Record<string
   db.prepare(
     `UPDATE hearings SET hearing_date=?, hearing_time=?, hearing_type=?, previous_decision=?, hall=?, floor=?, venue=?, lawyer_id=?, status=?, result=?,
       court_decision=?, postponement_reason=?, next_hearing_date=?, what_happened=?, required_documents=?,
-      next_actions=?, notes=?, updated_at=? WHERE id=?`
+      next_actions=?, notes=?, expert_name=?, expert_office=?, updated_at=? WHERE id=?`
   ).run(
     data.hearing_date,
     data.hearing_time ?? null,
@@ -222,11 +252,14 @@ export function updateHearing(actor: AuthedUser, id: string, data: Record<string
     data.required_documents ?? null,
     data.next_actions ?? null,
     data.notes ?? null,
+    data.expert_name ?? null,
+    data.expert_office ?? null,
     nowIso(),
     id
   )
   recordLocalChange('hearings', id, 'UPDATE')
   rememberLookup('hearing_type', data.hearing_type)
+  rememberLookup('hearing_status', data.status)
   rememberLookup('venue', data.venue)
   let autoHearing = false
   if (parsedNext && parsedNext !== old.hearing_date) {
@@ -238,7 +271,7 @@ export function updateHearing(actor: AuthedUser, id: string, data: Record<string
     })
   }
   const followUp = judgmentFollowUp(blob)
-  const autoTasks = migrateAdminFromHearing(actor, old.case_id, data)
+  const autoTasks = migrateAdminFromHearing(actor, old.case_id, id, data)
   audit(actor, 'update', 'hearings', id, `تم تعديل الجلسة رقم ${id}`, old, data)
   return { id, autoHearing, followUp, autoTasks }
 }
@@ -314,27 +347,33 @@ function parseLooseDate(text: string, refDate?: string): string | null {
   return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 }
 
-function migrateAdminFromHearing(actor: AuthedUser, caseId: string, data: Record<string, unknown>): number {
+function migrateAdminFromHearing(actor: AuthedUser, caseId: string, hearingId: string, data: Record<string, unknown>): number {
   const dueFallback =
     normalizeHearingDate(data.next_hearing_date, String(data.hearing_date)) || String(data.hearing_date || '')
-  const items: { title: string; due_date: string }[] = []
-  const upcoming = data.upcoming_procedures as { title?: string; due_date?: string }[] | undefined
+  const items: { id?: string; title: string; due_date: string }[] = []
+  const upcoming = data.upcoming_procedures as { id?: string; title?: string; description?: string; due_date?: string }[] | undefined
   if (Array.isArray(upcoming)) {
     for (const p of upcoming) {
-      const title = String(p?.title ?? '').trim()
+      const title = String(p?.title ?? p?.description ?? '').trim()
       if (title.length < 2) continue
-      items.push({ title, due_date: String(p.due_date || '').trim() || dueFallback })
+      items.push({
+        id: String(p?.id || '').trim() || undefined,
+        title,
+        due_date: String(p.due_date || '').trim() || dueFallback
+      })
     }
   }
-  const blob = [data.required_documents, data.next_actions]
-    .map((v) => String(v ?? '').trim())
-    .filter(Boolean)
-    .join('\n')
-  if (blob) {
-    for (const part of blob.split(/\s*[+\n؛;]\s*/).map((s) => s.replace(/\s+/g, ' ').trim())) {
-      if (part.length < 4) continue
-      if (items.some((x) => x.title === part)) continue
-      items.push({ title: part, due_date: dueFallback })
+  if (!items.length) {
+    const blob = [data.required_documents, data.next_actions]
+      .map((v) => String(v ?? '').trim())
+      .filter(Boolean)
+      .join('\n')
+    if (blob) {
+      for (const part of blob.split(/\s*[+\n؛;]\s*/).map((s) => s.replace(/\s+/g, ' ').trim())) {
+        if (part.length < 4) continue
+        if (items.some((x) => x.title === part)) continue
+        items.push({ title: part, due_date: dueFallback })
+      }
     }
   }
   if (!items.length) return 0
@@ -344,21 +383,32 @@ function migrateAdminFromHearing(actor: AuthedUser, caseId: string, data: Record
     | undefined
   let n = 0
   for (const item of items) {
-    if (!item.due_date) continue
+    const due = item.due_date || dueFallback
+    if (!due) continue
+    if (item.id) {
+      const owned = db
+        .prepare(`SELECT id FROM tasks WHERE id = ? AND hearing_id = ? AND ${notDeleted()}`)
+        .get(item.id, hearingId)
+      if (owned) continue
+    }
     const exists = db
-      .prepare(`SELECT id FROM tasks WHERE case_id = ? AND description = ? AND ${notDeleted()}`)
-      .get(caseId, item.title) as { id: string } | undefined
+      .prepare(
+        `SELECT id FROM tasks WHERE hearing_id = ? AND ${notDeleted()} AND IFNULL(work_kind, 'admin') = 'admin'
+           AND (description = ? OR title = ?) LIMIT 1`
+      )
+      .get(hearingId, item.title, item.title) as { id: string } | undefined
     if (exists) continue
     createTask(actor, {
-      title: item.title.slice(0, 48),
+      title: item.title.slice(0, 80),
       description: item.title,
       venue: data.venue || null,
       case_subject: cs?.title || null,
-      due_date: item.due_date,
+      due_date: due,
       case_id: caseId,
       client_id: cs?.client_id,
       work_kind: 'admin',
-      status: 'not_done'
+      status: 'not_done',
+      hearing_id: hearingId
     })
     n += 1
   }

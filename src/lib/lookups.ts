@@ -1,4 +1,5 @@
 import { invoke } from './api'
+import { displayCaseCode, displayClientCode } from './courtNumber'
 
 export type LookupKind =
   | 'clients'
@@ -32,7 +33,7 @@ export async function fetchLookup(kind: LookupKind, filters?: Record<string, unk
       'clients:list',
       q40(search, includeIds)
     )
-    return r.rows.map((x) => ({ value: x.id, label: `${x.client_number} — ${x.full_name}` }))
+    return r.rows.map((x) => ({ value: x.id, label: `${displayClientCode(x.client_number)} — ${x.full_name}` }))
   }
   if (kind === 'cases') {
     const r = await invoke<{ rows: { id: string; title: string; case_number: string; client_id?: string }[] }>('cases:list', {
@@ -41,7 +42,7 @@ export async function fetchLookup(kind: LookupKind, filters?: Record<string, unk
     })
     return r.rows.map((x) => ({
       value: x.id,
-      label: `${x.case_number} — ${x.title}`,
+      label: `${displayCaseCode(x)} — ${x.title}`,
       extra: { client_id: x.client_id }
     }))
   }
@@ -93,7 +94,7 @@ export async function fetchLookup(kind: LookupKind, filters?: Record<string, unk
     )
     return r.rows.map((x) => ({
       value: x.id,
-      label: `${x.case_number || ''} — ${x.hearing_date}`
+      label: `${displayCaseCode({ case_number: x.case_number })} — ${x.hearing_date}`
     }))
   }
   if (kind === 'contracts') {

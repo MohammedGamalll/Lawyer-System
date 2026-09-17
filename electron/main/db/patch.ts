@@ -52,7 +52,33 @@ const LOOKUP_SEEDS: Record<string, string[]> = {
   venue: ['شبرا الخيمة', '6 أكتوبر', 'منيا القمح'],
   capacity: ['مدعي', 'مدعى عليه', 'متهم', 'مجني عليه', 'مستأنف', 'مستأنف ضده', 'طاعن', 'مطعون ضده'],
   profession: ['شخص', 'مدير شركة', 'رئيس مجلس إدارة', 'عضو منتدب', 'محام', 'موظف'],
-  doc_category: ['بطاقة', 'كارنيه', 'توكيل', 'جواز سفر', 'عقد', 'شهادة ميلاد', 'أخرى']
+  doc_category: ['بطاقة', 'كارنيه', 'توكيل', 'جواز سفر', 'عقد', 'شهادة ميلاد', 'أخرى'],
+  police_station: ['قسم أول شبرا الخيمة', 'قسم ثان شبرا الخيمة', 'قسم ثان بنها'],
+  link_type: ['original', 'appeal', 'cassation', 'execution'],
+  poa_office: ['توثيق بنها', 'توثيق شبرا الخيمة', 'توثيق قليوب'],
+  task_status: ['not_done', 'new', 'in_progress', 'completed', 'overdue', 'cancelled'],
+  payment_type: ['fees', 'advance', 'installment', 'consultation', 'service', 'reimbursed'],
+  due_type: ['أتعاب إضافية', 'مصروف', 'رسوم محكمة', 'أخرى'],
+  execution_kind: ['مدني', 'جنائي'],
+  police_report_kind: ['حصر', 'جدول', 'جنحة', 'محضر'],
+  case_status: [
+    'new',
+    'under_review',
+    'filed',
+    'in_trial',
+    'postponed',
+    'for_judgment',
+    'judged',
+    'appeal',
+    'cassation',
+    'execution',
+    'closed',
+    'archived'
+  ],
+  hearing_status: ['upcoming', 'done', 'postponed', 'cancelled', 'judged', 'client_absent', 'lawyer_absent'],
+  poa_status: ['active', 'expired', 'revoked'],
+  contract_status: ['active', 'expired', 'cancelled'],
+  staff_status: ['active', 'inactive']
 }
 
 export function patchSchema(db: Db): void {
@@ -134,6 +160,31 @@ export function patchSchema(db: Db): void {
   addColumn(db, 'employees', 'phone_home', 'TEXT')
   addColumn(db, 'employees', 'phone_other', 'TEXT')
   addColumn(db, 'employees', 'address', 'TEXT')
+  addColumn(db, 'cases', 'police_station', 'TEXT')
+  addColumn(db, 'hearings', 'expert_name', 'TEXT')
+  addColumn(db, 'hearings', 'expert_office', 'TEXT')
+  addColumn(db, 'tasks', 'hearing_id', 'TEXT')
+  addColumn(db, 'tasks', 'execution_kind', 'TEXT')
+  addColumn(db, 'tasks', 'police_report_no', 'TEXT')
+  addColumn(db, 'tasks', 'police_station', 'TEXT')
+  addColumn(db, 'tasks', 'police_report_kind', 'TEXT')
+  addColumn(db, 'lawyers', 'national_id', 'TEXT')
+  addColumn(db, 'employees', 'national_id', 'TEXT')
+  addColumn(db, 'power_of_attorney', 'poa_year', 'TEXT')
+  addColumn(db, 'power_of_attorney', 'poa_letter', 'TEXT')
+  addColumn(db, 'power_of_attorney', 'poa_office', 'TEXT')
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS case_dues (
+      id TEXT PRIMARY KEY,
+      case_id TEXT NOT NULL REFERENCES cases(id),
+      amount REAL NOT NULL,
+      due_type TEXT,
+      notes TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deleted_at TEXT
+    );
+  `)
   db.exec(`
     CREATE TABLE IF NOT EXISTS document_pages (
       id TEXT PRIMARY KEY,

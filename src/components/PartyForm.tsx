@@ -8,6 +8,7 @@ import { LookupCombo } from './LookupCombo'
 import { AttachDocumentControl, uploadPendingDocs, type PendingDoc } from './DocumentTools'
 import { clientBlankFormHtml } from '../lib/clientBlankForm'
 import { FloatingMenu } from './FloatingMenu'
+import { displayClientCode } from '../lib/courtNumber'
 
 type NameHit = { id: string; full_name: string; client_number?: string; national_id?: string | null }
 
@@ -79,7 +80,7 @@ function NameSuggest({
                 }}
               >
                 <span className="font-semibold">{h.full_name}</span>
-                {h.client_number ? <span className="ms-2 text-xs text-navy-400">{h.client_number}</span> : null}
+                {h.client_number ? <span className="ms-2 text-xs text-navy-400">{displayClientCode(h.client_number)}</span> : null}
               </button>
               <button
                 type="button"
@@ -311,7 +312,7 @@ export function PartyForm({ values, onChange, errors, partyId, entity = 'client'
           <Input value={v('poa_letter')} onChange={(e) => onChange('poa_letter', e.target.value)} />
         </Fit>
         <Fit label={t('fields.poa_office')} ch={22} grow error={errors?.poa_office}>
-          <Input value={v('poa_office')} onChange={(e) => onChange('poa_office', e.target.value)} />
+          <LookupCombo kind="poa_office" value={v('poa_office')} onChange={(s) => onChange('poa_office', s)} />
         </Fit>
       </div>
 
@@ -392,8 +393,12 @@ export const ClientForm = (props: Omit<Props, 'entity'> & { clientId?: string })
   <PartyForm {...props} partyId={props.partyId || props.clientId} entity="client" />
 )
 
-export async function uploadClientPendingDocs(clientId: string, form: Record<string, unknown>) {
-  await uploadPendingDocs({ client_id: clientId }, form)
+export async function uploadClientPendingDocs(
+  clientId: string,
+  form: Record<string, unknown>,
+  extra?: Record<string, unknown>
+) {
+  await uploadPendingDocs({ client_id: clientId }, form, extra)
 }
 
 export async function uploadOpponentPendingDocs(opponentId: string, form: Record<string, unknown>) {

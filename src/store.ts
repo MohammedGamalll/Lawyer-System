@@ -27,7 +27,7 @@ type AppState = {
 
 export const useApp = create<AppState>((set, get) => ({
   user: null,
-  page: 'home',
+  page: 'alerts',
   pageMeta: {},
   navStack: [],
   theme: 'light',
@@ -50,7 +50,7 @@ export const useApp = create<AppState>((set, get) => ({
     const stack = [...get().navStack]
     const prev = stack.pop()
     if (!prev) {
-      set({ page: 'home', pageMeta: {}, navStack: [] })
+      set({ page: 'alerts', pageMeta: {}, navStack: [] })
       return
     }
     set({ page: prev.page, pageMeta: prev.pageMeta, navStack: stack })

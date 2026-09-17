@@ -7,6 +7,8 @@ import { createReminder, reminderBeforeExpiry } from './reminders'
 import type { AuthedUser } from '../ipc/helpers'
 import type { ListQuery } from '@shared/types'
 import { clampPageSize, pageKind } from '../db/queryLimits'
+import { rememberLookup } from './lookups'
+import { arabicLike, foldedLikeTerm } from '@shared/arabic'
 
 export function listPoa(q: ListQuery = {}) {
   const db = getDb()
@@ -15,9 +17,9 @@ export function listPoa(q: ListQuery = {}) {
   const params: unknown[] = []
   let where = `WHERE ${notDeleted('p')}`
   if (q.search) {
-    where += ' AND (p.poa_number LIKE ? OR cl.full_name LIKE ?)'
-    const s = `%${q.search}%`
-    params.push(s, s)
+    where += ` AND (p.poa_number LIKE ? OR ${arabicLike('cl.full_name')} OR ${arabicLike('p.poa_office')})`
+    const s = foldedLikeTerm(q.search)
+    params.push(s, s, s)
   }
   const total = (
     db.prepare(`SELECT COUNT(*) as c FROM power_of_attorney p LEFT JOIN clients cl ON cl.id = p.client_id AND ${notDeleted('cl')} ${where}`).get(
@@ -26,7 +28,16 @@ export function listPoa(q: ListQuery = {}) {
   ).c
   const rows = db
     .prepare(
-      `SELECT p.*, cl.full_name as client_name, l.full_name as lawyer_name
+      `SELECT p.*, cl.full_name as client_name, l.full_name as lawyer_name,
+              COALESCE(
+                NULLIF(p.document_id, ''),
+                (
+                  SELECT d.id FROM documents d
+                  WHERE d.client_id = p.client_id AND ${notDeleted('d')}
+                    AND lower(IFNULL(d.category,'')) IN ('poa','توكيل')
+                  ORDER BY d.created_at DESC LIMIT 1
+                )
+              ) as document_id
        FROM power_of_attorney p
        LEFT JOIN clients cl ON cl.id = p.client_id AND ${notDeleted('cl')}
        LEFT JOIN lawyers l ON l.id = p.lawyer_id AND ${notDeleted('l')}
@@ -42,15 +53,18 @@ export function createPoa(actor: AuthedUser, data: Record<string, unknown>) {
   const id = newId()
   const ts = nowIso()
   db.prepare(
-    `INSERT INTO power_of_attorney (id, poa_number, poa_type, client_id, lawyer_id, issuing_authority, issue_date, expiry_date, status, document_id, notes, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    `INSERT INTO power_of_attorney (id, poa_number, poa_type, client_id, lawyer_id, issuing_authority, poa_year, poa_letter, poa_office, issue_date, expiry_date, status, document_id, notes, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).run(
     id,
     number,
     data.poa_type ?? null,
     asIdOrNull(data.client_id),
     asIdOrNull(data.lawyer_id),
-    data.issuing_authority ?? null,
+    data.issuing_authority ?? data.poa_office ?? null,
+    data.poa_year ?? null,
+    data.poa_letter ?? null,
+    data.poa_office ?? null,
     data.issue_date ?? null,
     data.expiry_date ?? null,
     data.status ?? 'active',
@@ -60,6 +74,8 @@ export function createPoa(actor: AuthedUser, data: Record<string, unknown>) {
     ts
   )
   recordLocalChange('power_of_attorney', id, 'INSERT')
+  rememberLookup('poa_office', data.poa_office)
+  rememberLookup('poa_status', data.status)
   if (data.expiry_date) {
     createReminder({
       reminder_type: 'poa_expiry',
@@ -78,21 +94,27 @@ export function createPoa(actor: AuthedUser, data: Record<string, unknown>) {
 export function updatePoa(actor: AuthedUser, id: string, data: Record<string, unknown>) {
   getDb()
     .prepare(
-      `UPDATE power_of_attorney SET poa_type=?, client_id=?, lawyer_id=?, issuing_authority=?, issue_date=?, expiry_date=?, status=?, notes=?, updated_at=? WHERE id=?`
+      `UPDATE power_of_attorney SET poa_type=?, client_id=?, lawyer_id=?, issuing_authority=?, poa_year=?, poa_letter=?, poa_office=?, issue_date=?, expiry_date=?, status=?, document_id=?, notes=?, updated_at=? WHERE id=?`
     )
     .run(
       data.poa_type ?? null,
       asIdOrNull(data.client_id),
       asIdOrNull(data.lawyer_id),
-      data.issuing_authority ?? null,
+      data.issuing_authority ?? data.poa_office ?? null,
+      data.poa_year ?? null,
+      data.poa_letter ?? null,
+      data.poa_office ?? null,
       data.issue_date ?? null,
       data.expiry_date ?? null,
       data.status ?? 'active',
+      asIdOrNull(data.document_id),
       data.notes ?? null,
       nowIso(),
       id
     )
   recordLocalChange('power_of_attorney', id, 'UPDATE')
+  rememberLookup('poa_office', data.poa_office)
+  rememberLookup('poa_status', data.status)
   audit(actor, 'update', 'poa', id, `تم تعديل التوكيل`)
   return { id }
 }
@@ -100,6 +122,26 @@ export function updatePoa(actor: AuthedUser, id: string, data: Record<string, un
 export function removePoa(actor: AuthedUser, id: string) {
   softDelete('power_of_attorney', id)
   audit(actor, 'delete', 'poa', id, `تم حذف توكيل رقم ${id}`)
+}
+
+export function upsertClientPoa(actor: AuthedUser, clientId: string, data: Record<string, unknown>) {
+  const number = String(data.poa_number ?? '').trim()
+  if (!number) return null
+  const db = getDb()
+  const existing = db
+    .prepare(`SELECT id FROM power_of_attorney WHERE poa_number = ? AND ${notDeleted()}`)
+    .get(number) as { id: string } | undefined
+  const payload = {
+    ...data,
+    poa_number: number,
+    client_id: clientId,
+    issuing_authority: data.poa_office || data.issuing_authority
+  }
+  if (existing) {
+    updatePoa(actor, existing.id, payload)
+    return { id: existing.id, poa_number: number }
+  }
+  return createPoa(actor, payload)
 }
 
 export function listContracts(q: ListQuery = {}) {
@@ -155,6 +197,7 @@ export function createContract(actor: AuthedUser, data: Record<string, unknown>)
     ts
   )
   recordLocalChange('contracts', id, 'INSERT')
+  rememberLookup('contract_status', data.status)
   if (data.end_date) {
     createReminder({
       reminder_type: 'contract_renewal',
@@ -189,6 +232,7 @@ export function updateContract(actor: AuthedUser, id: string, data: Record<strin
       id
     )
   recordLocalChange('contracts', id, 'UPDATE')
+  rememberLookup('contract_status', data.status)
   audit(actor, 'update', 'contracts', id, 'تم تعديل العقد')
   return { id }
 }

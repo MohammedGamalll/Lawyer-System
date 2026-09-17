@@ -10,6 +10,7 @@ import { rememberLookup } from './lookups'
 import { maskClientContactFields } from './clients'
 import { clampPageSize, pageKind, pickSort, sqlDir, includeIds } from '../db/queryLimits'
 import { ftsQuery } from '../db/fts'
+import { arabicLike, foldedLikeTerm } from '@shared/arabic'
 
 function splitCourtQuery(raw: string): { number: string; year: string } {
   const t = String(raw ?? '').trim()
@@ -43,20 +44,20 @@ function applyNameAnd(
   kind: 'client' | 'opponent'
 ): string {
   for (const tok of parts) {
-    const like = `%${tok}%`
+    const like = foldedLikeTerm(tok)
     if (kind === 'client') {
       where += ` AND (
-        cl.full_name LIKE ? OR EXISTS (
+        ${arabicLike('cl.full_name')} OR EXISTS (
           SELECT 1 FROM case_clients x JOIN clients cx ON cx.id = x.client_id
-          WHERE x.case_id = c.id AND ${notDeleted('x')} AND ${notDeleted('cx')} AND cx.full_name LIKE ?
+          WHERE x.case_id = c.id AND ${notDeleted('x')} AND ${notDeleted('cx')} AND ${arabicLike('cx.full_name')}
         )
       )`
       params.push(like, like)
     } else {
       where += ` AND (
-        IFNULL(c.opponent_name,'') LIKE ? OR EXISTS (
+        ${arabicLike("IFNULL(c.opponent_name,'')")} OR EXISTS (
           SELECT 1 FROM case_opponents xo JOIN opponents ox ON ox.id = xo.opponent_id
-          WHERE xo.case_id = c.id AND ${notDeleted('xo')} AND ${notDeleted('ox')} AND ox.full_name LIKE ?
+          WHERE xo.case_id = c.id AND ${notDeleted('xo')} AND ${notDeleted('ox')} AND ${arabicLike('ox.full_name')}
         )
       )`
       params.push(like, like)
@@ -76,8 +77,8 @@ export function listCases(query: ListQuery = {}, archived = 0) {
     where += ` AND c.rowid IN (SELECT rowid FROM cases_fts WHERE cases_fts MATCH ?)`
     params.push(fts)
   } else if (query.search) {
-    where += ` AND (c.title LIKE ? OR c.case_number LIKE ? OR c.office_case_number LIKE ? OR c.case_year LIKE ? OR c.internal_file_number LIKE ? OR cl.full_name LIKE ? OR c.category LIKE ? OR c.opponent_name LIKE ?)`
-    const s = `%${query.search}%`
+    where += ` AND (${arabicLike('c.title')} OR c.case_number LIKE ? OR c.office_case_number LIKE ? OR c.case_year LIKE ? OR c.internal_file_number LIKE ? OR ${arabicLike('cl.full_name')} OR ${arabicLike('c.category')} OR ${arabicLike('c.opponent_name')})`
+    const s = foldedLikeTerm(query.search)
     params.push(s, s, s, s, s, s, s, s)
   }
   const f = query.filters ?? {}
@@ -125,6 +126,25 @@ export function listCases(query: ListQuery = {}, archived = 0) {
     where += ' AND c.client_id = ?'
     params.push(f.client_id)
   }
+  if (f.upcoming) {
+    where += ` AND EXISTS (SELECT 1 FROM hearings h WHERE h.case_id = c.id AND ${notDeleted('h')} AND date(h.hearing_date) >= date('now'))`
+  }
+  if (f.title) {
+    where += ` AND ${arabicLike('c.title')}`
+    params.push(foldedLikeTerm(String(f.title)))
+  }
+  if (f.court) {
+    where += ` AND ${arabicLike("IFNULL(c.court,'')")}`
+    params.push(foldedLikeTerm(String(f.court)))
+  }
+  if (f.date_from) {
+    where += ` AND date(IFNULL(c.received_date, IFNULL(c.filing_date, c.created_at))) >= date(?)`
+    params.push(String(f.date_from).slice(0, 10))
+  }
+  if (f.date_to) {
+    where += ` AND date(IFNULL(c.received_date, IFNULL(c.filing_date, c.created_at))) <= date(?)`
+    params.push(String(f.date_to).slice(0, 10))
+  }
   const isLookup = pageKind(query) === 'lookup'
   const pinIds = includeIds(query)
   const total = (
@@ -152,7 +172,7 @@ export function listCases(query: ListQuery = {}, archived = 0) {
   const rows = db
     .prepare(
       `SELECT c.id, c.case_number, c.office_case_number, c.case_year, c.title, c.category, c.status, c.court, c.circuit,
-              c.filing_date, c.received_date, c.client_id, c.opponent_name, c.primary_lawyer_id, c.case_type_id,
+              c.session_place, c.filing_date, c.received_date, c.client_id, c.opponent_name, c.primary_lawyer_id, c.case_type_id,
               cl.full_name as client_name, cl.client_number, ct.name_ar as case_type_name, l.full_name as lawyer_name,
               ${extraSelect}
        FROM cases c
@@ -169,7 +189,7 @@ export function listCases(query: ListQuery = {}, archived = 0) {
       const extra = db
         .prepare(
           `SELECT c.id, c.case_number, c.office_case_number, c.case_year, c.title, c.category, c.status, c.court, c.circuit,
-                  c.filing_date, c.received_date, c.client_id, c.opponent_name, c.primary_lawyer_id, c.case_type_id,
+                  c.session_place, c.filing_date, c.received_date, c.client_id, c.opponent_name, c.primary_lawyer_id, c.case_type_id,
                   cl.full_name as client_name, cl.client_number, ct.name_ar as case_type_name, l.full_name as lawyer_name,
                   ${extraSelect}
            FROM cases c
@@ -247,12 +267,14 @@ export function getCase(id: string, actor?: AuthedUser | null) {
   )
   const tasks = db
     .prepare(
-      `SELECT id, title, venue, case_subject, due_date, status FROM tasks WHERE case_id = ? AND ${notDeleted()} ORDER BY due_date IS NULL, due_date LIMIT 80`
+      `SELECT id, title, description, venue, case_subject, due_date, status, work_kind, execution_kind,
+              police_report_no, police_report_kind, police_station
+       FROM tasks WHERE case_id = ? AND ${notDeleted()} ORDER BY due_date IS NULL, due_date LIMIT 80`
     )
     .all(id)
   const payments = db
     .prepare(
-      `SELECT id, payment_number, amount, payment_date, payment_method FROM payments WHERE case_id = ? AND ${notDeleted()} ORDER BY payment_date DESC, created_at DESC LIMIT 80`
+      `SELECT id, payment_number, amount, payment_date, payment_method, payment_type FROM payments WHERE case_id = ? AND ${notDeleted()} ORDER BY payment_date DESC, created_at DESC LIMIT 80`
     )
     .all(id)
   const documents = db
@@ -260,6 +282,16 @@ export function getCase(id: string, actor?: AuthedUser | null) {
       `SELECT id, title, category, file_name, current_version FROM documents WHERE case_id = ? AND ${notDeleted()} ORDER BY created_at DESC LIMIT 80`
     )
     .all(id)
+  const dues = db
+    .prepare(
+      `SELECT id, amount, due_type, notes, created_at FROM case_dues WHERE case_id = ? AND ${notDeleted()} ORDER BY created_at DESC`
+    )
+    .all(id)
+  const expenseSum = (
+    db.prepare(`SELECT COALESCE(SUM(amount),0) as s FROM expenses WHERE case_id = ? AND ${notDeleted()}`).get(id) as {
+      s: number
+    }
+  ).s
   syncCaseFeePaid(db, id)
   const fees = db.prepare(`SELECT * FROM case_fees WHERE case_id = ? AND ${notDeleted()}`).get(id)
   return {
@@ -275,7 +307,9 @@ export function getCase(id: string, actor?: AuthedUser | null) {
     payments,
     documents,
     caseClients,
-    tasks
+    tasks,
+    dues,
+    expense_sum: expenseSum
   }
 }
 
@@ -399,6 +433,9 @@ export function createCase(actor: AuthedUser, data: Record<string, unknown>) {
     actor.id
   )
   recordLocalChange('cases', id, 'INSERT')
+  if (data.police_station != null) {
+    db.prepare('UPDATE cases SET police_station = ?, updated_at = ? WHERE id = ?').run(data.police_station || null, ts, id)
+  }
   rememberCaseLookups(data)
   syncCaseParties(id, data, true)
   if (data.total_fees) {
@@ -488,6 +525,9 @@ export function updateCase(actor: AuthedUser, id: string, data: Record<string, u
     id
   )
   recordLocalChange('cases', id, 'UPDATE')
+  if (data.police_station != null) {
+    db.prepare('UPDATE cases SET police_station = ?, updated_at = ? WHERE id = ?').run(data.police_station || null, nowIso(), id)
+  }
   rememberCaseLookups(data)
   syncCaseParties(id, data, false)
   if (data.total_fees != null) {
@@ -592,6 +632,9 @@ function rememberCaseLookups(data: Record<string, unknown>) {
   rememberLookup('capacity', data.opponent_capacity_first)
   rememberLookup('capacity', data.opponent_capacity_appeal)
   rememberLookup('capacity', data.opponent_capacity_cassation)
+  rememberLookup('police_station', data.police_station)
+  rememberLookup('link_type', data.link_type)
+  rememberLookup('case_status', data.status)
 }
 
 function allocateCaseNumber(

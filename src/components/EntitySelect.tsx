@@ -6,6 +6,7 @@ import { invoke } from '../lib/api'
 import { onDataChanged } from '../lib/bus'
 import { FloatingMenu } from './FloatingMenu'
 import { useDebouncedValue } from '../lib/useDebouncedValue'
+import { displayClientCode } from '../lib/courtNumber'
 
 export function EntitySelect({
   kind,
@@ -80,7 +81,7 @@ export function EntitySelect({
     invoke<Record<string, unknown>>(channel, id)
       .then((row) => {
         const rec = (row.opponent as Record<string, unknown> | undefined) || row
-        const code = String(rec.client_number ?? rec.case_number ?? '')
+        const code = displayClientCode(rec.client_number ?? rec.case_number ?? '')
         const name = String(rec.full_name ?? rec.title ?? '')
         setMissingLabel(code ? `${code} — ${name}` : name)
       })

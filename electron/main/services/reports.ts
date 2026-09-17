@@ -6,6 +6,7 @@ import type { AuthedUser } from '../ipc/helpers'
 import { hasAnyPermission } from '../ipc/session'
 import { maskClientContactFields } from './clients'
 import { ftsQuery } from '../db/fts'
+import { arabicLike, foldedLikeTerm } from '@shared/arabic'
 
 export type ReportQuery = {
   type: string
@@ -316,14 +317,14 @@ export async function exportReport(q: ReportQuery, format: 'xlsx' | 'csv'): Prom
 
 export function globalSearch(term: string, actor?: AuthedUser | null) {
   const db = getDb()
-  const s = `%${term}%`
+  const s = foldedLikeTerm(term)
   const out: Record<string, unknown> = {}
   if (!actor) return out
   if (hasAnyPermission(actor, 'clients.view')) {
     out.clients = maskClientContactFields(
       db
         .prepare(
-          `SELECT id, client_number, full_name, phone FROM clients WHERE ${notDeleted()} AND (full_name LIKE ? OR client_number LIKE ? OR phone LIKE ? OR national_id LIKE ?) LIMIT 10`
+          `SELECT id, client_number, full_name, phone FROM clients WHERE ${notDeleted()} AND (${arabicLike('full_name')} OR client_number LIKE ? OR phone LIKE ? OR national_id LIKE ?) LIMIT 10`
         )
         .all(s, s, s, s),
       actor
@@ -332,7 +333,7 @@ export function globalSearch(term: string, actor?: AuthedUser | null) {
   if (hasAnyPermission(actor, 'cases.view')) {
     out.cases = db
       .prepare(
-        `SELECT id, case_number, title, status, office_case_number, case_year FROM cases WHERE ${notDeleted()} AND (title LIKE ? OR case_number LIKE ? OR opponent_name LIKE ? OR category LIKE ? OR internal_file_number LIKE ? OR office_case_number LIKE ? OR case_year LIKE ?) LIMIT 10`
+        `SELECT id, case_number, title, status, office_case_number, case_year FROM cases WHERE ${notDeleted()} AND (${arabicLike('title')} OR case_number LIKE ? OR ${arabicLike('opponent_name')} OR ${arabicLike('category')} OR internal_file_number LIKE ? OR office_case_number LIKE ? OR case_year LIKE ?) LIMIT 10`
       )
       .all(s, s, s, s, s, s, s)
   }
@@ -393,22 +394,22 @@ export function advancedSearch(filters: {
     if (filters.q) {
       const fq = ftsQuery(filters.q)
       if (fq && scope === 'hearings') {
-        sql += ` AND (cs.rowid IN (SELECT rowid FROM cases_fts WHERE cases_fts MATCH ?) OR h.hearing_type LIKE ?)`
-        params.push(fq, `%${filters.q}%`)
+        sql += ` AND (cs.rowid IN (SELECT rowid FROM cases_fts WHERE cases_fts MATCH ?) OR ${arabicLike('h.hearing_type')})`
+        params.push(fq, foldedLikeTerm(filters.q))
       } else {
-        sql += ` AND (cs.title LIKE ? OR cs.case_number LIKE ? OR cs.office_case_number LIKE ? OR cl.full_name LIKE ? OR h.hearing_type LIKE ?)`
-        const s = `%${filters.q}%`
+        sql += ` AND (${arabicLike('cs.title')} OR ${arabicLike('cs.case_number')} OR ${arabicLike('cs.office_case_number')} OR ${arabicLike('cl.full_name')} OR ${arabicLike('h.hearing_type')})`
+        const s = foldedLikeTerm(filters.q)
         params.push(s, s, s, s, s)
       }
     }
     if (filters.office_case_number) {
-      sql += ' AND (cs.office_case_number LIKE ? OR cs.case_number LIKE ?)'
-      const s = `%${filters.office_case_number}%`
+      sql += ` AND (${arabicLike('cs.office_case_number')} OR ${arabicLike('cs.case_number')})`
+      const s = foldedLikeTerm(filters.office_case_number)
       params.push(s, s)
     }
     if (filters.client_name) {
-      sql += ' AND cl.full_name LIKE ?'
-      params.push(`%${filters.client_name}%`)
+      sql += ` AND ${arabicLike('cl.full_name')}`
+      params.push(foldedLikeTerm(filters.client_name))
     }
     if (filters.hearing_from) {
       sql += ' AND h.hearing_date >= ?'
@@ -432,18 +433,41 @@ export function advancedSearch(filters: {
                LEFT JOIN clients cl ON cl.id = COALESCE(t.client_id, cs.client_id) AND ${notDeleted('cl')}
                WHERE ${notDeleted('t')} AND IFNULL(t.work_kind, 'admin') = 'admin'`
     if (filters.q) {
-      sql += ` AND (t.title LIKE ? OR t.description LIKE ? OR cs.title LIKE ? OR cs.case_number LIKE ? OR cs.office_case_number LIKE ? OR cl.full_name LIKE ?)`
-      const s = `%${filters.q}%`
+      sql += ` AND (${arabicLike('t.title')} OR ${arabicLike('t.description')} OR ${arabicLike('cs.title')} OR ${arabicLike('cs.case_number')} OR ${arabicLike('cs.office_case_number')} OR ${arabicLike('cl.full_name')})`
+      const s = foldedLikeTerm(filters.q)
       params.push(s, s, s, s, s, s)
     }
     if (filters.office_case_number) {
-      sql += ' AND (cs.office_case_number LIKE ? OR cs.case_number LIKE ?)'
-      const s = `%${filters.office_case_number}%`
+      sql += ` AND (${arabicLike('cs.office_case_number')} OR ${arabicLike('cs.case_number')})`
+      const s = foldedLikeTerm(filters.office_case_number)
       params.push(s, s)
     }
     if (filters.client_name) {
-      sql += ' AND cl.full_name LIKE ?'
-      params.push(`%${filters.client_name}%`)
+      sql += ` AND ${arabicLike('cl.full_name')}`
+      params.push(foldedLikeTerm(filters.client_name))
+    }
+    return db.prepare(`${sql} LIMIT 200`).all(...params)
+  }
+  if (scope === 'execution') {
+    let sql = `SELECT t.id, t.title, t.description, t.due_date, t.status, t.venue, cs.id as case_id, cs.title as case_title,
+                      cs.case_number, cs.office_case_number, cl.full_name as client_name, 'execution' as result_kind
+               FROM tasks t
+               LEFT JOIN cases cs ON cs.id = t.case_id AND ${notDeleted('cs')}
+               LEFT JOIN clients cl ON cl.id = COALESCE(t.client_id, cs.client_id) AND ${notDeleted('cl')}
+               WHERE ${notDeleted('t')} AND IFNULL(t.work_kind, 'admin') = 'execution'`
+    if (filters.q) {
+      sql += ` AND (${arabicLike('t.title')} OR ${arabicLike('t.description')} OR ${arabicLike('cs.title')} OR ${arabicLike('cs.case_number')} OR ${arabicLike('cs.office_case_number')} OR ${arabicLike('cl.full_name')})`
+      const s = foldedLikeTerm(filters.q)
+      params.push(s, s, s, s, s, s)
+    }
+    if (filters.office_case_number) {
+      sql += ` AND (${arabicLike('cs.office_case_number')} OR ${arabicLike('cs.case_number')})`
+      const s = foldedLikeTerm(filters.office_case_number)
+      params.push(s, s)
+    }
+    if (filters.client_name) {
+      sql += ` AND ${arabicLike('cl.full_name')}`
+      params.push(foldedLikeTerm(filters.client_name))
     }
     return db.prepare(`${sql} LIMIT 200`).all(...params)
   }
@@ -464,31 +488,31 @@ export function advancedSearch(filters: {
       sql += ` AND c.rowid IN (SELECT rowid FROM cases_fts WHERE cases_fts MATCH ?)`
       params.push(fq)
     } else {
-      sql += ` AND (c.title LIKE ? OR c.case_number LIKE ? OR c.category LIKE ? OR c.internal_file_number LIKE ? OR c.office_case_number LIKE ? OR c.case_year LIKE ? OR cl.full_name LIKE ? OR cl2.full_name LIKE ? OR ct.name_ar LIKE ? OR c.opponent_name LIKE ?)`
-      const s = `%${filters.q}%`
+      sql += ` AND (${arabicLike('c.title')} OR ${arabicLike('c.case_number')} OR ${arabicLike('c.category')} OR ${arabicLike('c.internal_file_number')} OR ${arabicLike('c.office_case_number')} OR ${arabicLike('c.case_year')} OR ${arabicLike('cl.full_name')} OR ${arabicLike('cl2.full_name')} OR ${arabicLike('ct.name_ar')} OR ${arabicLike('c.opponent_name')})`
+      const s = foldedLikeTerm(filters.q)
       params.push(s, s, s, s, s, s, s, s, s, s)
     }
   }
   if (filters.office_case_number) {
-    sql += ' AND (c.office_case_number LIKE ? OR c.case_number LIKE ?)'
-    const s = `%${filters.office_case_number}%`
+    sql += ` AND (${arabicLike('c.office_case_number')} OR ${arabicLike('c.case_number')})`
+    const s = foldedLikeTerm(filters.office_case_number)
     params.push(s, s)
   }
   if (filters.client_name) {
-    sql += ' AND (cl.full_name LIKE ? OR cl2.full_name LIKE ?)'
-    const s = `%${filters.client_name}%`
+    sql += ` AND (${arabicLike('cl.full_name')} OR ${arabicLike('cl2.full_name')})`
+    const s = foldedLikeTerm(filters.client_name)
     params.push(s, s)
   }
   if (filters.opponent_name) {
-    sql += ' AND c.opponent_name LIKE ?'
-    params.push(`%${filters.opponent_name}%`)
+    sql += ` AND ${arabicLike('c.opponent_name')}`
+    params.push(foldedLikeTerm(filters.opponent_name))
   }
   if (filters.case_type_id) {
     sql += ' AND c.case_type_id = ?'
     params.push(filters.case_type_id)
   } else if (filters.case_type_name) {
-    sql += ' AND ct.name_ar LIKE ?'
-    params.push(`%${filters.case_type_name}%`)
+    sql += ` AND ${arabicLike('ct.name_ar')}`
+    params.push(foldedLikeTerm(filters.case_type_name))
   }
   if (filters.status) {
     sql += ' AND c.status = ?'

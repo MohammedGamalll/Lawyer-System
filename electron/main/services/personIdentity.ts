@@ -1,15 +1,13 @@
 import { getDb } from '../db/database'
 import { notDeleted } from '../db/ids'
 import { ValidationError, normalizeDigits } from '@shared/schemas'
+import { arabicFold, arabicLike, foldedLikeTerm } from '@shared/arabic'
 
 export function normalizePersonName(value: unknown) {
-  return String(value ?? '')
-    .trim()
-    .replace(/\s+/g, ' ')
-    .replace(/[أإآٱ]/g, 'ا')
-    .replace(/ى/g, 'ي')
-    .replace(/ة/g, 'ه')
+  return arabicFold(value)
 }
+
+export { arabicFold, arabicLike, foldedLikeTerm }
 
 export function identityKey(data: Record<string, unknown>) {
   const kind = String(data.id_kind || 'national_id')

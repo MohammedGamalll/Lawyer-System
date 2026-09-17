@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend
@@ -9,6 +9,8 @@ import { canAccessPage } from '@shared/permissions'
 import { Button, Card } from '../components/ui'
 import { formatDateTime } from '../lib/datetime'
 import { dashboardCardTheme, DASHBOARD_CHART_WRAP } from '../lib/dashboardCardThemes'
+import { displayCaseCode } from '../lib/courtNumber'
+import { orderedDashboardSections, type DashboardSectionId } from '../lib/layoutPrefs'
 
 const COLORS = ['#122f4d', '#c9a227', '#3d6d9e', '#8c6b16', '#6e97c0', '#163a5f']
 
@@ -16,9 +18,13 @@ export function DashboardPage() {
   const { t, i18n } = useTranslation()
   const { setPage, toast, can } = useApp()
   const [s, setS] = useState<Record<string, unknown> | null>(null)
+  const [sectionOrder, setSectionOrder] = useState<DashboardSectionId[]>([])
 
   useEffect(() => {
     invoke<Record<string, unknown>>('dashboard:stats').then(setS).catch((e) => toast(e.message, 'err'))
+    invoke<Record<string, string>>('settings:get')
+      .then((st) => setSectionOrder(orderedDashboardSections(st.dashboard_sections)))
+      .catch(() => setSectionOrder(orderedDashboardSections('')))
   }, [])
 
   if (!s) return <div className="p-10 text-navy-400">{t('loading')}</div>
@@ -49,10 +55,11 @@ export function DashboardPage() {
     return true
   })
 
-  return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-extrabold text-navy-900 dark:text-white">{t('nav.dashboard')}</h1>
+  const order = sectionOrder.length ? sectionOrder : orderedDashboardSections('')
+  const sections: Record<DashboardSectionId, ReactNode> = {
+    actions: (
+      <div key="actions" className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold text-navy-900 dark:text-white">{t('nav.dashboard')}</h1>
         <div className="flex flex-wrap gap-2">
           {can('clients.create') && <Button variant="gold" onClick={() => setPage('clients', { create: true })}>{t('dash.newClient')}</Button>}
           {can('cases.create') && <Button onClick={() => setPage('cases', { create: true })}>{t('dash.newCase')}</Button>}
@@ -63,22 +70,26 @@ export function DashboardPage() {
           {can('documents.upload') && <Button variant="outline" onClick={() => setPage('documents', { create: true })}>{t('dash.newDoc')}</Button>}
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+    ),
+    stats: (
+      <div key="stats" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         {cards.map((c, i) => {
           const theme = dashboardCardTheme(c.key, i)
           return (
-          <Card
-            key={c.key}
-            className={`min-h-[92px] cursor-pointer ${theme.wrap}`}
-            onDoubleClick={() => c.page && setPage(c.page)}
-          >
-            <div className={`text-xs ${theme.label}`}>{c.label}</div>
-            <div className={`mt-1 text-2xl font-extrabold ${theme.value}`}>{String(c.value)}</div>
-          </Card>
+            <Card
+              key={c.key}
+              className={`min-h-[92px] cursor-pointer ${theme.wrap}`}
+              onDoubleClick={() => c.page && setPage(c.page)}
+            >
+              <div className={`text-xs ${theme.label}`}>{c.label}</div>
+              <div className={`mt-1 text-2xl font-bold ${theme.value}`}>{String(c.value)}</div>
+            </Card>
           )
         })}
       </div>
-      <div className="grid gap-4 xl:grid-cols-2">
+    ),
+    charts: (
+      <div key="charts" className="grid gap-4 xl:grid-cols-2">
         <Card className={DASHBOARD_CHART_WRAP[0]}>
           <h3 className="mb-3 font-bold">{t('dash.casesByMonth')}</h3>
           <div className="h-56">
@@ -109,21 +120,21 @@ export function DashboardPage() {
           </div>
         </Card>
         {can('accounts.view') && (
-        <Card className={DASHBOARD_CHART_WRAP[1]}>
-          <h3 className="mb-3 font-bold">{t('dash.incomeExpense')}</h3>
-          <div className="h-56">
-            <ResponsiveContainer>
-              <LineChart data={mergeMonths(s.incomeByMonth as { month: string; total: number }[], s.expenseByMonth as { month: string; total: number }[])}>
-                <XAxis dataKey="month" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Line type="monotone" dataKey="income" name={t('dash.income')} stroke="#c9a227" />
-                <Line type="monotone" dataKey="expense" name={t('dash.expenses')} stroke="#122f4d" />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
+          <Card className={DASHBOARD_CHART_WRAP[1]}>
+            <h3 className="mb-3 font-bold">{t('dash.incomeExpense')}</h3>
+            <div className="h-56">
+              <ResponsiveContainer>
+                <LineChart data={mergeMonths(s.incomeByMonth as { month: string; total: number }[], s.expenseByMonth as { month: string; total: number }[])}>
+                  <XAxis dataKey="month" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Line type="monotone" dataKey="income" name={t('dash.income')} stroke="#c9a227" />
+                  <Line type="monotone" dataKey="expense" name={t('dash.expenses')} stroke="#122f4d" />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </Card>
         )}
         <Card className={DASHBOARD_CHART_WRAP[2]}>
           <h3 className="mb-3 font-bold">{t('dash.lawyerDist')}</h3>
@@ -140,7 +151,9 @@ export function DashboardPage() {
           </div>
         </Card>
       </div>
-      <div className="grid gap-4 xl:grid-cols-2">
+    ),
+    hearings: (
+      <div key="hearings" className="grid gap-4 xl:grid-cols-2">
         <Card className={DASHBOARD_CHART_WRAP[2]}>
           <h3 className="mb-3 font-bold">{t('dash.todayH')}</h3>
           <ul className="space-y-2 text-sm">
@@ -152,7 +165,7 @@ export function DashboardPage() {
                   onClick={() => setPage('caseProfile', { id: h.case_id })}
                   onDoubleClick={() => setPage('caseProfile', { id: h.case_id })}
                 >
-                  {h.case_number} {h.case_title} ({h.client_name})
+                  {displayCaseCode(h)} {h.case_title} ({h.client_name})
                 </button>
               </li>
             ))}
@@ -173,8 +186,10 @@ export function DashboardPage() {
           </ul>
         </Card>
       </div>
-    </div>
-  )
+    )
+  }
+
+  return <div className="space-y-5">{order.map((id) => sections[id])}</div>
 }
 
 function mergeMonths(a: { month: string; total: number }[], b: { month: string; total: number }[]) {

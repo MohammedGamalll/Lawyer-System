@@ -1,14 +1,29 @@
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { NAV_ITEMS, canAccessPage } from '@shared/permissions'
+import { canAccessPage } from '@shared/permissions'
 import { useApp } from '../store'
 import { homeCardTheme } from '../lib/homeCardThemes'
 import { NAV_ICONS } from '../lib/navIcons'
 import { LayoutDashboard } from 'lucide-react'
+import { invoke } from '../lib/api'
+import { orderedNavItems } from '../lib/layoutPrefs'
 
 export function HomePage() {
   const { t } = useTranslation()
   const { setPage, user } = useApp()
-  const items = NAV_ITEMS.filter((n) => n.id !== 'home' && canAccessPage(n.id, user?.roleCode || '', user?.permissions || []))
+  const [navOrder, setNavOrder] = useState('')
+  useEffect(() => {
+    invoke<Record<string, string>>('settings:get')
+      .then((s) => setNavOrder(s.nav_order || ''))
+      .catch(() => undefined)
+  }, [])
+  const items = useMemo(
+    () =>
+      orderedNavItems(navOrder).filter(
+        (n) => n.id !== 'home' && n.id !== 'alerts' && canAccessPage(n.id, user?.roleCode || '', user?.permissions || [])
+      ),
+    [navOrder, user?.roleCode, user?.permissions]
+  )
 
   return (
     <div className="space-y-5">

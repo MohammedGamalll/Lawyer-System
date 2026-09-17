@@ -10,12 +10,14 @@ import { CaseFormExtras } from '../components/CaseFormExtras'
 import { caseFormFields, hydrateCaseForm } from '../lib/caseForm'
 import { caseSchema } from '@shared/schemas'
 import { onDataChanged } from '../lib/bus'
-import { formatCourtNumber, formatProgramCode } from '../lib/courtNumber'
+import { formatCourtNumber, formatProgramCode, displayClientCode } from '../lib/courtNumber'
 import { cleanPartyName } from '../lib/partyName'
 import { AndOthers } from '../components/AndOthers'
-import { caseSheetHtml } from '../components/VenuePrintBar'
+import { caseInteriorHtml } from '../components/VenuePrintBar'
 import { HearingsPage, TasksPage } from './WorkPages'
 import { PrintTemplatePicker } from '../components/PrintTemplatePicker'
+import { sendPrint } from '../lib/printKit'
+import { LookupCombo } from '../components/LookupCombo'
 
 type CaseTab = 'hearings' | 'admin' | 'execution' | 'finance'
 
@@ -50,7 +52,7 @@ function dash(v: unknown) {
 }
 
 export function CaseProfilePage() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { pageMeta, setPage, goBack, toast, can } = useApp()
   const [row, setRow] = useState<Record<string, unknown> | null>(null)
   const [link, setLink] = useState({ related_case_id: '', link_type: 'appeal' })
@@ -60,20 +62,32 @@ export function CaseProfilePage() {
   const [editOpen, setEditOpen] = useState(false)
   const [form, setForm] = useState<Record<string, unknown>>({})
   const [payOpen, setPayOpen] = useState(false)
-  const [pay, setPay] = useState({ amount: '', payment_date: new Date().toISOString().slice(0, 10), payment_method: 'cash', notes: '' })
+  const [pay, setPay] = useState({
+    amount: '',
+    payment_date: new Date().toISOString().slice(0, 10),
+    payment_method: 'cash',
+    payment_type: 'fees',
+    notes: ''
+  })
+  const [dueOpen, setDueOpen] = useState(false)
+  const [due, setDue] = useState({ amount: '', due_type: '', notes: '' })
   const id = String(pageMeta.id || '')
-  const canFinance = can('accounts.view')
+  const canFinance = can('cases.finance')
   const load = () => invoke<Record<string, unknown>>('cases:get', id).then(setRow)
   useEffect(() => {
     load().catch((e) => toast(e.message, 'err'))
   }, [id])
-  useEffect(() => onDataChanged(() => load().catch(() => undefined), ['cases', 'hearings', 'tasks', 'payments', 'documents']), [id])
+  useEffect(() => onDataChanged(() => load().catch(() => undefined), ['cases', 'hearings', 'tasks', 'payments', 'documents', 'expenses', 'case_dues']), [id])
   if (!row) return <div>{t('loading')}</div>
   const fees = (row.fees as Record<string, unknown>) || {}
   const payments = (row.payments as { amount?: number }[]) || []
+  const dues = (row.dues as { id?: string; amount?: number; due_type?: string; notes?: string; created_at?: string }[]) || []
   const agreed = Number(fees.total_fees ?? row.total_fees ?? 0)
+  const expenseSum = Number(row.expense_sum ?? 0)
+  const duesSum = dues.reduce((s, d) => s + Number(d.amount || 0), 0)
   const paidSum = payments.reduce((s, p) => s + Number(p.amount || 0), 0)
-  const due = Math.max(0, agreed - paidSum)
+  const totalDebt = agreed + expenseSum + duesSum
+  const dueAmount = Math.max(0, totalDebt - paidSum)
   const primaryClean = cleanPartyName(String(row.client_name || ''))
   const clients = (row.caseClients as Record<string, unknown>[] | undefined) || []
   const extraClients = clients.filter(
@@ -88,7 +102,7 @@ export function CaseProfilePage() {
     <div key={String(c.client_id || i)} className="mb-3 rounded-lg border border-navy-100 p-2 dark:border-navy-700">
       <InfoGrid
         items={[
-          { label: t('fields.client_number'), value: dash(c.client_number) },
+          { label: t('fields.client_number'), value: dash(displayClientCode(c.client_number)) },
           { label: t('fields.full_name'), value: dash(c.full_name) },
           { label: t('fields.nickname'), value: dash(c.nickname) },
           { label: t('fields.national_id'), value: dash(c.national_id) },
@@ -171,11 +185,24 @@ export function CaseProfilePage() {
           <PrintTemplatePicker
             caseId={id}
             fallback={() => {
-              invoke('print:print', 'report', t('printCaseSheet'), caseSheetHtml(row, t)).catch((e) =>
+              invoke('print:print', 'a4', t('printKit.caseInterior'), caseInteriorHtml(row, t, i18n.language)).catch((e) =>
                 toast((e as Error).message, 'err')
               )
             }}
           />
+          <Button
+            variant="outline"
+            onClick={async () => {
+              try {
+                const full = await invoke<Record<string, unknown>>('cases:get', id)
+                await sendPrint('a4', t('printKit.caseInterior'), caseInteriorHtml({ ...row, ...full }, t, i18n.language))
+              } catch (e) {
+                toast((e as Error).message, 'err')
+              }
+            }}
+          >
+            {t('printKit.caseInterior')}
+          </Button>
           <Button variant="outline" onClick={() => setPartiesOpen('clients')}>
             {t('caseFinance.parties')}
           </Button>
@@ -241,10 +268,14 @@ export function CaseProfilePage() {
           {tab === 'finance' && canFinance && (
             <Card>
               <p className="mb-3 text-sm text-navy-500">{t('caseFinance.hint')}</p>
-              <div className="mb-4 grid gap-3 sm:grid-cols-3">
+              <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="rounded-lg border border-navy-100 p-3 dark:border-navy-700">
                   <div className="text-xs text-navy-500">{t('caseFinance.agreed')}</div>
                   <div className="text-xl font-black tabular-nums">{agreed.toLocaleString('ar-EG')}</div>
+                </div>
+                <div className="rounded-lg border border-navy-100 p-3 dark:border-navy-700">
+                  <div className="text-xs text-navy-500">{t('fields.total_debt')}</div>
+                  <div className="text-xl font-black tabular-nums">{totalDebt.toLocaleString('ar-EG')}</div>
                 </div>
                 <div className="rounded-lg border border-navy-100 p-3 dark:border-navy-700">
                   <div className="text-xs text-navy-500">{t('caseFinance.paid')}</div>
@@ -252,7 +283,7 @@ export function CaseProfilePage() {
                 </div>
                 <div className="rounded-lg border border-gold-200 bg-gold-50 p-3 dark:border-navy-700 dark:bg-navy-800">
                   <div className="text-xs text-navy-500">{t('caseFinance.remaining')}</div>
-                  <div className="text-xl font-black tabular-nums">{due.toLocaleString('ar-EG')}</div>
+                  <div className="text-xl font-black tabular-nums">{dueAmount.toLocaleString('ar-EG')}</div>
                 </div>
               </div>
               {can('cases.update') && (
@@ -279,14 +310,66 @@ export function CaseProfilePage() {
                     {t('caseFinance.saveAgreed')}
                   </Button>
                   {can('accounts.payment') && <Button onClick={() => setPayOpen(true)}>{t('caseFinance.addPayment')}</Button>}
+                  <Button variant="outline" onClick={() => setDueOpen(true)}>
+                    {t('caseFinance.addDue')}
+                  </Button>
                 </div>
               )}
-              {!can('cases.update') && can('accounts.payment') && (
-                <Button className="mb-3" onClick={() => setPayOpen(true)}>
-                  {t('caseFinance.addPayment')}
-                </Button>
+              {!can('cases.update') && (
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {can('accounts.payment') ? (
+                    <Button onClick={() => setPayOpen(true)}>{t('caseFinance.addPayment')}</Button>
+                  ) : null}
+                  <Button variant="outline" onClick={() => setDueOpen(true)}>
+                    {t('caseFinance.addDue')}
+                  </Button>
+                </div>
               )}
-              <MiniTable rows={row.payments as object[]} keys={['payment_number', 'amount', 'payment_date']} />
+              <MiniTable
+                rows={row.payments as object[]}
+                keys={['payment_number', 'amount', 'payment_type', 'payment_date']}
+              />
+              <h4 className="mb-1 mt-4 text-sm font-bold">{t('caseFinance.extraDues')}</h4>
+              {dues.length ? (
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr>
+                      <th className="px-3 py-2 text-start">{t('fields.due_type')}</th>
+                      <th className="px-3 py-2 text-start">{t('fields.amount')}</th>
+                      <th className="px-3 py-2 text-start">{t('fields.notes')}</th>
+                      <th className="px-3 py-2 text-start" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dues.map((d) => (
+                      <tr key={String(d.id)} className="border-t">
+                        <td className="px-3 py-2">{d.due_type || '—'}</td>
+                        <td className="px-3 py-2 tabular-nums">{Number(d.amount || 0).toLocaleString('ar-EG')}</td>
+                        <td className="px-3 py-2">{d.notes || '—'}</td>
+                        <td className="px-3 py-2">
+                          <Button
+                            variant="ghost"
+                            onClick={async () => {
+                              if (!d.id || !window.confirm(t('confirmDelete'))) return
+                              try {
+                                await invoke('dues:remove', d.id)
+                                toast(t('savedOk'))
+                                load()
+                              } catch (e) {
+                                toast((e as Error).message, 'err')
+                              }
+                            }}
+                          >
+                            {t('delete')}
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="text-sm text-navy-400">{t('noData')}</div>
+              )}
             </Card>
           )}
         </div>
@@ -396,12 +479,22 @@ export function CaseProfilePage() {
               onChange={(e) => setPay({ ...pay, amount: e.target.value })}
             />
           </Field>
+          {Number(pay.amount) > dueAmount + 0.001 ? (
+            <div className="rounded border border-gold-300 bg-gold-50 px-3 py-2 text-sm dark:border-navy-600 dark:bg-navy-800">
+              {t('caseFinance.overpayWarn', {
+                extra: (Number(pay.amount) - dueAmount).toLocaleString('ar-EG')
+              })}
+            </div>
+          ) : null}
           <Field label={t('fields.payment_date')}>
             <Input
               type="date"
               value={pay.payment_date}
               onChange={(e) => setPay({ ...pay, payment_date: e.target.value })}
             />
+          </Field>
+          <Field label={t('fields.payment_type')}>
+            <LookupCombo kind="payment_type" value={pay.payment_type} onChange={(v) => setPay({ ...pay, payment_type: v })} />
           </Field>
           <Field label={t('fields.payment_method')}>
             <Select value={pay.payment_method} onChange={(e) => setPay({ ...pay, payment_method: e.target.value })}>
@@ -415,19 +508,112 @@ export function CaseProfilePage() {
             <Button variant="outline" onClick={() => setPayOpen(false)}>
               {t('cancel')}
             </Button>
+            {Number(pay.amount) > dueAmount + 0.001 ? (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    void (async () => {
+                      try {
+                        await invoke('payments:create', {
+                          case_id: id,
+                          client_id: row.client_id,
+                          amount: dueAmount,
+                          payment_date: pay.payment_date,
+                          payment_method: pay.payment_method,
+                          payment_type: pay.payment_type || 'fees',
+                          notes: pay.notes
+                        })
+                        toast(t('savedOk'))
+                        setPayOpen(false)
+                        load()
+                      } catch (e) {
+                        toast((e as Error).message, 'err')
+                      }
+                    })()
+                  }
+                >
+                  {t('caseFinance.payDueOnly')}
+                </Button>
+                <Button
+                  onClick={() =>
+                    void (async () => {
+                      try {
+                        await invoke('payments:create', {
+                          case_id: id,
+                          client_id: row.client_id,
+                          amount: Number(pay.amount),
+                          payment_date: pay.payment_date,
+                          payment_method: pay.payment_method,
+                          payment_type: pay.payment_type || 'fees',
+                          notes: pay.notes
+                        })
+                        toast(t('savedOk'))
+                        setPayOpen(false)
+                        load()
+                      } catch (e) {
+                        toast((e as Error).message, 'err')
+                      }
+                    })()
+                  }
+                >
+                  {t('caseFinance.payFull')}
+                </Button>
+              </>
+            ) : (
+              <Button
+                onClick={async () => {
+                  try {
+                    await invoke('payments:create', {
+                      case_id: id,
+                      client_id: row.client_id,
+                      amount: Number(pay.amount),
+                      payment_date: pay.payment_date,
+                      payment_method: pay.payment_method,
+                      payment_type: pay.payment_type || 'fees',
+                      notes: pay.notes
+                    })
+                    toast(t('savedOk'))
+                    setPayOpen(false)
+                    load()
+                  } catch (e) {
+                    toast((e as Error).message, 'err')
+                  }
+                }}
+              >
+                {t('save')}
+              </Button>
+            )}
+          </div>
+        </div>
+      </Modal>
+      <Modal open={dueOpen} title={t('caseFinance.addDue')} onClose={() => setDueOpen(false)}>
+        <div className="space-y-2">
+          <Field label={t('fields.amount')}>
+            <Input dir="ltr" value={due.amount} onChange={(e) => setDue({ ...due, amount: e.target.value })} />
+          </Field>
+          <Field label={t('fields.due_type')}>
+            <LookupCombo kind="due_type" value={due.due_type} onChange={(v) => setDue({ ...due, due_type: v })} />
+          </Field>
+          <Field label={t('fields.notes')}>
+            <Input value={due.notes} onChange={(e) => setDue({ ...due, notes: e.target.value })} />
+          </Field>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setDueOpen(false)}>
+              {t('cancel')}
+            </Button>
             <Button
               onClick={async () => {
                 try {
-                  await invoke('payments:create', {
+                  await invoke('dues:create', {
                     case_id: id,
-                    client_id: row.client_id,
-                    amount: Number(pay.amount),
-                    payment_date: pay.payment_date,
-                    payment_method: pay.payment_method,
-                    notes: pay.notes
+                    amount: Number(due.amount),
+                    due_type: due.due_type,
+                    notes: due.notes
                   })
                   toast(t('savedOk'))
-                  setPayOpen(false)
+                  setDue({ amount: '', due_type: '', notes: '' })
+                  setDueOpen(false)
                   load()
                 } catch (e) {
                   toast((e as Error).message, 'err')

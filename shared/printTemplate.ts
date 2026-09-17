@@ -221,23 +221,19 @@ export function renderLayoutHtml(
   layout: PrintLayout,
   values: Record<string, string>,
   logoDataUrl?: string,
-  fontFace = ''
+  fontFace = '',
+  printedAt = ''
 ): string {
   const safe = sanitizeLayout(layout)
-  let logoUsed = false
+  const src = logoDataUrl && isSafeImageDataUrl(logoDataUrl) ? logoDataUrl.trim() : ''
   const blocks = safe.blocks
     .map((b) => {
       const label = escapeHtml(b.title)
       const valRaw = values[b.bind] ?? ''
       const val = escapeHtml(valRaw).replace(/\n/g, '<br/>')
       let inner = ''
-      if (b.kind === 'logo' || b.bind === 'office.logo') {
-        if (logoUsed) return ''
-        logoUsed = true
-        const src = logoDataUrl && isSafeImageDataUrl(logoDataUrl) ? logoDataUrl.trim() : ''
-        inner = src
-          ? `<img src="${escapeHtml(src)}" alt="" style="max-width:100%;max-height:100%;object-fit:contain"/>`
-          : ''
+      if (b.kind === 'logo' || b.bind === 'office.logo' || b.bind === 'office.name' || b.bind === 'office.phone' || b.bind === 'office.address') {
+        return ''
       } else if (b.kind === 'section') {
         inner = `<div style="font-weight:700;border-bottom:1px solid #c9a227;padding-bottom:1mm;color:#122f4d">${label}</div>`
       } else if (b.bind === 'custom' || b.kind === 'text') {
@@ -260,15 +256,31 @@ export function renderLayoutHtml(
 ${fontFace}
 @page { size: A4; margin: 0; }
 html, body { margin: 0; padding: 0; }
-body { width: 210mm; min-height: 297mm; font-family: Cairo, Tahoma, 'Segoe UI', sans-serif; color: #122f4d; direction: rtl; background: #fff; }
+body { width: 210mm; min-height: 297mm; font-family: 'IBM Plex Sans Arabic', Tahoma, 'Segoe UI', sans-serif; color: #122f4d; direction: rtl; background: #fff; }
 .page { position: relative; width: 210mm; height: 297mm; }
 .block { position: absolute; overflow: hidden; box-sizing: border-box; padding: 0.6mm 1mm; color: #122f4d; }
 .block .inner { width: 100%; color: #122f4d; overflow-wrap: break-word; word-break: normal; white-space: pre-wrap; line-height: 1.35; }
 .block .lbl { color: #3d4f61; font-size: 8.5pt; }
 .block .val { color: #122f4d; }
 .block img { display: block; max-width: 100%; max-height: 100%; }
+.print-date { position: absolute; top: 4mm; left: 6mm; font-size: 9pt; color: #5b6b7c; z-index: 4; }
+.print-logo-center { position: absolute; top: 3mm; left: 50%; transform: translateX(-50%); height: 16mm; z-index: 3; }
+.print-logo-center img { height: 16mm; width: auto; object-fit: contain; }
+.print-office { position: absolute; top: 3mm; right: 6mm; text-align: right; z-index: 4; max-width: 72mm; font-size: 10pt; line-height: 1.35; }
+.print-office .nm { font-weight: 700; }
+.print-office .ph { color: #5b6b7c; font-size: 8.5pt; }
 </style>
 </head>
-<body><div class="page">${blocks}</div></body>
+<body>
+  <div class="page">
+    <div class="print-date">${escapeHtml(printedAt)}</div>
+    ${src ? `<div class="print-logo-center"><img src="${escapeHtml(src)}" alt=""/></div>` : ''}
+    <div class="print-office">
+      <div class="nm">${escapeHtml(values['office.name'] || '')}</div>
+      <div class="ph">${escapeHtml([values['office.address'], values['office.phone']].filter(Boolean).join(' — '))}</div>
+    </div>
+    ${blocks}
+  </div>
+</body>
 </html>`
 }

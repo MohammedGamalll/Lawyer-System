@@ -12,6 +12,7 @@ import { useSyncStore, type SyncSnapshot } from './store/sync'
 import { useUpdateStore } from './store/updater'
 import { UpdateBanner } from './components/UpdateBanner'
 
+const AlertsPage = lazy(() => import('./pages/Alerts').then((m) => ({ default: m.AlertsPage })))
 const HomePage = lazy(() => import('./pages/Home').then((m) => ({ default: m.HomePage })))
 const DashboardPage = lazy(() => import('./pages/Dashboard').then((m) => ({ default: m.DashboardPage })))
 const ClientsPage = lazy(() => import('./pages/Modules').then((m) => ({ default: m.ClientsPage })))
@@ -20,6 +21,7 @@ const CasesPage = lazy(() => import('./pages/Modules').then((m) => ({ default: m
 const CaseProfilePage = lazy(() => import('./pages/Modules').then((m) => ({ default: m.CaseProfilePage })))
 const HearingsPage = lazy(() => import('./pages/Modules').then((m) => ({ default: m.HearingsPage })))
 const TasksPage = lazy(() => import('./pages/Modules').then((m) => ({ default: m.TasksPage })))
+const ExecutionPage = lazy(() => import('./pages/Modules').then((m) => ({ default: m.ExecutionPage })))
 const RemindersPage = lazy(() => import('./pages/Modules').then((m) => ({ default: m.RemindersPage })))
 const LawyersPage = lazy(() => import('./pages/Modules').then((m) => ({ default: m.LawyersPage })))
 const EmployeesPage = lazy(() => import('./pages/Modules').then((m) => ({ default: m.EmployeesPage })))
@@ -45,6 +47,7 @@ const SearchPage = lazy(() => import('./pages/Search').then((m) => ({ default: m
 const StaffFormPage = lazy(() => import('./pages/StaffForm').then((m) => ({ default: m.StaffFormPage })))
 
 const PAGE: Record<string, LazyExoticComponent<ComponentType>> = {
+  alerts: AlertsPage,
   home: HomePage,
   dashboard: DashboardPage,
   clients: ClientsPage,
@@ -54,6 +57,7 @@ const PAGE: Record<string, LazyExoticComponent<ComponentType>> = {
   hearings: HearingsPage,
   calendar: CalendarPage,
   tasks: TasksPage,
+  execution: ExecutionPage,
   reminders: RemindersPage,
   documents: DocumentsPage,
   poa: PoaPage,

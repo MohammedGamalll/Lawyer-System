@@ -13,6 +13,7 @@ import { EntitySelect } from './EntitySelect'
 import { LookupCombo } from './LookupCombo'
 import { formatCell } from '../lib/datetime'
 import { formatProgramCode } from '../lib/courtNumber'
+import { applyPrintColFilters, compactTableHtml, escPrint, printVal } from '../lib/printKit'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 
@@ -34,6 +35,8 @@ import { SimilarClientModal } from './SimilarClientModal'
 import { defaultWidthCh } from '../lib/fieldWidth'
 import { hydrateCaseForm } from '../lib/caseForm'
 import { onDataChanged } from '../lib/bus'
+
+export type SetField = (name: string, value: unknown | ((prev: unknown) => unknown)) => void
 
 export type FieldDef = {
   name: string
@@ -58,11 +61,13 @@ export type FieldDef = {
     | 'contracts'
   size?: 'sm' | 'xs'
   widthCh?: number
+  hidden?: boolean
 }
 
 export function schemaFromFields(fields: FieldDef[]) {
   const shape: Record<string, z.ZodTypeAny> = {}
   for (const f of fields) {
+    if (f.hidden) continue
     if (f.name === 'national_id') shape[f.name] = nationalIdSchema
     else if (f.name === 'phone' || f.name === 'phone2' || f.name === 'whatsapp' || f.name === 'phone_home' || f.name === 'phone_work') shape[f.name] = phoneSchema
     else if (f.name === 'email') shape[f.name] = emailSchema
@@ -95,6 +100,7 @@ export function FormFields({
   return (
     <div className={compact ? 'flex flex-wrap items-start gap-x-2 gap-y-1' : 'flex flex-wrap items-start gap-x-3 gap-y-2'}>
       {fields.map((f) => {
+        if (f.hidden) return null
         const opts = f.options
         const val = (values[f.name] as string | number | undefined) ?? ''
         const full = f.type === 'textarea'
@@ -212,7 +218,8 @@ export function CrudPage({
   compactForm,
   onRowsLoaded,
   pageSize: _pageSizeProp,
-  embedded
+  embedded,
+  onPrint
 }: {
   title: string
   listChannel: string
@@ -232,12 +239,12 @@ export function CrudPage({
   onRowOpen?: (row: Record<string, unknown>) => void
   extraActions?: React.ReactNode
   rowActions?: (row: Record<string, unknown>, reload: () => Promise<void>) => React.ReactNode
-  formExtra?: (form: Record<string, unknown>, setField: (name: string, value: unknown) => void) => React.ReactNode
+  formExtra?: (form: Record<string, unknown>, setField: SetField) => React.ReactNode
   formExtraAfter?: string
-  formPrefix?: (form: Record<string, unknown>, setField: (name: string, value: unknown) => void) => React.ReactNode
+  formPrefix?: (form: Record<string, unknown>, setField: SetField) => React.ReactNode
   formBody?: (
     form: Record<string, unknown>,
-    setField: (name: string, value: unknown) => void,
+    setField: SetField,
     errors: Record<string, string>
   ) => React.ReactNode
   afterSave?: (info: { created: boolean; result: unknown; form: Record<string, unknown> }) => void | Promise<void>
@@ -250,6 +257,7 @@ export function CrudPage({
   onRowsLoaded?: (rows: Record<string, unknown>[], total: number) => void
   pageSize?: number
   embedded?: boolean
+  onPrint?: (ctx: { colFilters: Record<string, string> }) => void
 }) {
   const { t, i18n } = useTranslation()
   const { toast, can, pageMeta, page: appPage, setPage: setAppPage } = useApp()
@@ -276,6 +284,13 @@ export function CrudPage({
   const staleRef = useRef(false)
   const dataScope = listChannel.split(':')[0] || '*'
 
+  const setField: SetField = (n, v) => {
+    setForm((prev) => {
+      const nextVal = typeof v === 'function' ? (v as (p: unknown) => unknown)(prev[n]) : v
+      rhf.setValue(n as never, nextVal as never, { shouldValidate: true })
+      return { ...prev, [n]: nextVal }
+    })
+  }
   const hasListFilter = Object.values(listFilters || {}).some((v) => String(v ?? '').trim())
   const queryPayload = {
     page,
@@ -315,21 +330,19 @@ export function CrudPage({
         sortBy: sortKey || undefined,
         sortDir
       })
-      const rows = res.rows || []
-      const esc = (s: string) =>
-        s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      const head = columns.map((c) => `<th>${esc(c.label)}</th>`).join('')
-      const bodyRows = rows
-        .map(
-          (r) =>
-            `<tr>${columns
-              .map((c) => `<td>${esc(formatCell(c.key, r[c.key], i18n.language, t) || String(r[c.key] ?? ''))}</td>`)
-              .join('')}</tr>`
-        )
-        .join('')
-      const body = `<h2>${esc(title)}</h2><table><thead><tr>${head}</tr></thead><tbody>${bodyRows || `<tr><td>${t('noData')}</td></tr>`}</tbody></table>`
+      const fetched = res.rows || []
+      const rows = applyPrintColFilters(fetched, colFilters, i18n.language, t)
+      const printCols = columns.filter((c) => c.key !== 'document_id')
+      const body = compactTableHtml({
+        columns: printCols.map((c) => ({ label: c.label })),
+        rows: rows.map((r) =>
+          printCols.map((c) => escPrint(printVal(c.key, r[c.key], i18n.language, t) || String(r[c.key] ?? '')))
+        ),
+        notesLabel: t('printKit.notes'),
+        emptyLabel: t('noData')
+      })
       await invoke('print:print', 'report', title, body)
-      if ((res.total || 0) > rows.length) toast(t('printListCapped', { count: rows.length }))
+      if ((res.total || 0) > fetched.length) toast(t('printListCapped', { count: fetched.length }))
     } catch (e) {
       toast((e as Error).message, 'err')
     } finally {
@@ -382,6 +395,7 @@ export function CrudPage({
     if (pageMeta.case_id) prefill.case_id = pageMeta.case_id
     if (pageMeta.client_id) prefill.client_id = pageMeta.client_id
     if (pageMeta.work_kind) prefill.work_kind = pageMeta.work_kind
+    if (pageMeta.hearing_id) prefill.hearing_id = pageMeta.hearing_id
     if (pageMeta.prefill && typeof pageMeta.prefill === 'object') Object.assign(prefill, pageMeta.prefill)
     startCreate(prefill)
     const rest = { ...pageMeta }
@@ -421,6 +435,14 @@ export function CrudPage({
         /* keep list row */
       }
     }
+    if (listChannel === 'hearings:list' && row.id) {
+      try {
+        const full = await invoke<Record<string, unknown>>('hearings:get', row.id)
+        next = { ...next, ...full }
+      } catch {
+        /* keep list row */
+      }
+    }
     if (listChannel === 'cases:list' && row.id) {
       try {
         const full = await invoke<Record<string, unknown>>('cases:get', row.id)
@@ -444,6 +466,7 @@ export function CrudPage({
   const save = rhf.handleSubmit(async (values) => {
     setSaving(true)
     const payload: Record<string, unknown> = { ...form, ...(values as Record<string, unknown>) }
+    if (Array.isArray(form.upcoming_procedures)) payload.upcoming_procedures = form.upcoming_procedures
     let result: unknown
     try {
       const pwd = String(payload.password ?? form.password ?? '').trim()
@@ -627,7 +650,7 @@ export function CrudPage({
       {embedded ? (
         <div className="mb-3 flex flex-wrap justify-end gap-2">
           {extraActions}
-          <Button type="button" variant="outline" disabled={printing} onClick={() => printList()}>
+          <Button type="button" variant="outline" disabled={printing} onClick={() => (onPrint ? onPrint({ colFilters }) : printList())}>
             {t('print')}
           </Button>
           {createChannel && (!createPerm || can(createPerm)) && (
@@ -642,7 +665,7 @@ export function CrudPage({
           actions={
             <>
               {extraActions}
-              <Button type="button" variant="outline" disabled={printing} onClick={() => printList()}>
+              <Button type="button" variant="outline" disabled={printing} onClick={() => (onPrint ? onPrint({ colFilters }) : printList())}>
                 {t('print')}
               </Button>
               {createChannel && (!createPerm || can(createPerm)) && (
@@ -751,19 +774,9 @@ export function CrudPage({
               {editing ? formatProgramCode(editing) : t('caseForm.autoCode')}
             </div>
           ) : null}
-          {formPrefix?.(form, (n, v) => {
-            setForm((prev) => ({ ...prev, [n]: v }))
-            rhf.setValue(n as never, v as never, { shouldValidate: true })
-          })}
+          {formPrefix?.(form, setField)}
           {formBody ? (
-            formBody(
-              form,
-              (n, v) => {
-                setForm((prev) => ({ ...prev, [n]: v }))
-                rhf.setValue(n as never, v as never, { shouldValidate: true })
-              },
-              fieldErrors
-            )
+            formBody(form, setField, fieldErrors)
           ) : (
           <FormFields
             fields={fields}
@@ -772,14 +785,8 @@ export function CrudPage({
             register={rhf.register as never}
             compact={compactForm}
             extraAfter={formExtraAfter}
-            extra={formExtra?.(form, (n, v) => {
-              setForm((prev) => ({ ...prev, [n]: v }))
-              rhf.setValue(n as never, v as never, { shouldValidate: true })
-            })}
-            onChange={(n, v) => {
-              setForm((prev) => ({ ...prev, [n]: v }))
-              rhf.setValue(n as never, v as never, { shouldValidate: true })
-            }}
+            extra={formExtra?.(form, setField)}
+            onChange={(n, v) => setField(n, v)}
           />
           )}
           <div className="mt-4 flex justify-end gap-2">

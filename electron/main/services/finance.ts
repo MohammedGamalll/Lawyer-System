@@ -6,7 +6,8 @@ import { recordLocalChange, softDelete } from '../sync/queue'
 import { createReminder } from './reminders'
 import type { AuthedUser } from '../ipc/helpers'
 import type { ListQuery } from '@shared/types'
-import { paymentSchema, expenseSchema, invoiceSchema, parseSchema } from '@shared/schemas'
+import { paymentSchema, expenseSchema, invoiceSchema, caseDueSchema, parseSchema } from '@shared/schemas'
+import { rememberLookup } from './lookups'
 
 function defaultCashboxId(): string {
   const row = getDb()
@@ -132,6 +133,7 @@ export function createPayment(actor: AuthedUser, data: Record<string, unknown>) 
     ts
   )
   recordLocalChange('payments', id, 'INSERT')
+  rememberLookup('payment_type', data.payment_type)
   const receiptNo = nextNumber(db, 'receipt')
   const rid = newId()
   db.prepare(
@@ -590,4 +592,38 @@ export function voucherPrintPayload(expenseId: string) {
     <p>التاريخ: ${e.expense_date || ''}</p>
     <p class="total">المبلغ: ${Number(e.amount).toLocaleString('ar-EG')}</p>`
   return { title: 'سند صرف', body, kind: 'voucher' as const, name: `voucher-${e.voucher_number || expenseId}.pdf` }
+}
+
+export function listCaseDues(caseId: string) {
+  const id = asId(caseId)
+  if (!id) return []
+  return getDb()
+    .prepare(
+      `SELECT id, case_id, amount, due_type, notes, created_at FROM case_dues WHERE case_id = ? AND ${notDeleted()} ORDER BY created_at DESC`
+    )
+    .all(id)
+}
+
+export function createCaseDue(actor: AuthedUser, data: Record<string, unknown>) {
+  data = parseSchema(caseDueSchema, data) as Record<string, unknown>
+  const caseId = asId(data.case_id)
+  if (!caseId) throw new Error('القضية مطلوبة')
+  const amount = Number(data.amount)
+  if (!amount || amount <= 0) throw new Error('المبلغ غير صالح')
+  const ts = nowIso()
+  const id = newId()
+  getDb()
+    .prepare(
+      `INSERT INTO case_dues (id, case_id, amount, due_type, notes, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`
+    )
+    .run(id, caseId, amount, data.due_type ?? null, data.notes ?? null, ts, ts)
+  recordLocalChange('case_dues', id, 'INSERT')
+  rememberLookup('due_type', data.due_type)
+  audit(actor, 'create', 'case_dues', id, `تم إضافة مستحق ${amount} للقضية`)
+  return { id }
+}
+
+export function removeCaseDue(actor: AuthedUser, id: string) {
+  softDelete('case_dues', id)
+  audit(actor, 'delete', 'case_dues', id, `تم حذف مستحق رقم ${id}`)
 }

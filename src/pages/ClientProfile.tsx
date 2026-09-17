@@ -15,6 +15,17 @@ import { ContactActions } from '../components/ContactActions'
 import { formatCell } from '../lib/datetime'
 import { onDataChanged } from '../lib/bus'
 import { PrintTemplatePicker } from '../components/PrintTemplatePicker'
+import { PrintFieldPicker } from '../components/PrintFieldPicker'
+import { displayClientCode } from '../lib/courtNumber'
+import {
+  compactTableHtml,
+  executionBlocksHtml,
+  hearingBlocksHtml,
+  kvBlock,
+  printVal,
+  sendPrint,
+  taskBlocksHtml
+} from '../lib/printKit'
 
 export function ClientProfilePage() {
   const { t, i18n } = useTranslation()
@@ -26,6 +37,7 @@ export function ClientProfilePage() {
   const [form, setForm] = useState<Record<string, unknown>>({})
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [previewId, setPreviewId] = useState<string | null>(null)
+  const [printOpen, setPrintOpen] = useState(false)
   const [similar, setSimilar] = useState<SimilarHit | null>(null)
   const [pendingPayload, setPendingPayload] = useState<Record<string, unknown> | null>(null)
   const id = String(pageMeta.id || '')
@@ -85,10 +97,13 @@ export function ClientProfilePage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title={`${String(c.client_number || '')} — ${c.full_name}`}
+        title={`${displayClientCode(c.client_number)} — ${c.full_name}`}
         actions={
           <div className="flex flex-wrap gap-2">
             <PrintTemplatePicker clientId={id} />
+            <Button variant="outline" onClick={() => setPrintOpen(true)}>
+              {t('printKit.clientFile')}
+            </Button>
             {can('clients.update') && (
               <Button
                 variant="gold"
@@ -235,7 +250,7 @@ export function ClientProfilePage() {
               body: (
                 <MiniTable
                   rows={p.cases as object[]}
-                  keys={['case_number', 'title', 'status']}
+                  keys={['case_number', 'title', 'status', 'last_hearing', 'last_action']}
                   onRowClick={(r) => useApp.getState().setPage('caseProfile', { id: r.id })}
                 />
               )
@@ -418,8 +433,23 @@ export function ClientProfilePage() {
                 if (k.startsWith('__')) delete payload[k]
               }
               try {
-                await invoke('clients:update', id, payload)
-                await uploadClientPendingDocs(id, form)
+                const saved = await invoke<{ poa_id?: string }>('clients:update', id, payload)
+                let poaId = String(saved?.poa_id || '')
+                const docs = ((form.__pending_docs as { category?: string }[]) || []).concat(
+                  form.__pending_poa ? [{ category: 'poa' }] : []
+                )
+                const hasPoaDoc = docs.some((d) => /^(poa|توكيل)$/i.test(String(d.category || '')))
+                if (!poaId && (hasPoaDoc || String(form.poa_number || '').trim())) {
+                  const created = await invoke<{ id: string }>('poa:create', {
+                    client_id: id,
+                    poa_number: form.poa_number,
+                    poa_year: form.poa_year,
+                    poa_letter: form.poa_letter,
+                    poa_office: form.poa_office
+                  })
+                  poaId = created.id
+                }
+                await uploadClientPendingDocs(id, form, poaId ? { poa_id: poaId } : undefined)
                 toast(t('savedOk'))
                 setEditing(false)
                 await load()
@@ -456,8 +486,23 @@ export function ClientProfilePage() {
             return
           }
           try {
-            await invoke('clients:update', id, { ...pendingPayload, force_similar: true })
-            await uploadClientPendingDocs(id, form)
+            const saved = await invoke<{ poa_id?: string }>('clients:update', id, { ...pendingPayload, force_similar: true })
+            let poaId = String(saved?.poa_id || '')
+            const docs = ((form.__pending_docs as { category?: string }[]) || []).concat(
+              form.__pending_poa ? [{ category: 'poa' }] : []
+            )
+            const hasPoaDoc = docs.some((d) => /^(poa|توكيل)$/i.test(String(d.category || '')))
+            if (!poaId && (hasPoaDoc || String(form.poa_number || '').trim())) {
+              const created = await invoke<{ id: string }>('poa:create', {
+                client_id: id,
+                poa_number: form.poa_number,
+                poa_year: form.poa_year,
+                poa_letter: form.poa_letter,
+                poa_office: form.poa_office
+              })
+              poaId = created.id
+            }
+            await uploadClientPendingDocs(id, form, poaId ? { poa_id: poaId } : undefined)
             toast(t('savedOk'))
             setSimilar(null)
             setPendingPayload(null)
@@ -466,6 +511,91 @@ export function ClientProfilePage() {
           } catch (e) {
             toast((e as Error).message, 'err')
           }
+        }}
+      />
+      <PrintFieldPicker
+        open={printOpen}
+        title={t('printKit.clientFile')}
+        fields={[
+          { id: 'personal', label: t('printKit.personal'), defaultOn: true },
+          { id: 'hearings', label: t('printKit.hearings'), defaultOn: true },
+          { id: 'admin', label: t('printKit.admin'), defaultOn: true },
+          ...(can('cases.finance') || can('accounts.view')
+            ? [{ id: 'finance', label: t('printKit.finance'), defaultOn: true }]
+            : []),
+          { id: 'execution', label: t('printKit.execution'), defaultOn: true }
+        ]}
+        onClose={() => setPrintOpen(false)}
+        onConfirm={async (selected) => {
+          const parts: string[] = []
+          if (selected.includes('personal')) {
+            parts.push(
+              kvBlock(
+                t('printKit.personal'),
+                personalFields.map((f) => ({
+                  label: f.label,
+                  value: printVal(f.name, c[f.name], i18n.language, t)
+                }))
+              )
+            )
+          }
+          if (selected.includes('hearings')) {
+            const hearings = (p.hearings as Record<string, unknown>[]) || []
+            parts.push(`<div class="block-title">${t('printKit.hearings')}</div>`)
+            parts.push(hearingBlocksHtml(hearings, t, i18n.language, { emptyLabel: t('noData') }))
+          }
+          const tasks = ((p.tasks as Record<string, unknown>[]) || [])
+          if (selected.includes('admin')) {
+            const admin = tasks.filter((tk) => String(tk.work_kind || 'admin') !== 'execution')
+            parts.push(`<div class="block-title">${t('printKit.admin')}</div>`)
+            parts.push(taskBlocksHtml(admin, t, i18n.language, { emptyLabel: t('noData') }))
+          }
+          if (selected.includes('finance')) {
+            const pays = (p.payments as Record<string, unknown>[]) || []
+            const exps = (p.expenses as Record<string, unknown>[]) || []
+            const payRows = pays.map((r) => [
+              printVal('payment_date', r.payment_date, i18n.language, t),
+              String(r.amount ?? ''),
+              printVal('payment_type', r.payment_type, i18n.language, t)
+            ])
+            const expRows = exps.map((r) => [
+              printVal('expense_date', r.expense_date, i18n.language, t),
+              String(r.amount ?? ''),
+              String(r.notes || r.category_name || '')
+            ])
+            parts.push(`<div class="block-title">${t('printKit.finance')}</div>`)
+            parts.push(
+              compactTableHtml({
+                columns: [
+                  { label: t('fields.payment_date') },
+                  { label: t('fields.amount') },
+                  { label: t('fields.payment_type') }
+                ],
+                rows: payRows,
+                notesLabel: t('printKit.notes'),
+                emptyLabel: t('noData')
+              })
+            )
+            parts.push(
+              compactTableHtml({
+                columns: [
+                  { label: t('fields.expense_date') },
+                  { label: t('fields.amount') },
+                  { label: t('fields.notes') }
+                ],
+                rows: expRows,
+                notesLabel: t('printKit.notes'),
+                emptyLabel: t('noData')
+              })
+            )
+          }
+          if (selected.includes('execution')) {
+            const exec = tasks.filter((tk) => String(tk.work_kind || '') === 'execution')
+            parts.push(`<div class="block-title">${t('printKit.execution')}</div>`)
+            parts.push(executionBlocksHtml(exec, t, i18n.language, { emptyLabel: t('noData') }))
+          }
+          await sendPrint('a4', t('printKit.clientFile'), parts.join(''))
+          setPrintOpen(false)
         }}
       />
     </div>

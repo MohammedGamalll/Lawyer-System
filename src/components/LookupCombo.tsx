@@ -5,6 +5,29 @@ import { Input } from './ui'
 import { cn } from '../lib/utils'
 import { onDataChanged } from '../lib/bus'
 import { FloatingMenu } from './FloatingMenu'
+import { arabicFold } from '@shared/arabic'
+
+function lookupLabel(kind: string, value: string, t: (k: string) => string): string {
+  if (
+    kind === 'task_status' ||
+    kind === 'link_type' ||
+    kind === 'case_status' ||
+    kind === 'hearing_status' ||
+    kind === 'poa_status' ||
+    kind === 'contract_status' ||
+    kind === 'staff_status'
+  ) {
+    const key = `status.${value}`
+    const translated = t(key)
+    if (translated !== key) return translated
+  }
+  if (kind === 'payment_type') {
+    const key = `types.${value}`
+    const translated = t(key)
+    if (translated !== key) return translated
+  }
+  return value
+}
 
 export function LookupCombo({
   kind,
@@ -49,7 +72,14 @@ export function LookupCombo({
     setOpts((prev) => prev.filter((x) => x !== v))
     if (value === v) onChange('')
   }
-  const filtered = opts.filter((o) => !value.trim() || o.toLowerCase().includes(value.trim().toLowerCase())).slice(0, 80)
+  const filtered = opts
+    .filter(
+      (o) =>
+        !value.trim() ||
+        arabicFold(o).includes(arabicFold(value)) ||
+        arabicFold(lookupLabel(kind, o, t)).includes(arabicFold(value))
+    )
+    .slice(0, 80)
 
   return (
     <div ref={box} className={cn('relative', className)}>
@@ -83,7 +113,7 @@ export function LookupCombo({
                   setOpen(false)
                 }}
               >
-                {o}
+                {lookupLabel(kind, o, t)}
               </button>
               <button
                 type="button"

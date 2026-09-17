@@ -3,11 +3,13 @@ import { useTranslation } from 'react-i18next'
 import { invoke } from '../lib/api'
 import { ApiError } from '../lib/api'
 import { useApp } from '../store'
-import { Button, Field, Input } from './ui'
+import { Button, Field, Input, Select } from './ui'
+import { DatePicker } from './DateTimePicker'
 import { EntitySelect } from './EntitySelect'
 import { LookupCombo } from './LookupCombo'
 import { SimilarClientModal } from './SimilarClientModal'
 import type { LookupOption } from '../lib/lookups'
+import { displayClientCode } from '../lib/courtNumber'
 
 type ExtraClient = {
   client_id: string
@@ -154,7 +156,8 @@ export function CaseFormExtras({
   setField: (name: string, value: unknown) => void
 }) {
   const { t } = useTranslation()
-  const { toast } = useApp()
+  const { toast, can } = useApp()
+  const [feesOpen, setFeesOpen] = useState(false)
   const [quick, setQuick] = useState({ full_name: '', national_id: '', client_type: 'individual' })
   const [quickOpp, setQuickOpp] = useState({ full_name: '', national_id: '' })
   const [similar, setSimilar] = useState<{ id: string; client_number: string; full_name: string } | null>(null)
@@ -176,7 +179,7 @@ export function CaseFormExtras({
         client_type: quick.client_type,
         force_similar: force || undefined
       })
-      const label = `${created.client_number || ''} — ${quick.full_name}`.replace(/^ — /, '')
+      const label = `${displayClientCode(created.client_number)} — ${quick.full_name}`.replace(/^ — /, '')
       setPinnedClients((prev) => [{ value: created.id, label }, ...prev.filter((x) => x.value !== created.id)])
       setField('client_id', created.id)
       setField('__quick_client', false)
@@ -248,18 +251,7 @@ export function CaseFormExtras({
           </select>
         </Field>
         {String(form.__numbering_mode || (String(form.office_case_number || '').trim() ? 'manual' : 'auto')) === 'auto' ? (
-          <>
-            <p className="text-xs text-navy-500">{t('caseForm.numberingAutoHint')}</p>
-            <div className="max-w-[8rem]">
-              <Field label={t('fields.case_year')}>
-                <Input
-                  dir="ltr"
-                  value={String(form.case_year || '')}
-                  onChange={(e) => setField('case_year', e.target.value)}
-                />
-              </Field>
-            </div>
-          </>
+          <p className="text-xs text-navy-500">{t('caseForm.numberingAutoHint')}</p>
         ) : (
           <>
         <div className="flex flex-wrap items-end gap-2">
@@ -272,16 +264,6 @@ export function CaseFormExtras({
               placeholder="6720"
             />
           </Field>
-          <span className="pb-2 text-sm font-bold text-navy-700 dark:text-navy-200">لسنة</span>
-          <Field label={t('fields.case_year')}>
-            <Input
-              className="w-24"
-              dir="ltr"
-              value={String(form.case_year || '')}
-              onChange={(e) => setField('case_year', e.target.value)}
-            />
-          </Field>
-          <span className="pb-2 text-sm font-bold text-navy-700 dark:text-navy-200">ق</span>
         </div>
         <p className="text-xs text-navy-500">{t('caseForm.numberingManualHint')}</p>
           </>
@@ -553,6 +535,75 @@ export function CaseFormExtras({
           </div>
         ))}
       </div>
+
+      {can('cases.finance') ? (
+        <div className="rounded-lg border border-navy-100 dark:border-navy-700">
+          <button
+            type="button"
+            className="flex w-full items-center justify-between px-3 py-2 text-start text-sm font-bold"
+            onClick={() => setFeesOpen((v) => !v)}
+          >
+            <span>{t('caseForm.fees')}</span>
+            <span className="text-navy-400">{feesOpen ? '−' : '+'}</span>
+          </button>
+          {feesOpen ? (
+            <div className="flex flex-wrap gap-2 border-t border-navy-100 p-3 dark:border-navy-700">
+              <div className="w-[9rem]">
+                <Field label={t('fields.case_value')}>
+                  <Input
+                    dir="ltr"
+                    type="number"
+                    value={String(form.case_value ?? '')}
+                    onChange={(e) => setField('case_value', e.target.value)}
+                  />
+                </Field>
+              </div>
+              <div className="w-[9rem]">
+                <Field label={t('fields.total_fees')}>
+                  <Input
+                    dir="ltr"
+                    type="number"
+                    value={String(form.total_fees ?? '')}
+                    onChange={(e) => setField('total_fees', e.target.value)}
+                  />
+                </Field>
+              </div>
+              <div className="w-[10rem]">
+                <Field label={t('fields.fees_due_date')}>
+                  <DatePicker
+                    value={String(form.fees_due_date || '')}
+                    onChange={(iso) => setField('fees_due_date', iso)}
+                  />
+                </Field>
+              </div>
+              <div className="w-[10rem]">
+                <Field label={t('fields.payment_method')}>
+                  <Select
+                    value={String(form.payment_method || 'cash')}
+                    onChange={(e) => setField('payment_method', e.target.value)}
+                  >
+                    {['cash', 'bank', 'card', 'wallet', 'installment', 'other'].map((v) => (
+                      <option key={v} value={v}>
+                        {t(`types.${v}`)}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+              <div className="w-[8rem]">
+                <Field label={t('fields.installment_count')}>
+                  <Input
+                    dir="ltr"
+                    type="number"
+                    value={String(form.installment_count ?? '')}
+                    onChange={(e) => setField('installment_count', e.target.value)}
+                  />
+                </Field>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <SimilarClientModal
         open={!!similar}

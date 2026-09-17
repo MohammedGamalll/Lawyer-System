@@ -7,7 +7,7 @@ import type { AuthedUser } from '../ipc/helpers'
 import { getSetting } from './settings'
 import { getCase } from './cases'
 import { getClient } from './clients'
-import { cairoFace, officeLogoDataUrl, printHtml } from './print'
+import { appFontFace, officeLogoDataUrl, printHtml } from './print'
 import type { BrowserWindow } from 'electron'
 import {
   defaultCaseLayout,
@@ -201,7 +201,7 @@ export function buildPrintContext(opts: { caseId?: string; clientId?: string }):
 export function renderTemplateHtml(id: string, opts: { caseId?: string; clientId?: string }) {
   const tpl = getPrintTemplate(id)
   const values = buildPrintContext(opts)
-  return renderLayoutHtml(tpl.layout, values, officeLogoDataUrl() || undefined, cairoFace())
+  return renderLayoutHtml(tpl.layout, values, officeLogoDataUrl() || undefined, appFontFace(), nowIso())
 }
 
 export async function printTemplate(
@@ -219,6 +219,6 @@ export async function printLayout(
   parent?: BrowserWindow | null
 ) {
   const values = buildPrintContext(opts)
-  const html = renderLayoutHtml(sanitizeLayout(layout), values, officeLogoDataUrl() || undefined, cairoFace())
+  const html = renderLayoutHtml(sanitizeLayout(layout), values, officeLogoDataUrl() || undefined, appFontFace(), nowIso())
   await printHtml(html, 'a4', parent)
 }

@@ -4,6 +4,7 @@ import { audit } from './audit'
 import { newId, asId, asIdOrNull, notDeleted } from '../db/ids'
 import { clampPageSize, pageKind, includeIds } from '../db/queryLimits'
 import { recordLocalChange, softDelete } from '../sync/queue'
+import { rememberLookup } from './lookups'
 import type { AuthedUser } from '../ipc/helpers'
 import type { ListQuery } from '@shared/types'
 import bcrypt from 'bcryptjs'
@@ -151,6 +152,7 @@ export function getLawyer(id: string) {
 function lawyerFieldValues(data: Record<string, unknown>, photoPath: unknown) {
   const duties = data.duties ?? data.specialization ?? null
   return [
+    data.national_id ?? null,
     data.bar_number ?? null,
     duties,
     data.phone ?? null,
@@ -180,9 +182,9 @@ export function createLawyer(actor: AuthedUser, data: Record<string, unknown>) {
   ).m
   getDb()
     .prepare(
-      `INSERT INTO lawyers (id, user_id, full_name, bar_number, specialization, phone, email, hire_date, status, notes,
+      `INSERT INTO lawyers (id, user_id, full_name, national_id, bar_number, specialization, phone, email, hire_date, status, notes,
         whatsapp, phone_home, phone_other, address, salary, rating, bar_degree, duties, photo_path, sort_order, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     )
     .run(
       id,
@@ -257,7 +259,7 @@ export function updateLawyer(actor: AuthedUser, id: string, data: Record<string,
     | undefined
   if (!old) throw new Error('المحامي غير موجود')
   db.prepare(
-    `UPDATE lawyers SET user_id=?, full_name=?, bar_number=?, specialization=?, phone=?, email=?, hire_date=?, status=?, notes=?,
+    `UPDATE lawyers SET user_id=?, full_name=?, national_id=?, bar_number=?, specialization=?, phone=?, email=?, hire_date=?, status=?, notes=?,
       whatsapp=?, phone_home=?, phone_other=?, address=?, salary=?, rating=?, bar_degree=?, duties=?, photo_path=?, updated_at=? WHERE id=?`
   ).run(
     asIdOrNull(data.user_id) || old.user_id,
@@ -370,7 +372,7 @@ export function saveStaff(actor: AuthedUser, data: Record<string, unknown>) {
       if (lawyerId) {
         const old = db.prepare(`SELECT photo_path FROM lawyers WHERE id = ?`).get(lawyerId) as { photo_path: string | null }
         db.prepare(
-          `UPDATE lawyers SET user_id=?, full_name=?, bar_number=?, specialization=?, phone=?, email=?, hire_date=?, status=?, notes=?,
+          `UPDATE lawyers SET user_id=?, full_name=?, national_id=?, bar_number=?, specialization=?, phone=?, email=?, hire_date=?, status=?, notes=?,
             whatsapp=?, phone_home=?, phone_other=?, address=?, salary=?, rating=?, bar_degree=?, duties=?, photo_path=?, updated_at=? WHERE id=?`
         ).run(
           userId,
@@ -387,10 +389,11 @@ export function saveStaff(actor: AuthedUser, data: Record<string, unknown>) {
         if (other) {
           lawyerId = other.id
           db.prepare(
-            `UPDATE lawyers SET full_name=?, bar_number=?, specialization=?, phone=?, email=?, hire_date=?, status=?, notes=?,
+            `UPDATE lawyers SET full_name=?, national_id=?, bar_number=?, specialization=?, phone=?, email=?, hire_date=?, status=?, notes=?,
               whatsapp=?, phone_home=?, phone_other=?, address=?, salary=?, rating=?, bar_degree=?, duties=?, updated_at=? WHERE id=?`
           ).run(
             fullName,
+            data.national_id ?? null,
             data.bar_number ?? null,
             data.duties ?? data.specialization ?? null,
             data.phone ?? null,
@@ -413,13 +416,14 @@ export function saveStaff(actor: AuthedUser, data: Record<string, unknown>) {
         } else {
           lawyerId = newId()
           db.prepare(
-            `INSERT INTO lawyers (id, user_id, full_name, bar_number, specialization, phone, email, hire_date, status, notes,
+            `INSERT INTO lawyers (id, user_id, full_name, national_id, bar_number, specialization, phone, email, hire_date, status, notes,
               whatsapp, phone_home, phone_other, address, salary, rating, bar_degree, duties, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
           ).run(
             lawyerId,
             userId,
             fullName,
+            data.national_id ?? null,
             data.bar_number ?? null,
             data.duties ?? data.specialization ?? null,
             data.phone ?? null,
@@ -450,11 +454,12 @@ export function saveStaff(actor: AuthedUser, data: Record<string, unknown>) {
 
     if (employeeId) {
       db.prepare(
-        `UPDATE employees SET user_id=?, full_name=?, job_title=?, department=?, salary=?, hire_date=?, phone=?, email=?, status=?, notes=?, license_no=?, qualification=?,
+        `UPDATE employees SET user_id=?, full_name=?, national_id=?, job_title=?, department=?, salary=?, hire_date=?, phone=?, email=?, status=?, notes=?, license_no=?, qualification=?,
           whatsapp=?, phone_home=?, phone_other=?, address=?, updated_at=? WHERE id=?`
       ).run(
         userId,
         fullName,
+        data.national_id ?? null,
         jobTitle,
         data.department ?? null,
         data.salary ?? null,
@@ -480,10 +485,11 @@ export function saveStaff(actor: AuthedUser, data: Record<string, unknown>) {
       if (existing) {
         employeeId = existing.id
         db.prepare(
-          `UPDATE employees SET full_name=?, job_title=?, department=?, salary=?, hire_date=?, phone=?, email=?, status=?, notes=?, license_no=?, qualification=?,
+          `UPDATE employees SET full_name=?, national_id=?, job_title=?, department=?, salary=?, hire_date=?, phone=?, email=?, status=?, notes=?, license_no=?, qualification=?,
             whatsapp=?, phone_home=?, phone_other=?, address=?, updated_at=? WHERE id=?`
         ).run(
           fullName,
+          data.national_id ?? null,
           jobTitle,
           data.department ?? null,
           data.salary ?? null,
@@ -505,13 +511,14 @@ export function saveStaff(actor: AuthedUser, data: Record<string, unknown>) {
       } else {
         employeeId = newId()
         db.prepare(
-          `INSERT INTO employees (id, user_id, full_name, job_title, department, salary, hire_date, phone, email, status, notes, license_no, qualification,
+          `INSERT INTO employees (id, user_id, full_name, national_id, job_title, department, salary, hire_date, phone, email, status, notes, license_no, qualification,
             whatsapp, phone_home, phone_other, address, created_at, updated_at)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
         ).run(
           employeeId,
           userId,
           fullName,
+          data.national_id ?? null,
           jobTitle,
           data.department ?? null,
           data.salary ?? null,
@@ -533,6 +540,7 @@ export function saveStaff(actor: AuthedUser, data: Record<string, unknown>) {
       }
     }
 
+    rememberLookup('staff_status', data.status)
     return { lawyer_id: lawyerId || null, user_id: userId, employee_id: employeeId }
   })
   const ids = run()

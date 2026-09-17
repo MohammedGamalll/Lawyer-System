@@ -10,7 +10,9 @@ import { clientSchema, parseSchema, normalizeDigits } from '@shared/schemas'
 import { rememberLookup } from './lookups'
 import { clampPageSize, pageKind, pickSort, sqlDir, includeIds } from '../db/queryLimits'
 import { ftsQuery } from '../db/fts'
-import { assertPersonIdentity, findDuplicateNationalId, normalizePersonName } from './personIdentity'
+import { assertPersonIdentity, findDuplicateNationalId, normalizePersonName, arabicLike, foldedLikeTerm } from './personIdentity'
+import { upsertClientPoa } from './legal'
+import { casePrintJoinSql, casePrintSelectSql, enrichPrintRows } from './printCaseFields'
 
 export { normalizePersonName }
 
@@ -25,9 +27,9 @@ export function listClients(query: ListQuery = {}, actor?: AuthedUser | null) {
     where += ` AND c.rowid IN (SELECT rowid FROM clients_fts WHERE clients_fts MATCH ?)`
     params.push(fts)
   } else if (query.search) {
-    where += ` AND (c.full_name LIKE ? OR c.client_number LIKE ? OR c.phone LIKE ? OR c.national_id LIKE ? OR c.profession LIKE ? OR c.nickname LIKE ?
-          OR c.poa_number LIKE ? OR c.poa_year LIKE ? OR c.poa_letter LIKE ? OR c.poa_office LIKE ?)`
-    const s = `%${query.search}%`
+    where += ` AND (${arabicLike('c.full_name')} OR c.client_number LIKE ? OR c.phone LIKE ? OR c.national_id LIKE ? OR ${arabicLike('c.profession')} OR ${arabicLike('c.nickname')}
+          OR c.poa_number LIKE ? OR c.poa_year LIKE ? OR c.poa_letter LIKE ? OR ${arabicLike('c.poa_office')})`
+    const s = foldedLikeTerm(query.search)
     params.push(s, s, s, s, s, s, s, s, s, s)
   }
   if (query.filters?.client_type) {
@@ -88,13 +90,13 @@ export function listClients(query: ListQuery = {}, actor?: AuthedUser | null) {
 
 export function searchClients(term: string, actor?: AuthedUser | null) {
   const db = getDb()
-  const s = `%${term}%`
+  const s = foldedLikeTerm(term)
   const rows = db
     .prepare(
       `SELECT DISTINCT c.* FROM clients c
        LEFT JOIN cases cs ON cs.client_id = c.id AND ${notDeleted('cs')}
-       WHERE ${notDeleted('c')} AND (c.full_name LIKE ? OR c.client_number LIKE ? OR c.phone LIKE ? OR c.national_id LIKE ?
-          OR cs.case_number LIKE ? OR c.poa_number LIKE ? OR c.poa_office LIKE ?)
+       WHERE ${notDeleted('c')} AND (${arabicLike('c.full_name')} OR c.client_number LIKE ? OR c.phone LIKE ? OR c.national_id LIKE ?
+          OR cs.case_number LIKE ? OR c.poa_number LIKE ? OR ${arabicLike('c.poa_office')})
        LIMIT 50`
     )
     .all(s, s, s, s, s, s, s)
@@ -119,15 +121,44 @@ export function clientProfile(id: string, actor?: AuthedUser | null) {
   const client = getClient(id, actor)
   const cases = db
     .prepare(
-      `SELECT c.*, COALESCE(cf.total_fees,0) as total_fees, COALESCE(cf.paid,0) as paid, COALESCE(cf.remaining,0) as remaining
+      `SELECT c.*, COALESCE(cf.total_fees,0) as total_fees, COALESCE(cf.paid,0) as paid, COALESCE(cf.remaining,0) as remaining,
+              (
+                SELECT CASE
+                  WHEN h.hearing_date IS NULL OR h.hearing_date = '' THEN IFNULL(h.hearing_type, '')
+                  ELSE substr(h.hearing_date, 9, 2) || '/' || substr(h.hearing_date, 6, 2) || '/' || substr(h.hearing_date, 1, 4)
+                    || CASE WHEN IFNULL(h.hearing_type, '') = '' THEN '' ELSE ' — ' || h.hearing_type END
+                END
+                FROM hearings h
+                WHERE h.case_id = c.id AND ${notDeleted('h')}
+                ORDER BY h.hearing_date DESC LIMIT 1
+              ) as last_hearing,
+              COALESCE(
+                (
+                  SELECT COALESCE(NULLIF(TRIM(t.description), ''), t.title)
+                  FROM tasks t
+                  WHERE t.case_id = c.id AND ${notDeleted('t')} AND IFNULL(t.work_kind, 'admin') = 'admin'
+                    AND t.status IN ('completed', 'done')
+                  ORDER BY datetime(IFNULL(t.updated_at, IFNULL(t.due_date, t.created_at))) DESC LIMIT 1
+                ),
+                (
+                  SELECT COALESCE(NULLIF(TRIM(t.description), ''), t.title)
+                  FROM tasks t
+                  WHERE t.case_id = c.id AND ${notDeleted('t')} AND IFNULL(t.work_kind, 'admin') = 'admin'
+                    AND t.status NOT IN ('cancelled')
+                  ORDER BY datetime(IFNULL(t.updated_at, IFNULL(t.due_date, t.created_at))) DESC LIMIT 1
+                )
+              ) as last_action
        FROM cases c LEFT JOIN case_fees cf ON cf.case_id = c.id AND ${notDeleted('cf')}
        WHERE c.client_id = ? AND ${notDeleted('c')} ORDER BY remaining DESC, c.created_at DESC`
     )
     .all(id)
   const hearings = db
     .prepare(
-      `SELECT h.*, cs.title as case_title, cs.case_number FROM hearings h
-       JOIN cases cs ON cs.id = h.case_id WHERE cs.client_id = ? AND ${notDeleted('h')} AND ${notDeleted('cs')}
+      `SELECT h.*, cl.full_name as client_name, ${casePrintSelectSql('cs')}
+       FROM hearings h
+       ${casePrintJoinSql('h.case_id')}
+       LEFT JOIN clients cl ON cl.id = cs.client_id AND ${notDeleted('cl')}
+       WHERE cs.client_id = ? AND ${notDeleted('h')}
        ORDER BY h.hearing_date DESC`
     )
     .all(id)
@@ -136,14 +167,35 @@ export function clientProfile(id: string, actor?: AuthedUser | null) {
   const payments = db.prepare(`SELECT * FROM payments WHERE client_id = ? AND ${notDeleted()} ORDER BY created_at DESC`).all(id)
   const expenses = db.prepare(`SELECT * FROM expenses WHERE client_id = ? AND ${notDeleted()} ORDER BY created_at DESC`).all(id)
   const appointments = db.prepare(`SELECT * FROM appointments WHERE client_id = ? AND ${notDeleted()} ORDER BY date DESC`).all(id)
-  const tasks = db.prepare(`SELECT * FROM tasks WHERE client_id = ? AND ${notDeleted()} ORDER BY created_at DESC`).all(id)
+  const tasks = db
+    .prepare(
+      `SELECT t.*, COALESCE(cl.full_name, c2.full_name) as client_name, ${casePrintSelectSql('cs')}
+       FROM tasks t
+       ${casePrintJoinSql('t.case_id')}
+       LEFT JOIN clients cl ON cl.id = t.client_id AND ${notDeleted('cl')}
+       LEFT JOIN clients c2 ON c2.id = cs.client_id AND ${notDeleted('c2')}
+       WHERE ${notDeleted('t')} AND (t.client_id = ? OR cs.client_id = ?)
+       ORDER BY t.due_date IS NULL, t.due_date DESC`
+    )
+    .all(id, id)
   const due = db
     .prepare(
       `SELECT COALESCE(SUM(remaining),0) as due FROM case_fees cf
        JOIN cases c ON c.id = cf.case_id WHERE c.client_id = ? AND ${notDeleted('cf')} AND ${notDeleted('c')}`
     )
     .get(id) as { due: number }
-  return { client, cases, hearings, documents, contracts, payments, expenses, appointments, tasks, due: due.due }
+  return {
+    client,
+    cases,
+    hearings: enrichPrintRows(hearings),
+    documents,
+    contracts,
+    payments,
+    expenses,
+    appointments,
+    tasks: enrichPrintRows(tasks),
+    due: due.due
+  }
 }
 
 export function createClient(actor: AuthedUser, data: Record<string, unknown>) {
@@ -204,6 +256,7 @@ export function createClient(actor: AuthedUser, data: Record<string, unknown>) {
   )
   recordLocalChange('clients', id, 'INSERT')
   rememberClientLookups(data)
+  const poa = upsertClientPoa(actor, id, data)
   const contacts = (data.contacts as { name: string; position?: string; phone?: string; email?: string }[]) ?? []
   for (const c of contacts) {
     if (!c.name) continue
@@ -214,7 +267,7 @@ export function createClient(actor: AuthedUser, data: Record<string, unknown>) {
     recordLocalChange('client_contacts', cid, 'INSERT')
   }
   audit(actor, 'create', 'clients', id, `تم إنشاء العميل ${fullName} برقم ${number}`)
-  return { id, client_number: number }
+  return { id, client_number: number, poa_id: poa?.id }
 }
 
 export function updateClient(actor: AuthedUser, id: string, data: Record<string, unknown>) {
@@ -268,6 +321,7 @@ export function updateClient(actor: AuthedUser, id: string, data: Record<string,
   )
   recordLocalChange('clients', id, 'UPDATE')
   rememberClientLookups(data)
+  const poa = upsertClientPoa(actor, id, data)
   if (Array.isArray(data.contacts)) {
     const oldContacts = db
       .prepare(`SELECT id FROM client_contacts WHERE client_id = ? AND ${notDeleted()}`)
@@ -284,7 +338,7 @@ export function updateClient(actor: AuthedUser, id: string, data: Record<string,
     }
   }
   audit(actor, 'update', 'clients', id, `تم تعديل بيانات العميل ${data.full_name}`, old, data)
-  return { id }
+  return { id, poa_id: poa?.id }
 }
 
 export function removeClient(actor: AuthedUser, id: string) {
@@ -317,6 +371,7 @@ function rememberClientLookups(data: Record<string, unknown>) {
   rememberLookup('governorate', data.governorate)
   rememberLookup('district', data.district)
   rememberLookup('profession', data.profession)
+  rememberLookup('poa_office', data.poa_office)
 }
 
 function shouldMask(user?: AuthedUser | null) {

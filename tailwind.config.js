@@ -29,7 +29,13 @@ module.exports = {
         }
       },
       fontFamily: {
-        sans: ['Cairo', 'Segoe UI', 'Tahoma', 'sans-serif']
+        sans: ['IBM Plex Sans Arabic', 'Segoe UI', 'Tahoma', 'sans-serif']
+      },
+      fontWeight: {
+        normal: '400',
+        medium: '500',
+        semibold: '600',
+        bold: '700'
       },
       boxShadow: {
         card: '0 1px 3px rgba(12, 27, 46, 0.08), 0 8px 24px rgba(12, 27, 46, 0.06)'

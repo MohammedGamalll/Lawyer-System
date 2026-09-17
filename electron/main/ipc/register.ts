@@ -284,8 +284,8 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
   })
 
   handle(ipc, IPC.notifications.list, {}, (_e, user) => ok(schedule.listNotifications(user!.id)))
-  handle(ipc, IPC.notifications.read, { write: true }, (_e, _u, id) => {
-    schedule.markNotificationRead(String(id))
+  handle(ipc, IPC.notifications.read, { write: true }, (_e, _u, id, isRead) => {
+    schedule.markNotificationRead(String(id), isRead !== false)
     return ok(true)
   })
   handle(ipc, IPC.notifications.readAll, { write: true }, (_e, user) => {
@@ -383,6 +383,12 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
     finance.removePayment(user!, String(id))
     return ok(true)
   })
+  handle(ipc, IPC.dues.list, { permission: 'cases.finance' }, (_e, _u, caseId) => ok(finance.listCaseDues(String(caseId))))
+  handle(ipc, IPC.dues.create, { permission: 'cases.finance', write: true }, (_e, user, data) => ok(finance.createCaseDue(user!, data as never)))
+  handle(ipc, IPC.dues.remove, { permission: 'cases.finance', write: true }, (_e, user, id) => {
+    finance.removeCaseDue(user!, String(id))
+    return ok(true)
+  })
   handle(ipc, IPC.expenses.list, { permission: ['accounts.view', 'accounts.expense'] }, (_e, _u, q) => ok(finance.listExpenses(q as never)))
   handle(ipc, IPC.expenses.create, { permission: 'accounts.expense', write: true }, (_e, user, data) => ok(finance.createExpense(user!, data as never)))
   handle(ipc, IPC.expenses.remove, { permission: 'accounts.expense', write: true }, (_e, user, id) => {
@@ -450,8 +456,29 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
   })
 
   handle(ipc, IPC.backup.create, { permission: 'backup.manage', write: true }, (_e, user, dir) => ok(backup.createBackup(user!, dir as string)))
+  handle(ipc, IPC.backup.createToDir, { permission: 'backup.manage', write: true }, async (_e, user) => {
+    const win = getWin()
+    const res = win
+      ? await dialog.showOpenDialog(win, { properties: ['openDirectory'] })
+      : await dialog.showOpenDialog({ properties: ['openDirectory'] })
+    if (res.canceled || !res.filePaths[0]) return ok({ canceled: true })
+    return ok({ ...backup.createBackup(user!, res.filePaths[0]), canceled: false })
+  })
   handle(ipc, IPC.backup.list, { permission: 'backup.manage' }, (_e, _u, dir) => ok(backup.listBackups(dir as string)))
   handle(ipc, IPC.backup.restore, { permission: 'backup.manage', write: true }, (_e, user, file) => ok(backup.restoreBackup(user!, String(file))))
+  handle(ipc, IPC.backup.restoreFromFile, { permission: 'backup.manage', write: true }, async (_e, user) => {
+    const win = getWin()
+    const opts = {
+      properties: ['openFile'] as Array<'openFile'>,
+      filters: [
+        { name: 'Backup', extensions: ['lobak', 'db'] },
+        { name: 'All', extensions: ['*'] }
+      ]
+    }
+    const res = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+    if (res.canceled || !res.filePaths[0]) return ok({ canceled: true })
+    return ok({ ...backup.restoreBackup(user!, res.filePaths[0]), canceled: false })
+  })
   handle(ipc, IPC.backup.schedule, { permission: 'backup.manage', write: true }, (_e, user, sch, dir) =>
     ok(backup.setBackupSchedule(user!, String(sch), String(dir)))
   )

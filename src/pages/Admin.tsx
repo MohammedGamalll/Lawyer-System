@@ -8,11 +8,19 @@ import { LookupCombo } from '../components/LookupCombo'
 import { CrudPage } from '../components/CrudPage'
 import i18n from '../i18n'
 import { formatCell } from '../lib/datetime'
+import { compactTableHtml, escPrint, promoteSingleFilter } from '../lib/printKit'
 import { PrintDesigner } from './PrintDesigner'
 import { wipeAllBusinessData } from '../lib/wipeData'
 import { applyFontSize, clampFontSize, FONT_SIZE_MAX, FONT_SIZE_MIN } from '../lib/uiPrefs'
 import { parseSourceOrder, serializeSourceOrder, type AttachSource } from '../lib/attachSources'
 import type { SyncSnapshot } from '../store/sync'
+import { ReorderList } from '../components/ReorderList'
+import {
+  DASHBOARD_SECTION_IDS,
+  orderedDashboardSections,
+  orderedNavItems,
+  serializeIdList
+} from '../lib/layoutPrefs'
 
 const REPORT_KEYS = [
   'clients',
@@ -57,10 +65,22 @@ export function ReportsPage() {
     if (!r?.canceled) toast(t('savedOk'))
   }
   const print = async () => {
-    const keys = rows[0] ? Object.keys(rows[0]) : []
-    const body = `<table><thead><tr>${keys.map((k) => `<th>${colLabel(k)}</th>`).join('')}</tr></thead><tbody>${rows
-      .map((r) => `<tr>${keys.map((k) => `<td>${cell(k, (r as Record<string, unknown>)[k])}</td>`).join('')}</tr>`)
-      .join('')}</tbody></table>`
+    const period = [from, to].filter(Boolean).join(' — ')
+    const filled = [
+      { key: 'period', label: t('fields.date'), value: period },
+      { key: 'venue', label: t('fields.venue'), value: venue }
+    ]
+    const promoted = promoteSingleFilter(filled.filter((x) => x.value))
+    const keep = (rows[0] ? Object.keys(rows[0] as object) : []).filter(
+      (k) => !promoted.dropKeys.has(k) && k !== 'id' && !k.endsWith('_id')
+    )
+    const body = compactTableHtml({
+      columns: keep.map((k) => ({ label: colLabel(k) })),
+      rows: rows.map((r) => keep.map((k) => escPrint(cell(k, (r as Record<string, unknown>)[k])))),
+      notesLabel: t('printKit.notes'),
+      emptyLabel: t('noData'),
+      subtitle: promoted.header
+    })
     await invoke('print:print', 'report', t(`reports.${type}`), body)
   }
 
@@ -665,6 +685,22 @@ export function SettingsPage() {
         </div>
       </Card>
       <Card>
+        <h3 className="mb-3 font-bold">{t('settings.navOrder')}</h3>
+        <p className="mb-2 text-sm text-navy-500">{t('settings.navOrderHint')}</p>
+        <ReorderList
+          items={orderedNavItems(s.nav_order).map((n) => ({ id: n.id, label: t(`nav.${n.id}`) }))}
+          onChange={(ids) => setS({ ...s, nav_order: serializeIdList(ids) })}
+        />
+        <h3 className="mb-2 mt-4 font-bold">{t('settings.dashOrder')}</h3>
+        <ReorderList
+          items={orderedDashboardSections(s.dashboard_sections).map((id) => ({
+            id,
+            label: t(`dash.section${id[0].toUpperCase()}${id.slice(1)}`)
+          }))}
+          onChange={(ids) => setS({ ...s, dashboard_sections: serializeIdList(ids) })}
+        />
+      </Card>
+      <Card>
         <h3 className="mb-3 font-bold">{t('sync.title')}</h3>
         <div className="grid gap-3 md:grid-cols-2">
           <Field label={t('sync.url')}>
@@ -763,6 +799,12 @@ export function SettingsPage() {
             body: can('settings.manage') ? (
               <div className="space-y-4">
       <p className="text-sm text-navy-600 dark:text-navy-300">{t('settings.listsSplitHint')}</p>
+      <UiTabs
+        tabs={[
+          {
+            id: 'seq',
+            label: t('settings.listSequence'),
+            body: (
       <Card>
         <h3 className="mb-3 font-bold">{t('settings.caseSequence')}</h3>
         <p className="mb-2 text-sm text-navy-500">{t('settings.caseSequenceHint', { next: s.case_sequence_next || '—' })}</p>
@@ -775,6 +817,12 @@ export function SettingsPage() {
           />
         </Field>
       </Card>
+            )
+          },
+          {
+            id: 'types',
+            label: t('settings.listCaseTypes'),
+            body: (
       <Card>
         <h3 className="mb-1 font-bold">{t('settings.caseTypes')}</h3>
         <p className="mb-3 text-xs text-navy-500">{t('settings.caseTypesHint')}</p>
@@ -866,9 +914,65 @@ export function SettingsPage() {
           ))}
         </ul>
       </Card>
-      <LookupKindEditor kind="case_subject" title={t('settings.caseSubjects')} hint={t('settings.caseSubjectsHint')} />
-      <LookupKindEditor kind="court" title={t('settings.courts')} hint={t('settings.courtsHint')} />
-      <LookupKindEditor kind="doc_category" title={t('settings.docCategories')} />
+            )
+          },
+          {
+            id: 'subjects',
+            label: t('settings.listSubjects'),
+            body: <LookupKindEditor kind="case_subject" title={t('settings.caseSubjects')} hint={t('settings.caseSubjectsHint')} />
+          },
+          {
+            id: 'courts',
+            label: t('settings.listCourts'),
+            body: <LookupKindEditor kind="court" title={t('settings.courts')} hint={t('settings.courtsHint')} />
+          },
+          {
+            id: 'docs',
+            label: t('settings.listDocs'),
+            body: <LookupKindEditor kind="doc_category" title={t('settings.docCategories')} />
+          },
+          {
+            id: 'police',
+            label: t('settings.listPolice'),
+            body: <LookupKindEditor kind="police_station" title={t('fields.police_station')} />
+          },
+          {
+            id: 'link',
+            label: t('settings.listLink'),
+            body: <LookupKindEditor kind="link_type" title={t('fields.link_type')} />
+          },
+          {
+            id: 'poaOffice',
+            label: t('settings.listPoaOffice'),
+            body: <LookupKindEditor kind="poa_office" title={t('fields.poa_office')} />
+          },
+          {
+            id: 'taskStatus',
+            label: t('settings.listTaskStatus'),
+            body: <LookupKindEditor kind="task_status" title={t('fields.status')} />
+          },
+          {
+            id: 'exec',
+            label: t('settings.listExec'),
+            body: <LookupKindEditor kind="execution_action" title={t('caseForm.executionWork')} />
+          },
+          {
+            id: 'execKind',
+            label: t('fields.execution_kind'),
+            body: <LookupKindEditor kind="execution_kind" title={t('fields.execution_kind')} />
+          },
+          {
+            id: 'pay',
+            label: t('settings.listPayType'),
+            body: <LookupKindEditor kind="payment_type" title={t('fields.payment_type')} />
+          },
+          {
+            id: 'due',
+            label: t('settings.listDueType'),
+            body: <LookupKindEditor kind="due_type" title={t('fields.due_type')} />
+          }
+        ]}
+      />
               </div>
             ) : (
               <p className="text-sm text-navy-500">{t('forbidden')}</p>
@@ -917,6 +1021,16 @@ export function SettingsPage() {
                 {can('settings.manage') ? (
                   <Card>
                     <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        onClick={async () => {
+                          const r = await invoke<{ file: string; canceled?: boolean }>('backup:createToDir')
+                          if (r?.canceled) return
+                          toast(t('settings.backupSaved', { file: r.file }))
+                        }}
+                      >
+                        {t('settings.backupToDisk')}
+                      </Button>
                       <Button
                         variant="outline"
                         onClick={async () => {
@@ -1006,6 +1120,35 @@ function BackupRestore() {
   return (
     <Card>
       <h3 className="mb-3 font-bold">{t('settings.backup')}</h3>
+      <Button
+        className="mb-3"
+        variant="outline"
+        onClick={async () => {
+          const r = await invoke<{ file: string; canceled?: boolean }>('backup:createToDir')
+          if (r?.canceled) return
+          toast(t('settings.backupSaved', { file: r.file }))
+          const next = await invoke<typeof list>('backup:list').catch(() => list)
+          setList(next)
+        }}
+      >
+        {t('settings.backupToDisk')}
+      </Button>
+      <Button
+        className="mb-3 ms-2"
+        variant="outline"
+        onClick={async () => {
+          if (!confirm(t('settings.restoreFromFileConfirm'))) return
+          try {
+            const r = await invoke<{ canceled?: boolean }>('backup:restoreFromFile')
+            if (r?.canceled) return
+            toast(t('settings.restored'))
+          } catch (e) {
+            toast((e as Error).message, 'err')
+          }
+        }}
+      >
+        {t('settings.importBackup')}
+      </Button>
       {list.map((b) => (
         <div key={b.path} className="flex items-center justify-between border-b py-2 text-sm">
           <span>

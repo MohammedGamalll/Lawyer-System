@@ -8,6 +8,7 @@ export const PERMISSIONS = [
   { code: 'cases.create', nameAr: 'إضافة قضية', nameEn: 'Create case', module: 'cases' },
   { code: 'cases.update', nameAr: 'تعديل قضية', nameEn: 'Update case', module: 'cases' },
   { code: 'cases.delete', nameAr: 'حذف قضية', nameEn: 'Delete case', module: 'cases' },
+  { code: 'cases.finance', nameAr: 'مالية القضية', nameEn: 'Case finance', module: 'cases' },
   { code: 'hearings.view', nameAr: 'مشاهدة الجلسات', nameEn: 'View hearings', module: 'hearings' },
   { code: 'hearings.create', nameAr: 'إضافة جلسة', nameEn: 'Create hearing', module: 'hearings' },
   { code: 'hearings.update', nameAr: 'تعديل جلسة', nameEn: 'Update hearing', module: 'hearings' },
@@ -147,7 +148,8 @@ export const ROLE_PERMISSIONS: Record<string, PermissionCode[]> = {
     'reports.view',
     'cashbox.view',
     'invoices.view',
-    'invoices.manage'
+    'invoices.manage',
+    'cases.finance'
   ],
   custom: []
 }
@@ -162,6 +164,7 @@ export function canAccessPage(page: string, roleCode: string, permissions: strin
 }
 
 export const PAGE_ACCESS: Record<string, PermissionCode | PermissionCode[] | []> = {
+  alerts: [],
   home: [],
   dashboard: [],
   clients: 'clients.view',
@@ -171,6 +174,7 @@ export const PAGE_ACCESS: Record<string, PermissionCode | PermissionCode[] | []>
   hearings: 'hearings.view',
   calendar: 'calendar.view',
   tasks: 'tasks.view',
+  execution: 'tasks.view',
   reminders: 'reminders.view',
   documents: 'documents.view',
   poa: 'poa.view',
@@ -198,6 +202,7 @@ export const PAGE_ACCESS: Record<string, PermissionCode | PermissionCode[] | []>
 }
 
 export const NAV_ITEMS: { id: string; permission?: PermissionCode; icon?: string }[] = [
+  { id: 'alerts' },
   { id: 'home' },
   { id: 'dashboard' },
   { id: 'clients', permission: 'clients.view' },
@@ -206,6 +211,7 @@ export const NAV_ITEMS: { id: string; permission?: PermissionCode; icon?: string
   { id: 'calendar', permission: 'calendar.view' },
   { id: 'appointments', permission: 'appointments.view' },
   { id: 'tasks', permission: 'tasks.view' },
+  { id: 'execution', permission: 'tasks.view' },
   { id: 'reminders', permission: 'reminders.view' },
   { id: 'documents', permission: 'documents.view' },
   { id: 'poa', permission: 'poa.view' },

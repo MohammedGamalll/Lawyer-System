@@ -36,6 +36,11 @@ describe('permissions matrix', () => {
     expect(ROLE_PERMISSIONS.accountant).not.toContain('cases.delete')
   })
 
+  it('accountant can see case finance; lawyer cannot', () => {
+    expect(ROLE_PERMISSIONS.accountant).toContain('cases.finance')
+    expect(ROLE_PERMISSIONS.lawyer).not.toContain('cases.finance')
+  })
+
   it('lawyer can create cases and hearings but not manage users', () => {
     expect(ROLE_PERMISSIONS.lawyer).toContain('cases.create')
     expect(ROLE_PERMISSIONS.lawyer).toContain('hearings.create')
@@ -78,6 +83,7 @@ describe('permissions matrix', () => {
       'calendar.view',
       'cases.create',
       'cases.delete',
+      'cases.finance',
       'cases.update',
       'cases.view',
       'cashbox.view',

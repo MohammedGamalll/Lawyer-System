@@ -1,3 +1,5 @@
+import { stripInternalPrefix } from './courtNumber'
+
 const DATE_KEYS = new Set([
   'date',
   'birth_date',
@@ -158,7 +160,7 @@ export function isTimeKey(key: string) {
 
 export function formatCell(key: string, value: unknown, lang: string, translate: (k: string) => string): string {
   if (value === null || value === undefined || value === '') return '—'
-  if (key === 'is_active') return Number(value) === 1 ? translate('status.yes') : translate('status.no')
+  if (key === 'case_number' || key === 'client_number' || key === 'program_code') return stripInternalPrefix(value) || '—'
   if (key === 'file_name' || key === 'file' || key === 'original_name') return prettyFileName(String(value), lang)
   if (isDateTimeKey(key)) return formatDateTime(String(value), lang)
   if (isTimeKey(key) && !isDateKey(key)) return formatTime(String(value), lang)

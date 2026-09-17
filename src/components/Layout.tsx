@@ -5,10 +5,13 @@ import { NAV_ITEMS, canAccessPage } from '@shared/permissions'
 import { useApp } from '../store'
 import { useSyncStore } from '../store/sync'
 import { Input } from './ui'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { invoke } from '../lib/api'
+import { onDataChanged } from '../lib/bus'
 import brandLogo from '../assets/brand-logo.png'
 import { NAV_ICONS } from '../lib/navIcons'
+import { orderedNavItems } from '../lib/layoutPrefs'
+import { displayCaseCode, displayClientCode } from '../lib/courtNumber'
 
 export function Layout({ children }: { children: ReactNode }) {
   const { t, i18n } = useTranslation()
@@ -20,17 +23,27 @@ export function Layout({ children }: { children: ReactNode }) {
   const [notes, setNotes] = useState<{ id: string; title: string; is_read: number }[]>([])
   const [expanded, setExpanded] = useState(true)
   const [holdClosed, setHoldClosed] = useState(false)
+  const [navOrder, setNavOrder] = useState('')
 
   useEffect(() => {
-    if (page === 'home') return
+    if (page === 'alerts' || page === 'home') return
     setHoldClosed(true)
     setExpanded(false)
   }, [page])
 
   useEffect(() => {
-    invoke<{ id: string; title: string; is_read: number }[]>('notifications:list')
-      .then(setNotes)
+    invoke<Record<string, string>>('settings:get')
+      .then((s) => setNavOrder(s.nav_order || ''))
       .catch(() => undefined)
+  }, [page])
+
+  useEffect(() => {
+    const loadNotes = () =>
+      invoke<{ id: string; title: string; is_read: number }[]>('notifications:list')
+        .then(setNotes)
+        .catch(() => undefined)
+    loadNotes()
+    return onDataChanged(() => loadNotes(), ['notifications'])
   }, [page])
 
   useEffect(() => {
@@ -72,6 +85,12 @@ export function Layout({ children }: { children: ReactNode }) {
           : 'text-navy-400'
   const SyncIcon = syncKind === 'synced' ? Cloud : syncKind === 'syncing' ? CloudCog : CloudOff
 
+  const navItems = useMemo(
+    () =>
+      orderedNavItems(navOrder).filter((n) => canAccessPage(n.id, user?.roleCode || '', user?.permissions || [])),
+    [navOrder, user?.roleCode, user?.permissions]
+  )
+
   const go = (id: string, meta?: Record<string, unknown>) => {
     setHoldClosed(true)
     setExpanded(false)
@@ -111,7 +130,7 @@ export function Layout({ children }: { children: ReactNode }) {
           )}
         </div>
         <nav className="flex-1 overflow-auto py-1">
-          {NAV_ITEMS.filter((n) => canAccessPage(n.id, user?.roleCode || '', user?.permissions || [])).map((n, i) => {
+          {navItems.map((n, i) => {
             const Icon = NAV_ICONS[n.id] ?? LayoutDashboard
             const active = page === n.id
             const stripe = i % 2 === 0 ? 'bg-navy-800' : 'bg-[#6b7280]'
@@ -148,7 +167,7 @@ export function Layout({ children }: { children: ReactNode }) {
           <button
             className="rounded-lg px-2 py-1 text-sm hover:bg-navy-50 dark:hover:bg-navy-800"
             onClick={() => goBack()}
-            disabled={navStack.length === 0 && page === 'home'}
+            disabled={navStack.length === 0 && (page === 'alerts' || page === 'home')}
           >
             {t('back')}
           </button>
@@ -170,10 +189,9 @@ export function Layout({ children }: { children: ReactNode }) {
               </span>
             ) : null}
           </button>
-          {can('reminders.view') && (
           <button
             className="relative rounded-lg p-2 hover:bg-navy-50 dark:hover:bg-navy-800"
-            onClick={() => go('reminders')}
+            onClick={() => go('alerts')}
             title={t('notifications')}
           >
             <Bell size={18} />
@@ -183,7 +201,6 @@ export function Layout({ children }: { children: ReactNode }) {
               </span>
             )}
           </button>
-          )}
           {can('cases.view') && (
           <button className="rounded-lg px-2 py-1 text-sm hover:bg-navy-50 dark:hover:bg-navy-800" onClick={() => go('search')}>
             {t('advancedSearch')}
@@ -229,7 +246,11 @@ export function Layout({ children }: { children: ReactNode }) {
                           else go(k === 'poa' ? 'poa' : k)
                         }}
                       >
-                        {String(r.full_name || r.title || r.case_number || r.payment_number || r.id)}
+                        {k === 'clients'
+                          ? `${displayClientCode(r.client_number)} ${r.full_name || ''}`.trim()
+                          : k === 'cases'
+                            ? `${displayCaseCode(r)} ${r.title || ''}`.trim()
+                            : String(r.full_name || r.title || displayCaseCode(r) || r.payment_number || r.id)}
                       </button>
                     ))}
                   </div>

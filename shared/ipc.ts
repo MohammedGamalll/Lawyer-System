@@ -77,6 +77,7 @@ export const IPC = {
   consultations: { list: 'consultations:list', create: 'consultations:create', update: 'consultations:update', remove: 'consultations:remove' },
   correspondence: { list: 'correspondence:list', create: 'correspondence:create', update: 'correspondence:update', remove: 'correspondence:remove' },
   payments: { list: 'payments:list', create: 'payments:create', remove: 'payments:remove', balance: 'payments:balance' },
+  dues: { list: 'dues:list', create: 'dues:create', remove: 'dues:remove' },
   expenses: {
     list: 'expenses:list',
     create: 'expenses:create',
@@ -92,7 +93,7 @@ export const IPC = {
   audit: { list: 'audit:list', remove: 'audit:remove' },
   notifications: { list: 'notifications:list', read: 'notifications:read', readAll: 'notifications:readAll' },
   settings: { get: 'settings:get', set: 'settings:set', saveLogo: 'settings:saveLogo' },
-  backup: { create: 'backup:create', restore: 'backup:restore', list: 'backup:list', schedule: 'backup:schedule' },
+  backup: { create: 'backup:create', createToDir: 'backup:createToDir', restore: 'backup:restore', restoreFromFile: 'backup:restoreFromFile', list: 'backup:list', schedule: 'backup:schedule' },
   print: { preview: 'print:preview', print: 'print:print', pdf: 'print:pdf', printers: 'print:printers', voucher: 'print:voucher', receipt: 'print:receipt', manual: 'print:manual' },
   printTemplates: {
     list: 'printTemplates:list',

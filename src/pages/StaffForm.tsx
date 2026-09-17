@@ -6,6 +6,7 @@ import { useApp } from '../store'
 import { Button, Card, Field, Input, MiniTable, PageHeader, Select, Textarea, UiTabs } from '../components/ui'
 import { DatePicker, TimePicker } from '../components/DateTimePicker'
 import { toIsoDate } from '../lib/datetime'
+import { LookupCombo } from '../components/LookupCombo'
 import { AttachDocumentControl, uploadPendingDocs, type PendingDoc } from '../components/DocumentTools'
 
 type Role = { id: string; code: string; name_ar: string; name_en?: string }
@@ -23,6 +24,7 @@ const emptyForm = (): Record<string, unknown> => ({
   status: 'active',
   is_active: 1,
   full_name: '',
+  national_id: '',
   phone: '',
   email: '',
   hire_date: '',
@@ -147,6 +149,7 @@ export function StaffFormPage() {
           user_id: a.id || '',
           lawyer_id: l.id || '',
           full_name: e.full_name || l.full_name || a.full_name || '',
+          national_id: e.national_id || l.national_id || '',
           phone: e.phone || l.phone || a.phone || '',
           email: e.email || l.email || a.email || '',
           hire_date: e.hire_date || l.hire_date || '',
@@ -335,6 +338,11 @@ export function StaffFormPage() {
             <Input type="text" autoComplete="off" value={String(form.full_name ?? '')} onChange={(e) => setField('full_name', e.target.value)} />
           </Field>
           </div>
+          <div style={{ width: '18ch' }} className="max-w-full">
+          <Field label={t('fields.national_id')} required>
+            <Input dir="ltr" autoComplete="off" value={String(form.national_id ?? '')} onChange={(e) => setField('national_id', e.target.value)} />
+          </Field>
+          </div>
           <div style={{ width: '16ch' }} className="max-w-full">
           <Field label={t('fields.phone')}>
             <Input type="text" autoComplete="off" value={String(form.phone ?? '')} onChange={(e) => setField('phone', e.target.value)} />
@@ -389,10 +397,7 @@ export function StaffFormPage() {
           </div>
           <div style={{ width: '12ch' }} className="max-w-full">
           <Field label={t('fields.status')}>
-            <Select value={String(form.status || 'active')} onChange={(e) => setField('status', e.target.value)}>
-              <option value="active">{t('status.active')}</option>
-              <option value="inactive">{t('status.inactive')}</option>
-            </Select>
+            <LookupCombo kind="staff_status" value={String(form.status || 'active')} onChange={(v) => setField('status', v)} />
           </Field>
           </div>
           <div className="w-full basis-full">

@@ -734,7 +734,8 @@ export function AttachDocumentControl({
 
 export async function uploadPendingDocs(
   owner: { client_id?: string; opponent_id?: string; lawyer_id?: string; employee_id?: string },
-  form: Record<string, unknown>
+  form: Record<string, unknown>,
+  extra?: Record<string, unknown>
 ) {
   const docs = (form.__pending_docs as PendingDoc[] | undefined) || []
   const legacy: PendingDoc[] = []
@@ -746,18 +747,22 @@ export async function uploadPendingDocs(
   if (poaFile?.data) {
     legacy.push({ localId: 'poa', category: 'poa', title: poaFile.name || 'توكيل', save_format: 'pdf', sides: 'front', pages: [poaFile] })
   }
+  const ids: string[] = []
   for (const doc of [...docs, ...legacy]) {
-    await invoke(
+    const r = await invoke<{ id?: string }>(
       'documents:upload',
       {
         ...owner,
+        ...extra,
         title: doc.title,
-        category: doc.category,
+        category: extra?.category || doc.category,
         save_format: doc.save_format
       },
       { pages: doc.pages, save_format: doc.save_format }
     )
+    if (r?.id) ids.push(r.id)
   }
+  return ids
 }
 
 export function ClientDocumentUpload({

@@ -141,6 +141,7 @@ export const caseSchema = z.object({
   extra_ref2_number: optStr,
   extra_ref3_type: optStr,
   extra_ref3_number: optStr,
+  police_station: optStr,
   session_place: optStr,
   previous_circuit: optStr,
   filing_date: optStr,
@@ -200,6 +201,8 @@ export const hearingSchema = z.object({
   hall: optStr,
   floor: optStr,
   venue: optStr,
+  expert_name: optStr,
+  expert_office: optStr,
   lawyer_id: optId,
   status: optStr,
   result: optStr,
@@ -211,12 +214,18 @@ export const hearingSchema = z.object({
   next_actions: optStr,
   notes: optStr,
   upcoming_procedures: z
-    .array(z.object({ title: z.string().optional(), due_date: z.string().optional() }))
+    .array(
+      z.object({
+        id: z.string().optional(),
+        title: z.string().optional(),
+        due_date: z.string().optional()
+      })
+    )
     .optional()
 })
 
 export const taskSchema = z.object({
-  title: reqStr,
+  title: optStr,
   description: reqStr,
   venue: optStr,
   case_subject: optStr,
@@ -228,7 +237,12 @@ export const taskSchema = z.object({
   priority: optStr,
   status: optStr,
   progress: optNum,
-  work_kind: optStr
+  work_kind: optStr,
+  hearing_id: optId,
+  execution_kind: optStr,
+  police_report_no: optStr,
+  police_report_kind: optStr,
+  police_station: optStr
 })
 
 export const reminderSchema = z.object({
@@ -270,6 +284,13 @@ export const paymentSchema = z.object({
   due_date: optStr,
   notes: optStr
 }).refine((d) => Boolean(d.client_id || d.case_id), { message: 'لا يمكن تسجيل دفعة بدون عميل أو قضية', path: ['client_id'] })
+
+export const caseDueSchema = z.object({
+  case_id: reqId,
+  amount: z.coerce.number().positive(msg.amount),
+  due_type: optStr,
+  notes: optStr
+})
 
 export const expenseSchema = z.object({
   category_id: optId,
@@ -324,6 +345,7 @@ export const passwordChangeSchema = z.object({
 
 export const lawyerSchema = z.object({
   full_name: reqStr,
+  national_id: reqStr,
   user_id: optId,
   bar_number: optStr,
   bar_degree: optStr,
@@ -349,6 +371,7 @@ export const staffSchema = z
     user_id: optId,
     employee_id: optId,
     full_name: reqStr,
+    national_id: reqStr,
     bar_number: optStr,
     bar_degree: optStr,
     duties: optStr,
@@ -383,6 +406,7 @@ export const staffSchema = z
 export const employeeSchema = z
   .object({
     full_name: optStr,
+    national_id: reqStr,
     user_id: optId,
     lawyer_id: optId,
     job_title: optStr,
@@ -454,6 +478,11 @@ export const opponentSchema = z
 
 export const poaSchema = z.object({
   poa_type: optStr,
+  poa_number: optStr,
+  poa_year: optStr,
+  poa_letter: optStr,
+  poa_office: optStr,
+  document_id: optId,
   client_id: optId,
   lawyer_id: optId,
   issuing_authority: optStr,

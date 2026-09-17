@@ -5,9 +5,17 @@ import { Button } from './ui'
 import { LookupCombo } from './LookupCombo'
 import { DatePicker } from './DateTimePicker'
 import { formatCourtNumber, formatProgramCode } from '../lib/courtNumber'
+import {
+  executionBlocksHtml,
+  hearingBlocksHtml,
+  escPrint,
+  labeledCell,
+  sendPrint,
+  taskBlocksHtml
+} from '../lib/printKit'
 
 export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'err') => void }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [venue, setVenue] = useState('')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
@@ -38,20 +46,19 @@ export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'e
       const tRows = (tasks.rows || []).filter(
         (r) => String(r.status) !== 'completed' && String(r.status) !== 'cancelled'
       )
-      const ht = (r: Record<string, unknown>) =>
-        `<tr><td>${String(r.hearing_date ?? '')}</td><td>${String(r.case_number ?? '')}</td><td>${String(r.client_name ?? '')}</td><td>${String(r.hearing_type ?? '')}</td><td>${String(r.hall ?? '')} / ${String(r.floor ?? '')}</td><td>${String(r.court_decision ?? r.previous_decision ?? '')}</td></tr>`
-      const tt = (r: Record<string, unknown>) =>
-        `<tr><td>${String(r.due_date ?? '')}</td><td>${String(r.case_number ?? '')}</td><td>${String(r.client_name ?? '')}</td><td>${String(r.title ?? '')}</td><td>${String(r.description ?? '')}</td><td>${String(r.assignee_name ?? '')}</td></tr>`
+      const exec = tRows.filter((r) => String(r.work_kind || 'admin') === 'execution')
+      const admin = tRows.filter((r) => String(r.work_kind || 'admin') !== 'execution')
       const range = [from, to].filter(Boolean).join(' — ')
+      const subtitle = `${t('fields.venue')}: ${v}${range ? ` (${range})` : ''}`
       const body = `
-        <h2>${t('printVenueSheet')} — ${v}${range ? ` (${range})` : ''}</h2>
-        <h3>${t('nav.hearings')}</h3>
-        <table><thead><tr><th>${t('fields.hearing_date')}</th><th>${t('fields.case_number')}</th><th>${t('fields.client_name')}</th><th>${t('fields.hearing_type')}</th><th>${t('fields.hall')}</th><th>${t('fields.court_decision')}</th></tr></thead>
-        <tbody>${hRows.map(ht).join('') || `<tr><td colspan="6">${t('noData')}</td></tr>`}</tbody></table>
-        <h3>${t('nav.tasks')}</h3>
-        <table><thead><tr><th>${t('fields.due_date')}</th><th>${t('fields.case_number')}</th><th>${t('fields.client_name')}</th><th>${t('fields.title')}</th><th>${t('fields.description')}</th><th>${t('fields.assignee_name')}</th></tr></thead>
-        <tbody>${tRows.map(tt).join('') || `<tr><td colspan="6">${t('noData')}</td></tr>`}</tbody></table>`
-      await invoke('print:print', 'report', `${t('printVenueSheet')} ${v}`, body)
+        <h3 class="print-sub">${escPrint(subtitle)}</h3>
+        <h2>${escPrint(t('nav.hearings'))}</h2>
+        ${hearingBlocksHtml(hRows, t, i18n.language, { emptyLabel: t('noData') })}
+        <h2>${escPrint(t('nav.tasks'))}</h2>
+        ${taskBlocksHtml(admin, t, i18n.language, { emptyLabel: t('noData') })}
+        <h2>${escPrint(t('nav.execution'))}</h2>
+        ${executionBlocksHtml(exec, t, i18n.language, { emptyLabel: t('noData') })}`
+      await sendPrint('report', `${t('printVenueSheet')} ${v}`, body)
     } catch (e) {
       toast((e as Error).message, 'err')
     } finally {
@@ -73,10 +80,10 @@ export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'e
 }
 
 export function caseSheetHtml(row: Record<string, unknown>, t: (k: string) => string) {
-  const cell = (k: string, v: unknown) => `<tr><th style="text-align:start;width:30%">${t(k)}</th><td>${String(v ?? '—')}</td></tr>`
-  return `<h2>${t('printCaseSheet')} ${formatProgramCode(row)}</h2>
+  const cell = (k: string, v: unknown) =>
+    `<tr><th style="text-align:start;width:30%">${t(k)}</th><td>${String(v ?? '—')}</td></tr>`
+  return `<h2>${t('printCaseSheet')}</h2>
     <table>
-      ${cell('fields.program_code', formatProgramCode(row))}
       ${cell('fields.court_number', formatCourtNumber(row))}
       ${cell('fields.client_id', row.client_name)}
       ${cell('fields.capacity_first', row.capacity_first)}
@@ -87,4 +94,69 @@ export function caseSheetHtml(row: Record<string, unknown>, t: (k: string) => st
       ${cell('fields.lawyer_id', row.lawyer_name)}
       ${cell('fields.status', row.status)}
     </table>`
+}
+
+export function caseInteriorHtml(
+  row: Record<string, unknown>,
+  t: (k: string) => string,
+  lang: string
+) {
+  const withCase = (item: Record<string, unknown>) => ({
+    ...row,
+    ...item,
+    case_title: item.case_title || row.title,
+    title: item.title || row.title,
+    client_name: item.client_name || row.client_name,
+    opponent_name: item.opponent_name || row.opponent_name,
+    court_name: item.court_name || item.court || row.court,
+    case_type: item.case_type || item.case_type_name || row.case_type_name,
+    case_subject: item.case_subject || item.case_title || row.title,
+    system_code: item.system_code || formatProgramCode({ ...row, ...item }),
+    circuit: item.circuit || row.circuit,
+    case_type_name: item.case_type_name || row.case_type_name,
+    first_instance_number: item.first_instance_number || row.first_instance_number,
+    first_instance_year: item.first_instance_year || row.first_instance_year,
+    appeal_number: item.appeal_number || row.appeal_number,
+    appeal_year: item.appeal_year || row.appeal_year,
+    cassation_number: item.cassation_number || row.cassation_number,
+    cassation_year: item.cassation_year || row.cassation_year,
+    extra_ref_type: item.extra_ref_type || row.extra_ref_type,
+    extra_ref_number: item.extra_ref_number || row.extra_ref_number,
+    extra_ref2_type: item.extra_ref2_type || row.extra_ref2_type,
+    extra_ref2_number: item.extra_ref2_number || row.extra_ref2_number,
+    extra_ref3_type: item.extra_ref3_type || row.extra_ref3_type,
+    extra_ref3_number: item.extra_ref3_number || row.extra_ref3_number,
+    client_capacity_first: item.client_capacity_first || row.capacity_first,
+    client_capacity_appeal: item.client_capacity_appeal || row.capacity_appeal,
+    client_capacity_cassation: item.client_capacity_cassation || row.capacity_cassation,
+    opponent_capacity_first: item.opponent_capacity_first || row.opponent_capacity_first,
+    opponent_capacity_appeal: item.opponent_capacity_appeal || row.opponent_capacity_appeal,
+    opponent_capacity_cassation: item.opponent_capacity_cassation || row.opponent_capacity_cassation,
+    opponent_address:
+      item.opponent_address ||
+      row.opponent_address ||
+      ((row.opponents as { address?: string }[] | undefined) || []).find((o) => o.address)?.address
+  })
+  const hearings = (((row.hearings as Record<string, unknown>[]) || []) as Record<string, unknown>[]).map(withCase)
+  const tasks = ((row.tasks as Record<string, unknown>[]) || [])
+    .filter((tk) => String(tk.work_kind || 'admin') !== 'execution')
+    .map(withCase)
+  const parties = labeledCell([
+    { label: t('printKit.client'), value: String(row.client_name || '') },
+    { label: t('printKit.opponent'), value: String(row.opponent_name || '') }
+  ])
+  return `
+    <div class="program-code">${escPrint(formatProgramCode(row) || '—')}</div>
+    <div class="block-title">${escPrint(t('printKit.caseInterior'))}</div>
+    <div class="kv">${parties}</div>
+    <div class="kv"><b>${escPrint(t('fields.court_number'))}:</b> ${escPrint(formatCourtNumber(row))}</div>
+    <div class="kv"><b>${escPrint(t('fields.case_subject'))}:</b> ${escPrint(row.title || row.case_type_name || '')}</div>
+    <div class="kv"><b>${escPrint(t('printKit.court'))}:</b> ${escPrint(row.court || '')} — <b>${escPrint(t('printKit.circuit'))}:</b> ${escPrint(row.circuit || '')}</div>
+    <div class="kv"><b>${escPrint(t('fields.capacity_first'))}:</b> ${escPrint(row.capacity_first || '')} — <b>${escPrint(t('fields.status'))}:</b> ${escPrint(row.status || '')}</div>
+    <div class="kv"><b>${escPrint(t('fields.lawyer_id'))}:</b> ${escPrint(row.lawyer_name || '')}</div>
+    <h2>${escPrint(t('printKit.courtHearings'))}</h2>
+    ${hearingBlocksHtml(hearings, t, lang, { emptyLabel: t('noData') })}
+    <h2>${escPrint(t('printKit.adminWork'))}</h2>
+    ${taskBlocksHtml(tasks, t, lang, { emptyLabel: t('noData') })}
+  `
 }

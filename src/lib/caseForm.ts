@@ -1,7 +1,4 @@
 import type { FieldDef } from '../components/CrudPage'
-import { CASE_STATUSES } from '@shared/types'
-
-const st = (t: (k: string) => string, arr: readonly string[]) => arr.map((v) => ({ value: v, label: t(`status.${v}`) }))
 
 export function caseFormFields(t: (k: string) => string): FieldDef[] {
   const f = (name: string, extra: Partial<FieldDef> = {}): FieldDef => ({
@@ -14,6 +11,7 @@ export function caseFormFields(t: (k: string) => string): FieldDef[] {
     f('title', { required: true, type: 'combo', comboKind: 'case_subject', label: t('settings.caseSubjects') }),
     f('court', { type: 'combo', comboKind: 'court' }),
     f('circuit', { size: 'sm' }),
+    f('police_station', { type: 'combo', comboKind: 'police_station' }),
     f('session_place', { size: 'sm' }),
     f('previous_circuit', { size: 'sm' }),
     f('first_instance_number', { size: 'sm' }),
@@ -32,27 +30,9 @@ export function caseFormFields(t: (k: string) => string): FieldDef[] {
     f('filing_date', { type: 'date' }),
     f('primary_lawyer_id', { lookup: 'lawyers' }),
     f('assistant_lawyer_id', { lookup: 'lawyers' }),
-    f('status', { type: 'select', options: st(t, CASE_STATUSES) }),
-    f('case_value', { type: 'number' }),
-    f('total_fees', { type: 'number' }),
-    f('fees_due_date', { type: 'date' }),
-    f('payment_method', {
-      type: 'select',
-      options: ['cash', 'bank', 'card', 'wallet', 'installment', 'other'].map((v) => ({
-        value: v,
-        label: t(`types.${v}`)
-      }))
-    }),
-    f('installment_count', { type: 'number' }),
+    f('status', { type: 'combo', comboKind: 'case_status' }),
     f('related_case_id', { lookup: 'cases' }),
-    f('link_type', {
-      type: 'select',
-      options: ['original', 'appeal', 'cassation', 'execution'].map((v) => ({
-        value: v,
-        label: t(`status.${v}`)
-      }))
-    }),
-    f('description', { type: 'textarea' }),
+    f('link_type', { type: 'combo', comboKind: 'link_type' }),
     f('summary', { type: 'textarea' }),
     f('notes', { type: 'textarea' })
   ]

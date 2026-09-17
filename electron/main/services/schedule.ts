@@ -9,6 +9,7 @@ import type { ListQuery } from '@shared/types'
 import { parseSchema, reminderSchema, taskSchema } from '@shared/schemas'
 import { rememberLookup } from './lookups'
 import { clampPageSize, pageKind, pickSort, sqlDir } from '../db/queryLimits'
+import { casePrintJoinSql, casePrintSelectSql, enrichPrintRows } from './printCaseFields'
 
 export function listTasks(query: ListQuery = {}, userId?: string) {
   const db = getDb()
@@ -64,17 +65,22 @@ export function listTasks(query: ListQuery = {}, userId?: string) {
   const dir = query.sortBy ? ` ${sqlDir(query.sortDir)}` : ''
   const rows = db
     .prepare(
-      `SELECT t.id, t.title, t.description, t.venue, t.case_subject, t.assignee_id, t.case_id, t.client_id,
-              t.due_date, t.priority, t.status, t.progress, t.work_kind,
-              u.full_name as assignee_name, cs.case_number, cl.full_name as client_name
+      `SELECT t.id, t.title, t.description as required_action, t.description, t.venue,
+              t.case_subject, t.assignee_id, t.case_id, t.client_id,
+              t.due_date, t.priority, t.status, t.progress, t.work_kind, t.hearing_id, t.execution_kind,
+              t.police_report_no, t.police_report_kind, t.police_station,
+              u.full_name as assignee_name,
+              ${casePrintSelectSql('cs')},
+              COALESCE(cl.full_name, c2.full_name) as client_name
        FROM tasks t
        LEFT JOIN users u ON u.id = t.assignee_id AND ${notDeleted('u')}
-       LEFT JOIN cases cs ON cs.id = t.case_id AND ${notDeleted('cs')}
+       ${casePrintJoinSql('t.case_id')}
        LEFT JOIN clients cl ON cl.id = t.client_id AND ${notDeleted('cl')}
+       LEFT JOIN clients c2 ON c2.id = cs.client_id AND ${notDeleted('c2')}
        ${where} ORDER BY ${order}${dir} LIMIT ? OFFSET ?`
     )
     .all(...params, pageSize, (page - 1) * pageSize)
-  return { rows, total, page, pageSize }
+  return { rows: enrichPrintRows(rows), total, page, pageSize }
 }
 
 export function getTask(id: string) {
@@ -94,20 +100,24 @@ export function getTask(id: string) {
 
 export function createTask(actor: AuthedUser, data: Record<string, unknown>) {
   data = parseSchema(taskSchema, data) as Record<string, unknown>
-  if (!String(data.title ?? '').trim()) throw new Error('اسم المهمة مطلوب')
-  if (!String(data.description ?? '').trim()) throw new Error('البيان مطلوب لحفظ العمل الإداري')
+  const description = String(data.description ?? '').trim()
+  if (!description) throw new Error('البيان مطلوب لحفظ العمل الإداري')
   if (!String(data.due_date ?? '').trim()) throw new Error('تاريخ العمل الإداري مطلوب')
+  const workKind = String(data.work_kind || 'admin')
+  let title = String(data.title ?? '').trim()
+  if (workKind === 'execution') title = description.slice(0, 80)
+  if (!title) throw new Error('اسم المهمة مطلوب')
   const ts = nowIso()
   const id = newId()
   getDb()
     .prepare(
-      `INSERT INTO tasks (id, title, description, venue, case_subject, assignee_id, case_id, client_id, start_date, due_date, priority, status, progress, work_kind, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      `INSERT INTO tasks (id, title, description, venue, case_subject, assignee_id, case_id, client_id, start_date, due_date, priority, status, progress, work_kind, hearing_id, execution_kind, police_report_no, police_report_kind, police_station, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     )
     .run(
       id,
-      data.title,
-      data.description ?? null,
+      title,
+      description,
       data.venue ?? null,
       data.case_subject ?? null,
       asIdOrNull(data.assignee_id),
@@ -118,18 +128,27 @@ export function createTask(actor: AuthedUser, data: Record<string, unknown>) {
       data.priority ?? 'medium',
       data.status ?? 'not_done',
       data.progress ?? 0,
-      data.work_kind || 'admin',
+      workKind,
+      asIdOrNull(data.hearing_id),
+      data.execution_kind ?? null,
+      data.police_report_no ?? null,
+      data.police_report_kind ?? null,
+      data.police_station ?? null,
       ts,
       ts
     )
   recordLocalChange('tasks', id, 'INSERT')
-  rememberLookup(data.work_kind === 'execution' ? 'execution_action' : 'admin_action', data.title)
+  rememberLookup(workKind === 'execution' ? 'execution_action' : 'admin_action', workKind === 'execution' ? description : title)
   rememberLookup('venue', data.venue)
   rememberLookup('case_subject', data.case_subject)
+  rememberLookup('task_status', data.status)
+  rememberLookup('execution_kind', data.execution_kind)
+  rememberLookup('police_report_kind', data.police_report_kind)
+  rememberLookup('police_station', data.police_station)
   if (data.due_date) {
     createReminder({
       reminder_type: 'task',
-      title: `مهمة: ${data.title}`,
+      title: `مهمة: ${title}`,
       remind_at: `${data.due_date}T09:00:00`,
       assignee_id: asIdOrNull(data.assignee_id) || actor.id,
       case_id: asIdOrNull(data.case_id),
@@ -138,21 +157,26 @@ export function createTask(actor: AuthedUser, data: Record<string, unknown>) {
       related_id: id
     })
   }
-  audit(actor, 'create', 'tasks', id, `تم إنشاء المهمة ${data.title}`)
+  audit(actor, 'create', 'tasks', id, `تم إنشاء المهمة ${title}`)
   return { id }
 }
 
 export function updateTask(actor: AuthedUser, id: string, data: Record<string, unknown>) {
-  if (!String(data.description ?? '').trim()) throw new Error('البيان مطلوب لحفظ العمل الإداري')
+  const description = String(data.description ?? '').trim()
+  if (!description) throw new Error('البيان مطلوب لحفظ العمل الإداري')
   if (!String(data.due_date ?? '').trim()) throw new Error('تاريخ العمل الإداري مطلوب')
+  const workKind = String(data.work_kind || 'admin')
+  let title = String(data.title ?? '').trim()
+  if (workKind === 'execution') title = description.slice(0, 80)
+  if (!title) throw new Error('اسم المهمة مطلوب')
   getDb()
     .prepare(
       `UPDATE tasks SET title=?, description=?, venue=?, case_subject=?, assignee_id=?, case_id=?, client_id=?, start_date=?, due_date=?,
-        priority=?, status=?, progress=?, work_kind=?, updated_at=? WHERE id=?`
+        priority=?, status=?, progress=?, work_kind=?, hearing_id=?, execution_kind=?, police_report_no=?, police_report_kind=?, police_station=?, updated_at=? WHERE id=?`
     )
     .run(
-      data.title,
-      data.description ?? null,
+      title,
+      description,
       data.venue ?? null,
       data.case_subject ?? null,
       asIdOrNull(data.assignee_id),
@@ -163,15 +187,24 @@ export function updateTask(actor: AuthedUser, id: string, data: Record<string, u
       data.priority ?? 'medium',
       data.status ?? 'not_done',
       data.progress ?? 0,
-      data.work_kind || 'admin',
+      workKind,
+      asIdOrNull(data.hearing_id),
+      data.execution_kind ?? null,
+      data.police_report_no ?? null,
+      data.police_report_kind ?? null,
+      data.police_station ?? null,
       nowIso(),
       id
     )
   recordLocalChange('tasks', id, 'UPDATE')
-  rememberLookup('admin_action', data.title)
+  rememberLookup(workKind === 'execution' ? 'execution_action' : 'admin_action', workKind === 'execution' ? description : title)
   rememberLookup('venue', data.venue)
   rememberLookup('case_subject', data.case_subject)
-  audit(actor, 'update', 'tasks', id, `تم تعديل المهمة ${data.title}`)
+  rememberLookup('task_status', data.status)
+  rememberLookup('execution_kind', data.execution_kind)
+  rememberLookup('police_report_kind', data.police_report_kind)
+  rememberLookup('police_station', data.police_station)
+  audit(actor, 'update', 'tasks', id, `تم تعديل المهمة ${title}`)
   return { id }
 }
 
@@ -446,8 +479,8 @@ export function listNotifications(userId: string) {
     .all(userId)
 }
 
-export function markNotificationRead(id: string) {
-  getDb().prepare('UPDATE notifications SET is_read = 1, updated_at = ? WHERE id = ?').run(nowIso(), id)
+export function markNotificationRead(id: string, isRead = true) {
+  getDb().prepare('UPDATE notifications SET is_read = ?, updated_at = ? WHERE id = ?').run(isRead ? 1 : 0, nowIso(), id)
   recordLocalChange('notifications', id, 'UPDATE')
 }
 

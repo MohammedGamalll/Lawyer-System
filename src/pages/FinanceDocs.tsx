@@ -614,11 +614,8 @@ export function AccountsPage() {
           {
             name: 'payment_type',
             label: t('fields.payment_type'),
-            type: 'select',
-            options: ['fees', 'advance', 'installment', 'consultation', 'service', 'reimbursed', 'other'].map((v) => ({
-              value: v,
-              label: t(`types.${v}`)
-            }))
+            type: 'combo',
+            comboKind: 'payment_type'
           },
           {
             name: 'payment_method',

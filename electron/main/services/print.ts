@@ -4,10 +4,10 @@ import { getTempDir, getDataRoot } from '../paths'
 import path from 'path'
 import fs from 'fs'
 import { nowIso } from '../utils/time'
-import { buildPrintHtml, type PrintKind } from './printHtml'
+import { buildPrintHtml, stripPrintCodes, type PrintKind } from './printHtml'
 
 export type { PrintKind }
-export { buildPrintHtml }
+export { buildPrintHtml, stripPrintCodes }
 
 function pageOpts(kind: PrintKind) {
   const paper = { marginType: 'custom' as const, top: 0.55, bottom: 0.55, left: 0.55, right: 0.55 }
@@ -17,32 +17,31 @@ function pageOpts(kind: PrintKind) {
       margins: { marginType: 'custom' as const, top: 0.2, bottom: 0.2, left: 0.2, right: 0.2 }
     }
   }
-  if (kind === 'report') {
-    return { pageSize: 'A4' as const, landscape: true, margins: paper }
-  }
-  return { pageSize: 'A4' as const, margins: paper }
+  return { pageSize: 'A4' as const, landscape: false, margins: paper }
 }
 
-export function cairoFace(): string {
+export function appFontFace(): string {
   const candidates = [
-    path.join(process.resourcesPath || '', 'fonts', 'Cairo-Regular.woff2'),
-    path.join(app.getAppPath(), 'resources/fonts/Cairo-Regular.woff2'),
-    path.join(process.cwd(), 'resources/fonts/Cairo-Regular.woff2'),
-    path.join(process.cwd(), 'node_modules/@fontsource/cairo/files/cairo-arabic-400-normal.woff2')
+    path.join(process.resourcesPath || '', 'fonts', 'ibm-plex-sans-arabic-arabic-400-normal.woff2'),
+    path.join(app.getAppPath(), 'resources/fonts/ibm-plex-sans-arabic-arabic-400-normal.woff2'),
+    path.join(process.cwd(), 'resources/fonts/ibm-plex-sans-arabic-arabic-400-normal.woff2'),
+    path.join(
+      process.cwd(),
+      'node_modules/@fontsource/ibm-plex-sans-arabic/files/ibm-plex-sans-arabic-arabic-400-normal.woff2'
+    )
   ]
   for (const p of candidates) {
     try {
       if (fs.existsSync(p)) {
         const b64 = fs.readFileSync(p).toString('base64')
-        return `@font-face { font-family: 'Cairo'; src: url(data:font/woff2;base64,${b64}) format('woff2'); font-weight: 400 800; }`
+        return `@font-face { font-family: 'IBM Plex Sans Arabic'; src: url(data:font/woff2;base64,${b64}) format('woff2'); font-weight: 400 700; }`
       }
     } catch {
       /* try next */
     }
   }
-  return `@font-face { font-family: 'Cairo'; src: local('Cairo'), local('Segoe UI'); }`
+  return `@font-face { font-family: 'IBM Plex Sans Arabic'; src: local('IBM Plex Sans Arabic'), local('Segoe UI'); }`
 }
-
 function bundledLogoPath(): string | null {
   const candidates = [
     path.join(process.resourcesPath || '', 'brand-logo.png'),
@@ -53,9 +52,9 @@ function bundledLogoPath(): string | null {
 }
 
 export function officeLogoDataUrl(): string {
-  const logo = getSetting('office_logo', '')
-  const full = logo && fs.existsSync(logo) ? logo : path.join(getDataRoot(), 'logo.png')
-  const file = full && fs.existsSync(full) ? full : bundledLogoPath()
+  const custom = getSetting('office_logo', '')
+  const dataRoot = path.join(getDataRoot(), 'logo.png')
+  const file = [bundledLogoPath(), custom, dataRoot].find((p) => p && fs.existsSync(p))
   if (file && fs.existsSync(file)) {
     const ext = path.extname(file).slice(1).toLowerCase() || 'png'
     const mime = ext === 'jpg' || ext === 'jpeg' ? 'jpeg' : ext === 'gif' ? 'gif' : ext === 'webp' ? 'webp' : 'png'
@@ -77,6 +76,9 @@ export function wrapHtml(title: string, body: string, kind: PrintKind): string {
     .filter(Boolean)
     .join(' — ')
   const address = getSetting('office_address', '')
+  const lang = getSetting('language', 'ar')
+  const recipientLine =
+    lang === 'en' ? 'Receiving lawyer: ...........' : 'اسم المحامي المستلم: ...........'
   return buildPrintHtml({
     title,
     body,
@@ -84,34 +86,63 @@ export function wrapHtml(title: string, body: string, kind: PrintKind): string {
     office,
     phone: phones,
     address,
-    fontFace: cairoFace(),
+    fontFace: appFontFace(),
     logo: logoImg(),
-    printedAt: nowIso().slice(0, 16).replace('T', ' ')
+    printedAt: nowIso().slice(0, 16).replace('T', ' '),
+    recipientLine: kind === 'report' ? recipientLine : undefined
   })
 }
 
-async function loadHtmlWindow(html: string, show: boolean, parent?: BrowserWindow | null) {
+function appWindow(preferred?: BrowserWindow | null) {
+  if (preferred && !preferred.isDestroyed()) return preferred
+  return BrowserWindow.getAllWindows().find((w) => !w.isDestroyed() && !w.getParentWindow()) || null
+}
+
+function restoreAppWindow(preferred?: BrowserWindow | null) {
+  const target = appWindow(preferred)
+  if (!target) return
+  try {
+    if (target.isMinimized()) target.restore()
+    target.show()
+    target.moveTop()
+    target.focus()
+    if (process.platform === 'win32') {
+      target.setAlwaysOnTop(true)
+      target.setAlwaysOnTop(false)
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+async function loadHtmlWindow(html: string, parent?: BrowserWindow | null) {
   const file = path.join(getTempDir(), `print-${Date.now()}.html`)
-  fs.writeFileSync(file, html, 'utf8')
+  fs.writeFileSync(file, stripPrintCodes(html), 'utf8')
+  const owner = appWindow(parent)
   const win = new BrowserWindow({
-    show,
-    width: 900,
+    show: false,
+    width: 800,
     height: 1100,
     autoHideMenuBar: true,
-    parent: parent || undefined,
+    skipTaskbar: true,
+    parent: owner || undefined,
+    modal: false,
     webPreferences: { sandbox: true, nodeIntegration: false, contextIsolation: true, javascript: false }
   })
+  win.setMenuBarVisibility(false)
   await win.loadFile(file)
   await new Promise((r) => setTimeout(r, 400))
   return { win, file }
 }
 
-function cleanup(win: BrowserWindow, file: string) {
+function cleanup(win: BrowserWindow, file: string, parent?: BrowserWindow | null) {
+  restoreAppWindow(parent)
   try {
     if (!win.isDestroyed()) win.destroy()
   } catch {
     /* ignore */
   }
+  restoreAppWindow(parent)
   try {
     fs.unlinkSync(file)
   } catch {
@@ -120,15 +151,16 @@ function cleanup(win: BrowserWindow, file: string) {
 }
 
 export async function htmlToPdf(html: string, kind: PrintKind, parent?: BrowserWindow | null): Promise<Buffer> {
-  const { win, file } = await loadHtmlWindow(html, false, parent)
+  const { win, file } = await loadHtmlWindow(html, parent)
   try {
     const data = await win.webContents.printToPDF({
       printBackground: true,
+      preferCSSPageSize: kind !== 'receipt' && kind !== 'voucher',
       ...pageOpts(kind)
     })
     return Buffer.from(data)
   } finally {
-    cleanup(win, file)
+    cleanup(win, file, parent)
   }
 }
 
@@ -143,7 +175,7 @@ export async function printHtml(html: string, kind: PrintKind, parent?: BrowserW
       ? getSetting('print_thermal_printer', '')
       : getSetting('print_a4_printer', '')
   const doSilent = silent ?? getSetting('silent_print', 'false') === 'true'
-  const { win, file } = await loadHtmlWindow(html, true, parent)
+  const { win, file } = await loadHtmlWindow(html, parent)
   try {
     const printers = await win.webContents.getPrintersAsync()
     const match = printers.find((p) => p.name === preferred)
@@ -154,20 +186,22 @@ export async function printHtml(html: string, kind: PrintKind, parent?: BrowserW
           silent: Boolean(doSilent && match && !pdfLike),
           ...(match && !pdfLike ? { deviceName: match.name } : {}),
           printBackground: true,
-          pageSize: 'A4',
-          landscape: kind === 'report',
+          ...(kind === 'receipt' || kind === 'voucher'
+            ? {}
+            : { pageSize: 'A4' as const, landscape: false }),
           margins: {
             marginType: kind === 'receipt' || kind === 'voucher' ? 'printableArea' : 'none'
           }
         },
         (success, error) => {
+          restoreAppWindow(parent)
           if (!success && error && !isCancel(error)) reject(new Error(error))
           else resolve()
         }
       )
     })
   } finally {
-    cleanup(win, file)
+    cleanup(win, file, parent)
   }
 }
 

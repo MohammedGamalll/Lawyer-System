@@ -6,6 +6,8 @@ import { useApp } from '../store'
 import { Button, Card, Field, PageHeader, Select, StatusBadge } from '../components/ui'
 import { DatePicker } from '../components/DateTimePicker'
 import { EntitySelect } from '../components/EntitySelect'
+import { displayCaseCode } from '../lib/courtNumber'
+import { compactTableHtml, sendPrint } from '../lib/printKit'
 
 export function SearchPage() {
   const { t } = useTranslation()
@@ -51,9 +53,9 @@ export function SearchPage() {
       <PageHeader title={t('searchPage.title')} />
       <Card>
         <div className="mb-3 flex flex-wrap gap-2">
-          {(['cases', 'hearings', 'admin'] as const).map((s) => (
+          {(['cases', 'hearings', 'admin', 'execution'] as const).map((s) => (
             <Button key={s} type="button" variant={filters.scope === s ? 'primary' : 'outline'} onClick={() => setFilters({ ...filters, scope: s })}>
-              {s === 'cases' ? t('nav.cases') : s === 'hearings' ? t('nav.hearings') : t('caseForm.adminWork')}
+              {s === 'cases' ? t('nav.cases') : s === 'hearings' ? t('nav.hearings') : s === 'execution' ? t('nav.execution') : t('caseForm.adminWork')}
             </Button>
           ))}
         </div>
@@ -122,6 +124,38 @@ export function SearchPage() {
         <Button className="mt-3" onClick={run}>
           {t('searchPage.run')}
         </Button>
+        <Button
+          className="mt-3 ms-2"
+          variant="outline"
+          disabled={!rows.length}
+          onClick={async () => {
+            try {
+              const body = compactTableHtml({
+                columns: [
+                  { label: t('fields.case_number') },
+                  { label: t('fields.court_number') },
+                  { label: t('fields.title') },
+                  { label: t('fields.client_name') },
+                  { label: t('fields.status') }
+                ],
+                rows: rows.map((r) => [
+                  displayCaseCode(r),
+                  String(r.office_case_number || ''),
+                  String(r.title || r.case_title || r.description || ''),
+                  String(r.client_name || ''),
+                  String(r.status || '')
+                ].map((s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'))),
+                notesLabel: t('printKit.notes'),
+                emptyLabel: t('noData')
+              })
+              await sendPrint('report', t('searchPage.title'), body)
+            } catch (e) {
+              toast((e as Error).message, 'err')
+            }
+          }}
+        >
+          {t('print')}
+        </Button>
       </Card>
       <Card>
         <table className="w-full border-collapse text-sm">
@@ -151,12 +185,12 @@ export function SearchPage() {
                   className="cursor-pointer border-t hover:bg-navy-50/60 dark:hover:bg-navy-800/60"
                   onClick={() => {
                     if (k === 'hearing' && r.case_id) setPage('caseProfile', { id: r.case_id })
-                    else if (k === 'admin' && r.case_id) setPage('caseProfile', { id: r.case_id })
+                    else if ((k === 'admin' || k === 'execution') && r.case_id) setPage('caseProfile', { id: r.case_id })
                     else if (r.id && (k === 'case' || !k)) setPage('caseProfile', { id: r.id })
                     else if (caseId) setPage('caseProfile', { id: caseId })
                   }}
                 >
-                  <td className="px-3 py-2">{String(r.case_number || '')}</td>
+                  <td className="px-3 py-2">{displayCaseCode(r)}</td>
                   <td className="px-3 py-2" dir="ltr">
                     {String(r.office_case_number || '')}
                   </td>

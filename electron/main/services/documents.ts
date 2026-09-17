@@ -186,7 +186,32 @@ export async function uploadDocument(
     recordLocalChange('document_pages', pid, 'INSERT')
   })
   audit(actor, 'create', 'documents', id, `تم رفع المستند ${title}`)
+  attachDocumentToPoa(id, meta)
   return { id }
+}
+
+function attachDocumentToPoa(documentId: string, meta: Record<string, unknown>) {
+  const db = getDb()
+  const ts = nowIso()
+  const poaId = asIdOrNull(meta.poa_id)
+  const clientId = asIdOrNull(meta.client_id)
+  const category = String(meta.category || '')
+  const isPoa = /^(poa|توكيل)$/i.test(category)
+  if (!isPoa) return
+  const target =
+    poaId ||
+    (clientId
+      ? (
+          db
+            .prepare(
+              `SELECT id FROM power_of_attorney WHERE client_id = ? AND ${notDeleted()} ORDER BY created_at DESC LIMIT 1`
+            )
+            .get(clientId) as { id: string } | undefined
+        )?.id
+      : null)
+  if (!target) return
+  db.prepare(`UPDATE power_of_attorney SET document_id = ?, updated_at = ? WHERE id = ?`).run(documentId, ts, target)
+  recordLocalChange('power_of_attorney', target, 'UPDATE')
 }
 
 export function updateDocument(

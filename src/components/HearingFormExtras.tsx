@@ -3,25 +3,34 @@ import { useTranslation } from 'react-i18next'
 import { Field, Button } from './ui'
 import { LookupCombo } from './LookupCombo'
 import { DatePicker } from './DateTimePicker'
+import type { SetField } from './CrudPage'
 
-type Proc = { title: string; due_date: string }
+type Proc = { id?: string; title: string; due_date: string }
+
+function asProcs(value: unknown): Proc[] {
+  return (Array.isArray(value) ? value : []).filter((p): p is Proc => Boolean(p && String((p as Proc).title || '').trim()))
+}
 
 export function HearingFormExtras({
   form,
   setField
 }: {
   form: Record<string, unknown>
-  setField: (name: string, value: unknown) => void
+  setField: SetField
 }) {
   const { t } = useTranslation()
   const typeVal = String(form.hearing_type || '')
   const typeSize = typeVal.length > 14 ? 11 : typeVal.length > 10 ? 12 : 14
-  const procs = ((form.upcoming_procedures as Proc[]) || []).filter((p) => p)
+  const procs = asProcs(form.upcoming_procedures)
   const [draft, setDraft] = useState({ title: '', due_date: '' })
 
   const addProc = () => {
-    if (!draft.title.trim()) return
-    setField('upcoming_procedures', [...procs, { title: draft.title.trim(), due_date: draft.due_date }])
+    const title = draft.title.trim()
+    if (!title) return
+    setField('upcoming_procedures', (prev) => [
+      ...asProcs(prev),
+      { title, due_date: draft.due_date }
+    ])
     setDraft({ title: '', due_date: '' })
   }
 
@@ -74,6 +83,28 @@ export function HearingFormExtras({
             />
           </Field>
         </div>
+        {/خبير|expert/i.test(typeVal) ? (
+          <>
+            <div className="w-[10rem]">
+              <Field label={t('fields.expert_name')}>
+                <input
+                  className="h-9 w-full rounded border px-2 text-sm dark:bg-navy-900"
+                  value={String(form.expert_name || '')}
+                  onChange={(e) => setField('expert_name', e.target.value)}
+                />
+              </Field>
+            </div>
+            <div className="w-[10rem]">
+              <Field label={t('fields.expert_office')}>
+                <input
+                  className="h-9 w-full rounded border px-2 text-sm dark:bg-navy-900"
+                  value={String(form.expert_office || '')}
+                  onChange={(e) => setField('expert_office', e.target.value)}
+                />
+              </Field>
+            </div>
+          </>
+        ) : null}
       </div>
       <div className="rounded-md border border-navy-100 p-2 dark:border-navy-700">
         <div className="mb-1 text-sm font-bold">{t('caseForm.upcomingProcedures')}</div>
@@ -95,7 +126,7 @@ export function HearingFormExtras({
         {procs.length > 0 && (
           <ul className="mt-2 space-y-1 text-sm">
             {procs.map((p, i) => (
-              <li key={i} className="flex items-center justify-between gap-2 rounded bg-navy-50 px-2 py-1 dark:bg-navy-800">
+              <li key={p.id || `${p.title}-${i}`} className="flex items-center justify-between gap-2 rounded bg-navy-50 px-2 py-1 dark:bg-navy-800">
                 <span>
                   {p.title}
                   {p.due_date ? ` — ${p.due_date}` : ''}
@@ -103,7 +134,9 @@ export function HearingFormExtras({
                 <button
                   type="button"
                   className="text-navy-400 hover:text-red-600"
-                  onClick={() => setField('upcoming_procedures', procs.filter((_, j) => j !== i))}
+                  onClick={() =>
+                    setField('upcoming_procedures', (prev) => asProcs(prev).filter((_, j) => j !== i))
+                  }
                 >
                   ×
                 </button>

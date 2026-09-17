@@ -2,18 +2,18 @@ import { describe, expect, it } from 'vitest'
 import { buildPrintHtml } from '../electron/main/services/printHtml'
 
 describe('print RTL / Arabic shaping template', () => {
-  it('emits RTL html with Cairo and Arabic text for invoices', () => {
+  it('emits RTL html with IBM Plex Sans Arabic and Arabic text for invoices', () => {
     const html = buildPrintHtml({
       title: 'فاتورة',
       body: '<p>استلمنا من: <b>أحمد علي</b> مبلغاً وقدره <b>١٬٠٠٠</b></p><table><tr><th>البيان</th><td>أتعاب محاماة</td></tr></table>',
       kind: 'invoice',
       office: 'مكتب المحاماة',
-      fontFace: "@font-face { font-family: 'Cairo'; src: url(data:font/woff2;base64,AA==) format('woff2'); }",
+      fontFace: "@font-face { font-family: 'IBM Plex Sans Arabic'; src: url(data:font/woff2;base64,AA==) format('woff2'); }",
       printedAt: '2026-08-13 22:00'
     })
     expect(html).toContain('lang="ar"')
     expect(html).toContain('dir="rtl"')
-    expect(html).toContain("font-family: Cairo")
+    expect(html).toContain("font-family: 'IBM Plex Sans Arabic'")
     expect(html).toContain('direction: rtl')
     expect(html).toContain('padding:')
     expect(html).toContain('@page')

@@ -1,10 +1,23 @@
+export function stripInternalPrefix(code: unknown) {
+  return String(code ?? '').replace(/^(CS|CL)-/i, '')
+}
+
+export function displayCaseCode(row: Record<string, unknown> | unknown) {
+  if (row && typeof row === 'object') return formatProgramCode(row as Record<string, unknown>)
+  return stripInternalPrefix(row) || '—'
+}
+
+export function displayClientCode(code: unknown) {
+  return stripInternalPrefix(code)
+}
+
 export function formatCourtNumber(row: Record<string, unknown>) {
   const office = String(row.office_case_number ?? '').trim()
   const year = String(row.case_year ?? '').trim()
   if (office && year) return `${office} لسنة ${year} ق`
   if (office) return office
   const cn = String(row.case_number ?? '')
-  if (cn.startsWith('CS-')) return '—'
+  if (/^CS-/i.test(cn)) return '—'
   const m = cn.match(/^(.+)\/(\d{2,4})$/)
   if (m) return `${m[1].trim()} لسنة ${m[2]} ق`
   return '—'
@@ -21,7 +34,7 @@ export function parseCourtQuery(raw: string): { number: string; year: string } {
 
 export function formatProgramCode(row: Record<string, unknown>) {
   const cn = String(row.case_number ?? '')
-  if (cn.startsWith('CS-')) return cn
+  if (/^CS-/i.test(cn)) return stripInternalPrefix(cn)
   const internal = String(row.internal_file_number ?? '').trim()
-  return internal || cn
+  return stripInternalPrefix(internal || cn)
 }
