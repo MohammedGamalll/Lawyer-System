@@ -507,8 +507,8 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
     const html = wrapHtml(String(title), String(body), kind as print.PrintKind)
     return ok(await print.savePdf(html, kind as print.PrintKind, String(name || 'doc.pdf'), getWin()))
   })
-  handle(ipc, IPC.print.print, {}, async (_e, _u, kind, title, body) => {
-    const html = wrapHtml(String(title), String(body), kind as print.PrintKind)
+  handle(ipc, IPC.print.print, {}, async (_e, _u, kind, title, body, layout) => {
+    const html = wrapHtml(String(title), String(body), kind as print.PrintKind, layout ? String(layout) : undefined)
     await print.printHtml(html, kind as print.PrintKind, getWin())
     return ok(true)
   })

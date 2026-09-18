@@ -67,14 +67,17 @@ export function listTasks(query: ListQuery = {}, userId?: string) {
     .prepare(
       `SELECT t.id, t.title, t.description as required_action, t.description, t.venue,
               t.case_subject, t.assignee_id, t.case_id, t.client_id,
-              t.due_date, t.priority, t.status, t.progress, t.work_kind, t.hearing_id, t.execution_kind,
+              t.start_date, t.due_date, t.priority, t.status, t.progress, t.work_kind, t.hearing_id, t.execution_kind,
               t.police_report_no, t.police_report_kind, t.police_station,
+              t.execution_number, t.execution_officer, t.judgment_date, t.judgment_text,
               u.full_name as assignee_name,
+              h.hall, h.floor,
               ${casePrintSelectSql('cs')},
               COALESCE(cl.full_name, c2.full_name) as client_name
        FROM tasks t
        LEFT JOIN users u ON u.id = t.assignee_id AND ${notDeleted('u')}
        ${casePrintJoinSql('t.case_id')}
+       LEFT JOIN hearings h ON h.id = t.hearing_id AND ${notDeleted('h')}
        LEFT JOIN clients cl ON cl.id = t.client_id AND ${notDeleted('cl')}
        LEFT JOIN clients c2 ON c2.id = cs.client_id AND ${notDeleted('c2')}
        ${where} ORDER BY ${order}${dir} LIMIT ? OFFSET ?`
@@ -111,8 +114,8 @@ export function createTask(actor: AuthedUser, data: Record<string, unknown>) {
   const id = newId()
   getDb()
     .prepare(
-      `INSERT INTO tasks (id, title, description, venue, case_subject, assignee_id, case_id, client_id, start_date, due_date, priority, status, progress, work_kind, hearing_id, execution_kind, police_report_no, police_report_kind, police_station, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      `INSERT INTO tasks (id, title, description, venue, case_subject, assignee_id, case_id, client_id, start_date, due_date, priority, status, progress, work_kind, hearing_id, execution_kind, police_report_no, police_report_kind, police_station, execution_number, execution_officer, judgment_date, judgment_text, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     )
     .run(
       id,
@@ -134,6 +137,10 @@ export function createTask(actor: AuthedUser, data: Record<string, unknown>) {
       data.police_report_no ?? null,
       data.police_report_kind ?? null,
       data.police_station ?? null,
+      data.execution_number ?? null,
+      data.execution_officer ?? null,
+      data.judgment_date ?? null,
+      data.judgment_text ?? null,
       ts,
       ts
     )
@@ -172,7 +179,8 @@ export function updateTask(actor: AuthedUser, id: string, data: Record<string, u
   getDb()
     .prepare(
       `UPDATE tasks SET title=?, description=?, venue=?, case_subject=?, assignee_id=?, case_id=?, client_id=?, start_date=?, due_date=?,
-        priority=?, status=?, progress=?, work_kind=?, hearing_id=?, execution_kind=?, police_report_no=?, police_report_kind=?, police_station=?, updated_at=? WHERE id=?`
+        priority=?, status=?, progress=?, work_kind=?, hearing_id=?, execution_kind=?, police_report_no=?, police_report_kind=?, police_station=?,
+        execution_number=?, execution_officer=?, judgment_date=?, judgment_text=?, updated_at=? WHERE id=?`
     )
     .run(
       title,
@@ -193,6 +201,10 @@ export function updateTask(actor: AuthedUser, id: string, data: Record<string, u
       data.police_report_no ?? null,
       data.police_report_kind ?? null,
       data.police_station ?? null,
+      data.execution_number ?? null,
+      data.execution_officer ?? null,
+      data.judgment_date ?? null,
+      data.judgment_text ?? null,
       nowIso(),
       id
     )

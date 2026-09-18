@@ -6,6 +6,7 @@ export function casePrintSelectSql(cs = 'cs'): string {
               ${cs}.title as case_title,
               ${cs}.court as court, ${cs}.court as court_name,
               ${cs}.circuit, ${cs}.circuit_number, ${cs}.session_place,
+              ${cs}.litigation_degree,
               ${cs}.police_station as case_police_station,
               ${cs}.first_instance_number, ${cs}.first_instance_year,
               ${cs}.appeal_number, ${cs}.appeal_year,
@@ -14,6 +15,8 @@ export function casePrintSelectSql(cs = 'cs'): string {
               ${cs}.extra_ref2_type, ${cs}.extra_ref2_number,
               ${cs}.extra_ref3_type, ${cs}.extra_ref3_number,
               ${cs}.category,
+              ${cs}.judgment_date as case_judgment_date,
+              ${cs}.judgment_text as case_judgment_text,
               ct.name_ar as case_type_name, ct.name_ar as case_type,
               COALESCE(
                 NULLIF(TRIM(${cs}.opponent_name), ''),
@@ -111,7 +114,9 @@ export function enrichPrintRow(row: Record<string, unknown>): Record<string, unk
     opponent_capacity,
     first_instance_number: hasFirst ? row.first_instance_number : row.office_case_number,
     first_instance_year: hasFirst ? row.first_instance_year : row.case_year,
-    police_station: nz(row.police_station) || nz(row.case_police_station)
+    police_station: nz(row.police_station) || nz(row.case_police_station),
+    judgment_date: nz(row.judgment_date) || nz(row.case_judgment_date),
+    judgment_text: nz(row.judgment_text) || nz(row.case_judgment_text)
   }
 }
 

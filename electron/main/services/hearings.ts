@@ -70,6 +70,10 @@ export function listHearings(query: ListQuery = {}) {
     .prepare(
       `SELECT h.id, h.case_id, h.hearing_date, h.hearing_time, h.hearing_type, h.previous_decision, h.court_decision,
               h.hall, h.floor, h.venue, h.expert_name, h.expert_office, h.status, h.result, h.lawyer_id,
+              (SELECT h2.hearing_date FROM hearings h2
+                WHERE h2.case_id = h.case_id AND ${notDeleted('h2')}
+                  AND h2.hearing_date < h.hearing_date
+                ORDER BY h2.hearing_date DESC LIMIT 1) as previous_hearing_date,
               h.what_happened, h.next_actions, h.notes, cs.client_id,
               ${casePrintSelectSql('cs')},
               cl.full_name as client_name,

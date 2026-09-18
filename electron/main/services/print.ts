@@ -70,7 +70,7 @@ function logoImg(): string {
   return src ? `<img src="${src}" class="logo" alt="logo"/>` : ''
 }
 
-export function wrapHtml(title: string, body: string, kind: PrintKind): string {
+export function wrapHtml(title: string, body: string, kind: PrintKind, layout?: string): string {
   const office = getSetting('office_name', 'مكتب المحاماة')
   const phones = [getSetting('office_phone', ''), getSetting('office_phone2', ''), getSetting('office_phone3', '')]
     .filter(Boolean)
@@ -89,7 +89,8 @@ export function wrapHtml(title: string, body: string, kind: PrintKind): string {
     fontFace: appFontFace(),
     logo: logoImg(),
     printedAt: nowIso().slice(0, 16).replace('T', ' '),
-    recipientLine: kind === 'report' ? recipientLine : undefined
+    recipientLine: kind === 'report' && layout !== 'hearingsRoll' ? recipientLine : undefined,
+    layout
   })
 }
 

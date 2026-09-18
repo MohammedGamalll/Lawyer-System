@@ -7,6 +7,7 @@ const DATE_KEYS = new Set([
   'filing_date',
   'received_date',
   'hearing_date',
+  'previous_hearing_date',
   'next_hearing_date',
   'start_date',
   'due_date',

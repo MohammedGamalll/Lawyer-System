@@ -155,6 +155,8 @@ export const caseSchema = z.object({
   description: optStr,
   summary: optStr,
   notes: optStr,
+  judgment_date: optStr,
+  judgment_text: optStr,
   total_fees: optNum,
   fees_due_date: optStr,
   payment_method: optStr,
@@ -242,7 +244,11 @@ export const taskSchema = z.object({
   execution_kind: optStr,
   police_report_no: optStr,
   police_report_kind: optStr,
-  police_station: optStr
+  police_station: optStr,
+  execution_number: optStr,
+  execution_officer: optStr,
+  judgment_date: optStr,
+  judgment_text: optStr
 })
 
 export const reminderSchema = z.object({

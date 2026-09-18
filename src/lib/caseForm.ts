@@ -28,6 +28,8 @@ export function caseFormFields(t: (k: string) => string): FieldDef[] {
     f('extra_ref3_number', { size: 'sm', label: t('fields.extra_ref_number') }),
     f('received_date', { type: 'date' }),
     f('filing_date', { type: 'date' }),
+    f('judgment_date', { type: 'date' }),
+    f('judgment_text', { type: 'textarea' }),
     f('primary_lawyer_id', { lookup: 'lawyers' }),
     f('assistant_lawyer_id', { lookup: 'lawyers' }),
     f('status', { type: 'combo', comboKind: 'case_status' }),

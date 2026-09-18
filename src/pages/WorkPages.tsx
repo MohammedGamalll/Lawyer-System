@@ -4,22 +4,17 @@ import { CrudPage, FieldDef } from '../components/CrudPage'
 import { HearingFormExtras } from '../components/HearingFormExtras'
 import { TaskFormExtras } from '../components/TaskFormExtras'
 import { VenuePrintBar } from '../components/VenuePrintBar'
-import { PrintFieldPicker } from '../components/PrintFieldPicker'
 import { Button, Modal, Select } from '../components/ui'
 import { invoke } from '../lib/api'
 import { useApp } from '../store'
 import { hearingSchema, taskSchema } from '@shared/schemas'
 import { formatCell } from '../lib/datetime'
 import {
-  adminPrintFields,
   applyPrintColFilters,
-  executionBlocksHtml,
-  executionPrintFields,
-  hearingBlocksHtml,
-  hearingPrintFields,
-  promoteSingleFilter,
+  executionTasksRollTableHtml,
+  hearingRollTableHtml,
   sendPrint,
-  taskBlocksHtml
+  taskRollTableHtml
 } from '../lib/printKit'
 
 const st = (t: (k: string) => string, arr: readonly string[]) => arr.map((v) => ({ value: v, label: t(`status.${v}`) }))
@@ -31,8 +26,6 @@ function f(t: (k: string) => string, name: string, extra: Partial<FieldDef> = {}
 export function HearingsPage({ embeddedCaseId }: { embeddedCaseId?: string } = {}) {
   const { t, i18n } = useTranslation()
   const { setPage, toast, pageMeta, goBack } = useApp()
-  const [printOpen, setPrintOpen] = useState(false)
-  const [printColFilters, setPrintColFilters] = useState<Record<string, string>>({})
   const [adminModal, setAdminModal] = useState<{ caseId: string; rows: Record<string, unknown>[] } | null>(null)
   const [adminLoading, setAdminLoading] = useState(false)
   const caseId = String(embeddedCaseId || pageMeta.case_id || '')
@@ -151,17 +144,7 @@ export function HearingsPage({ embeddedCaseId }: { embeddedCaseId?: string } = {
           <VenuePrintBar toast={toast} />
         </>
       }
-      onPrint={(ctx) => {
-        setPrintColFilters(ctx.colFilters)
-        setPrintOpen(true)
-      }}
-    />
-    <PrintFieldPicker
-      open={printOpen}
-      title={t('print')}
-      fields={hearingPrintFields(t)}
-      onClose={() => setPrintOpen(false)}
-      onConfirm={async () => {
+      onPrint={async (ctx) => {
         const res = await invoke<{ rows: Record<string, unknown>[]; total: number }>('hearings:list', {
           page: 1,
           pageSize: 1000,
@@ -169,19 +152,10 @@ export function HearingsPage({ embeddedCaseId }: { embeddedCaseId?: string } = {
           filters: listFilters
         })
         const fetched = res.rows || []
-        const rows = applyPrintColFilters(fetched, printColFilters, i18n.language, t)
-        const promoted = promoteSingleFilter(
-          Object.entries(listFilters)
-            .filter(([key, v]) => v && String(v) !== '' && !key.endsWith('_id') && key !== 'hearing_kind')
-            .map(([key, value]) => ({ key, label: t(`fields.${key}`), value: String(value) }))
-        )
-        await sendPrint(
-          'report',
-          t('nav.hearings'),
-          hearingBlocksHtml(rows, t, i18n.language, { emptyLabel: t('noData'), subtitle: promoted.header })
-        )
+        const rows = applyPrintColFilters(fetched, ctx.colFilters, i18n.language, t)
+        const roll = hearingRollTableHtml(rows, t, i18n.language, { emptyLabel: t('noData') })
+        await sendPrint('report', roll.sheetTitle, roll.html, 'hearingsRoll')
         if ((res.total || 0) > fetched.length) toast(t('printListCapped', { count: fetched.length }))
-        setPrintOpen(false)
       }}
     />
     <Modal
@@ -258,8 +232,6 @@ export function TasksPage({
   const { t, i18n } = useTranslation()
   const { setPage, pageMeta, goBack, toast } = useApp()
   const [view, setView] = useState('all')
-  const [printOpen, setPrintOpen] = useState(false)
-  const [printColFilters, setPrintColFilters] = useState<Record<string, string>>({})
   const [lawyerId, setLawyerId] = useState('')
   const [lawyers, setLawyers] = useState<{ id: string; user_id: string | null; full_name: string }[]>([])
   const caseId = String(embeddedCaseId || pageMeta.case_id || '')
@@ -384,17 +356,7 @@ export function TasksPage({
           f(t, 'status', { type: 'combo', comboKind: 'task_status' }),
           f(t, 'priority', { type: 'select', options: st(t, ['low', 'medium', 'high']) })
         ]}
-        onPrint={(ctx) => {
-          setPrintColFilters(ctx.colFilters)
-          setPrintOpen(true)
-        }}
-      />
-      <PrintFieldPicker
-        open={printOpen}
-        title={t('print')}
-        fields={workKind === 'execution' ? executionPrintFields(t) : adminPrintFields(t)}
-        onClose={() => setPrintOpen(false)}
-        onConfirm={async () => {
+        onPrint={async (ctx) => {
           const res = await invoke<{ rows: Record<string, unknown>[]; total: number }>('tasks:list', {
             page: 1,
             pageSize: 1000,
@@ -402,20 +364,13 @@ export function TasksPage({
             filters
           })
           const fetched = res.rows || []
-          const rows = applyPrintColFilters(fetched, printColFilters, i18n.language, t)
-          const promoted = promoteSingleFilter(
-            [
-              { key: 'venue', label: t('fields.venue'), value: String(filters.venue || '') },
-              { key: 'view', label: t('fields.status'), value: String(filters.view || '') }
-            ].filter((x) => x.value)
-          )
-          const body =
+          const rows = applyPrintColFilters(fetched, ctx.colFilters, i18n.language, t)
+          const roll =
             workKind === 'execution'
-              ? executionBlocksHtml(rows, t, i18n.language, { emptyLabel: t('noData'), subtitle: promoted.header })
-              : taskBlocksHtml(rows, t, i18n.language, { emptyLabel: t('noData'), subtitle: promoted.header })
-          await sendPrint('report', title, body)
+              ? executionTasksRollTableHtml(rows, t, i18n.language, { emptyLabel: t('noData') })
+              : taskRollTableHtml(rows, t, i18n.language, { emptyLabel: t('noData') })
+          await sendPrint('report', roll.sheetTitle, roll.html, 'hearingsRoll')
           if ((res.total || 0) > fetched.length) toast(t('printListCapped', { count: fetched.length }))
-          setPrintOpen(false)
         }}
       />
     </div>

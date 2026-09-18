@@ -35,6 +35,12 @@ export function TaskFormExtras({
         if (!String(form.police_station || '') && row.police_station) {
           setField('police_station', String(row.police_station))
         }
+        if (!String(form.judgment_date || '') && row.judgment_date) {
+          setField('judgment_date', String(row.judgment_date))
+        }
+        if (!String(form.judgment_text || '') && row.judgment_text) {
+          setField('judgment_text', String(row.judgment_text))
+        }
       })
       .catch(() => setOpp({ name: '', address: '' }))
   }, [form.case_id, workKind])
@@ -99,10 +105,58 @@ export function TaskFormExtras({
           </div>
         </div>
       ) : null}
-      <div className="w-[12rem]">
-        <Field label={t('fields.venue')}>
-          <LookupCombo kind="venue" value={String(form.venue || '')} onChange={(v) => setField('venue', v)} />
-        </Field>
+      <div className="flex flex-wrap gap-2">
+        <div className="w-[12rem]">
+          <Field label={t('fields.venue')}>
+            <LookupCombo kind="venue" value={String(form.venue || '')} onChange={(v) => setField('venue', v)} />
+          </Field>
+        </div>
+        <div className="w-[12rem]">
+          <Field label={t('fields.police_station')}>
+            <LookupCombo
+              kind="police_station"
+              value={String(form.police_station || '')}
+              onChange={(v) => setField('police_station', v)}
+            />
+          </Field>
+        </div>
+        <div className="w-[10rem]">
+          <Field label={t('fields.execution_number')}>
+            <input
+              className="h-9 w-full rounded border px-2 text-sm dark:bg-navy-900"
+              value={String(form.execution_number || '')}
+              onChange={(e) => setField('execution_number', e.target.value)}
+            />
+          </Field>
+        </div>
+        <div className="w-[12rem]">
+          <Field label={t('fields.execution_officer')}>
+            <input
+              className="h-9 w-full rounded border px-2 text-sm dark:bg-navy-900"
+              value={String(form.execution_officer || '')}
+              onChange={(e) => setField('execution_officer', e.target.value)}
+            />
+          </Field>
+        </div>
+        <div className="w-[12rem]">
+          <Field label={t('fields.judgment_date')}>
+            <input
+              className="h-9 w-full rounded border px-2 text-sm dark:bg-navy-900"
+              type="date"
+              value={String(form.judgment_date || '')}
+              onChange={(e) => setField('judgment_date', e.target.value)}
+            />
+          </Field>
+        </div>
+        <div className="min-w-[12rem] flex-1">
+          <Field label={t('fields.judgment_text')}>
+            <input
+              className="h-9 w-full rounded border px-2 text-sm dark:bg-navy-900"
+              value={String(form.judgment_text || '')}
+              onChange={(e) => setField('judgment_text', e.target.value)}
+            />
+          </Field>
+        </div>
       </div>
     </div>
   )

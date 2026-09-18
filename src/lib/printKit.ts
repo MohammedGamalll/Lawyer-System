@@ -243,6 +243,478 @@ export function hearingBlocksHtml(
   return wrapPrintBlocks(items, opts?.emptyLabel || t('noData'), opts?.subtitle)
 }
 
+const ROLL_DOTS = '........'
+const AR_WEEKDAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
+const EN_WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+export function stripPlacePrefix(s: unknown): string {
+  let t = nz(s)
+  if (!t) return ''
+  t = t.replace(/^محكمة\s+/u, '')
+  t = t.replace(/\s*شرطة\s+/gu, ' ')
+  t = t.replace(/^شرطة\s+/u, '')
+  t = t.replace(/\s+شرطة$/u, '')
+  return t.replace(/\s+/g, ' ').trim()
+}
+
+function isExpertHearing(r: Record<string, unknown>) {
+  return /خبير|expert/i.test(String(r.hearing_type || ''))
+}
+
+function slashDate(value: unknown): string {
+  const s = nz(value)
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!m) return s
+  return `${Number(m[1])}/${Number(m[2])}/${Number(m[3])}`
+}
+
+function weekdayName(value: unknown, lang: string): string {
+  const s = nz(value)
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!m) return ''
+  const dt = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  if (Number.isNaN(dt.getTime())) return ''
+  const names = lang === 'en' ? EN_WEEKDAYS : AR_WEEKDAYS
+  return names[dt.getDay()] || ''
+}
+
+function hearingPlace(r: Record<string, unknown>): string {
+  return (
+    stripPlacePrefix(r.court_name || r.court) ||
+    stripPlacePrefix(r.venue) ||
+    stripPlacePrefix(r.session_place) ||
+    stripPlacePrefix(r.police_station)
+  )
+}
+
+function hrLine(text: unknown, dottedIfEmpty = false): string {
+  const v = nz(text)
+  if (!v && !dottedIfEmpty) return ''
+  const body = v ? escPrint(v) : `<span class="hr-dots">${ROLL_DOTS}</span>`
+  return `<div class="hr-line">${body}</div>`
+}
+
+function hrLabeled(label: string, value: unknown, dottedIfEmpty = true): string {
+  const v = nz(value)
+  if (!v && !dottedIfEmpty) return ''
+  const body = v ? escPrint(v) : `<span class="hr-dots">${ROLL_DOTS}</span>`
+  return `<div class="hr-line">${escPrint(label)} ${body}</div>`
+}
+
+function hrStack(lines: string[], min = 1): string {
+  const bits = lines.filter(Boolean)
+  while (bits.length < min) bits.push(hrLine('', true))
+  return bits.join('')
+}
+
+function rollCaseNumberLines(r: Record<string, unknown>, t: (k: string) => string): string {
+  const lines: string[] = []
+  const first = degreeNumber(r.first_instance_number, r.first_instance_year)
+  lines.push(hrLine(first, true))
+  const appeal = degreeNumber(r.appeal_number, r.appeal_year)
+  if (appeal) lines.push(hrLine(appeal))
+  const cass = degreeNumber(r.cassation_number, r.cassation_year)
+  if (cass) lines.push(hrLine(cass))
+  const refs: [unknown, unknown][] = [
+    [r.extra_ref_type, r.extra_ref_number],
+    [r.extra_ref2_type, r.extra_ref2_number],
+    [r.extra_ref3_type, r.extra_ref3_number]
+  ]
+  for (const [type, num] of refs) {
+    const typeLabel = nz(type)
+    const n = nz(num)
+    if (!typeLabel && !n) {
+      lines.push(hrLine('', true))
+      continue
+    }
+    const label = /صفة|sifa|capacity/i.test(typeLabel) ? t('printKit.sifaNumber') : typeLabel
+    if (label && n) lines.push(hrLine(`${label} ${n}`))
+    else if (n) lines.push(hrLine(n))
+    else lines.push(`<div class="hr-line">${escPrint(label)} <span class="hr-dots">${ROLL_DOTS}</span></div>`)
+  }
+  return hrStack(lines, 2)
+}
+
+function rollCourtCell(r: Record<string, unknown>, preferVenue = false): string {
+  const place = preferVenue ? adminPlace(r) : hearingPlace(r)
+  const hallFloor = [nz(r.hall), nz(r.floor)].filter(Boolean).join(' / ')
+  const circuit = [nz(r.circuit), nz(r.circuit_number), hallFloor].filter(Boolean).join(' ')
+  return hrStack(
+    [
+      hrLine(r.system_code || formatProgramCode(r)),
+      hrLine(place),
+      hrLine(r.litigation_degree),
+      hrLine(circuit)
+    ],
+    2
+  )
+}
+
+function rollTypeCell(r: Record<string, unknown>, extraDates: unknown[] = []): string {
+  const dateLines = extraDates.length
+    ? extraDates.map((d) => hrLine(slashDate(d), true))
+    : [hrLine(slashDate(r.previous_hearing_date), true), hrLine(slashDate(r.hearing_date), true)]
+  return hrStack(
+    [
+      hrLine(r.case_type || r.case_type_name || r.category),
+      hrLine(r.case_subject || r.case_title),
+      ...dateLines
+    ],
+    2
+  )
+}
+
+function rollClientCell(r: Record<string, unknown>): string {
+  const caps =
+    nz(r.client_capacity) ||
+    joinCaps(r.client_capacity_first || r.capacity_first, r.client_capacity_appeal || r.capacity_appeal, r.client_capacity_cassation || r.capacity_cassation)
+  return hrStack([hrLine(r.client_name, true), hrLine(caps), hrLine(r.previous_decision)], 1)
+}
+
+function rollOpponentCell(r: Record<string, unknown>, t: (k: string) => string): string {
+  const caps =
+    nz(r.opponent_capacity) ||
+    joinCaps(r.opponent_capacity_first, r.opponent_capacity_appeal, r.opponent_capacity_cassation)
+  const lines = [hrLine(r.opponent_name, true), hrLine(caps)]
+  if (isExpertHearing(r)) {
+    const name = nz(r.expert_name)
+    lines.push(
+      `<div class="hr-line">${escPrint(t('printKit.expertNameLine'))}: ${
+        name ? escPrint(name) : `<span class="hr-dots">${ROLL_DOTS}</span>`
+      }</div>`
+    )
+  }
+  return hrStack(lines, 1)
+}
+
+function hearingsDayTitle(r: Record<string, unknown>, lang: string, t: (k: string, opts?: Record<string, string>) => string) {
+  const date = nz(r.hearing_date)
+  return t('printKit.hearingsDay', {
+    day: weekdayName(date, lang),
+    date: slashDate(date),
+    place: hearingPlace(r)
+  }).replace(/\s+/g, ' ').trim()
+}
+
+function hearingsSheetTitle(r: Record<string, unknown>, lang: string, t: (k: string, opts?: Record<string, string>) => string) {
+  const date = nz(r.hearing_date)
+  return t('printKit.hearingsSheet', {
+    day: weekdayName(date, lang),
+    date: slashDate(date)
+  }).replace(/\s+/g, ' ').trim()
+}
+
+function adminPlace(r: Record<string, unknown>): string {
+  return stripPlacePrefix(r.venue) || hearingPlace(r)
+}
+
+function adminDayTitle(r: Record<string, unknown>, lang: string, t: (k: string, opts?: Record<string, string>) => string) {
+  const date = nz(r.due_date)
+  return t('printKit.adminDay', {
+    day: weekdayName(date, lang),
+    date: slashDate(date)
+  }).replace(/\s+/g, ' ').trim()
+}
+
+const BLANK_LAWYER_LINE =
+  '<div class="hr-lawyer" style="font-weight: bold; margin-bottom: 10px;">الأستاذ / ........................................................................</div>'
+
+const ROLL_COLGROUP = `<colgroup>
+      <col style="width:12%" /><col style="width:15%" /><col style="width:15%" />
+      <col style="width:19%" /><col style="width:19%" /><col style="width:20%" />
+    </colgroup>`
+
+function rollThead(t: (k: string) => string, lastColKey: string) {
+  return `<thead><tr>
+      <th>${escPrint(t('printKit.courtAndCircuit'))}</th>
+      <th>${escPrint(t('printKit.caseNumber'))}</th>
+      <th>${escPrint(t('printKit.caseTypeCol'))}</th>
+      <th>${escPrint(t('printKit.clientAndCapacity'))}</th>
+      <th>${escPrint(t('printKit.opponentAndCapacity'))}</th>
+      <th>${escPrint(t(lastColKey))}</th>
+    </tr></thead>`
+}
+
+function groupHeaderRow(title: string) {
+  return `<tr class="group-header"><td colspan="6">${escPrint(title)}</td></tr>`
+}
+
+function wrapRollTable(
+  lawyerLine: string,
+  tbody: string,
+  t: (k: string) => string,
+  lastColKey = 'printKit.decision',
+  colgroup = ROLL_COLGROUP
+) {
+  return `${lawyerLine}<table class="hearings-roll" dir="rtl">${colgroup}${rollThead(t, lastColKey)}<tbody>${tbody}</tbody></table>`
+}
+
+function rollDataRow(
+  r: Record<string, unknown>,
+  t: (k: string) => string,
+  decisionHtml: string,
+  opts?: { preferVenue?: boolean; extraDates?: unknown[] }
+) {
+  return `<tr>
+          <td>${rollCourtCell(r, opts?.preferVenue)}</td>
+          <td>${rollCaseNumberLines(r, t)}</td>
+          <td>${rollTypeCell(r, opts?.extraDates)}</td>
+          <td>${rollClientCell(r)}</td>
+          <td>${rollOpponentCell(r, t)}</td>
+          <td>${decisionHtml}</td>
+        </tr>`
+}
+
+function distinctDates(rows: Record<string, unknown>[], key: string) {
+  return new Set(rows.map((r) => nz(r[key])).filter(Boolean)).size
+}
+
+export function hearingRollTableHtml(
+  hearings: Record<string, unknown>[],
+  t: (k: string, opts?: Record<string, string>) => string,
+  lang: string,
+  opts?: { emptyLabel?: string }
+): { html: string; sheetTitle: string } {
+  const lawyerLine = BLANK_LAWYER_LINE
+  const emptyTitle = t('nav.hearings')
+  if (!hearings.length) {
+    return {
+      sheetTitle: emptyTitle,
+      html: wrapRollTable(
+        lawyerLine,
+        `<tr><td colspan="6">${escPrint(opts?.emptyLabel || t('noData'))}</td></tr>`,
+        t
+      )
+    }
+  }
+  const groups = new Map<string, Record<string, unknown>[]>()
+  const order: string[] = []
+  for (const r of hearings) {
+    const key = `${nz(r.hearing_date)}|${hearingPlace(r)}`
+    if (!groups.has(key)) {
+      groups.set(key, [])
+      order.push(key)
+    }
+    groups.get(key)!.push(r)
+  }
+  const tbody = order
+    .map((key) => {
+      const rows = groups.get(key) || []
+      const header = groupHeaderRow(hearingsDayTitle(rows[0], lang, t))
+      const body = rows
+        .map((r) => {
+          const decision = nz(r.court_decision) || nz(r.what_happened) || nz(r.result)
+          return rollDataRow(r, t, hrLine(decision))
+        })
+        .join('')
+      return `${header}${body}`
+    })
+    .join('')
+  return {
+    sheetTitle:
+      distinctDates(hearings, 'hearing_date') > 1
+        ? t('printKit.hearingsLedger')
+        : hearingsSheetTitle(hearings[0], lang, t) || emptyTitle,
+    html: wrapRollTable(lawyerLine, tbody, t)
+  }
+}
+
+export function taskRollTableHtml(
+  tasks: Record<string, unknown>[],
+  t: (k: string, opts?: Record<string, string>) => string,
+  lang: string,
+  opts?: { emptyLabel?: string }
+): { html: string; sheetTitle: string } {
+  const lawyerLine = BLANK_LAWYER_LINE
+  const emptyTitle = t('nav.tasks')
+  if (!tasks.length) {
+    return {
+      sheetTitle: emptyTitle,
+      html: wrapRollTable(
+        lawyerLine,
+        `<tr><td colspan="6">${escPrint(opts?.emptyLabel || t('noData'))}</td></tr>`,
+        t,
+        'printKit.requiredAction'
+      )
+    }
+  }
+  const groups = new Map<string, Record<string, unknown>[]>()
+  const order: string[] = []
+  for (const r of tasks) {
+    const key = nz(r.due_date)
+    if (!groups.has(key)) {
+      groups.set(key, [])
+      order.push(key)
+    }
+    groups.get(key)!.push(r)
+  }
+  const tbody = order
+    .map((key) => {
+      const rows = groups.get(key) || []
+      const header = groupHeaderRow(adminDayTitle(rows[0], lang, t))
+      const body = rows
+        .map((r) => {
+          const action = nz(r.required_action) || nz(r.description) || nz(r.title)
+          return rollDataRow(r, t, hrLine(action, true), {
+            preferVenue: true,
+            extraDates: [r.start_date, r.due_date]
+          })
+        })
+        .join('')
+      return `${header}${body}`
+    })
+    .join('')
+  return {
+    sheetTitle:
+      distinctDates(tasks, 'due_date') > 1 ? t('printKit.adminLedger') : adminDayTitle(tasks[0], lang, t) || emptyTitle,
+    html: wrapRollTable(lawyerLine, tbody, t, 'printKit.requiredAction')
+  }
+}
+
+export function adminTasksRollTableHtml(
+  tasks: Record<string, unknown>[],
+  t: (k: string, opts?: Record<string, string>) => string,
+  lang: string,
+  opts?: { emptyLabel?: string }
+) {
+  return taskRollTableHtml(tasks, t, lang, opts)
+}
+
+const EXEC_COLGROUP = `<colgroup>
+      <col style="width:12%" /><col style="width:15%" /><col style="width:12%" />
+      <col style="width:20%" /><col style="width:16%" /><col style="width:25%" />
+    </colgroup>`
+
+function executionPlace(r: Record<string, unknown>): string {
+  return stripPlacePrefix(r.venue) || hearingPlace(r)
+}
+
+function executionDayTitle(r: Record<string, unknown>, lang: string, t: (k: string, opts?: Record<string, string>) => string) {
+  const date = nz(r.due_date)
+  return t('printKit.executionDay', {
+    day: weekdayName(date, lang),
+    date: slashDate(date)
+  }).replace(/\s+/g, ' ').trim()
+}
+
+function executionNumberOf(r: Record<string, unknown>) {
+  if (nz(r.execution_number)) return r.execution_number
+  const refs: [unknown, unknown][] = [
+    [r.extra_ref_type, r.extra_ref_number],
+    [r.extra_ref2_type, r.extra_ref2_number],
+    [r.extra_ref3_type, r.extra_ref3_number]
+  ]
+  for (const [type, num] of refs) {
+    if (/تنفيذ/i.test(nz(type)) && nz(num)) return num
+  }
+  return ''
+}
+
+function execCourtCell(r: Record<string, unknown>, t: (k: string) => string): string {
+  return hrStack(
+    [
+      hrLine(r.system_code || formatProgramCode(r)),
+      hrLine(executionPlace(r)),
+      hrLine(stripPlacePrefix(r.police_station)),
+      hrLabeled(t('printKit.hasrType'), r.police_report_kind),
+      hrLabeled(t('printKit.hasrNumber'), r.police_report_no)
+    ],
+    2
+  )
+}
+
+function execCaseNumberCell(r: Record<string, unknown>, t: (k: string) => string): string {
+  return hrStack(
+    [
+      rollCaseNumberLines(r, t),
+      hrLabeled(t('fields.execution_number'), executionNumberOf(r)),
+      hrLabeled(t('fields.execution_officer'), r.execution_officer)
+    ],
+    2
+  )
+}
+
+function execClientCell(r: Record<string, unknown>, t: (k: string) => string): string {
+  const caps =
+    nz(r.client_capacity) ||
+    joinCaps(r.client_capacity_first || r.capacity_first, r.client_capacity_appeal || r.capacity_appeal, r.client_capacity_cassation || r.capacity_cassation)
+  return hrStack(
+    [
+      hrLine(r.client_name, true),
+      hrLine(caps),
+      hrLabeled(t('fields.judgment_date'), slashDate(r.judgment_date) || r.judgment_date),
+      hrLabeled(t('fields.judgment_text'), r.judgment_text)
+    ],
+    1
+  )
+}
+
+function execOpponentCell(r: Record<string, unknown>, t: (k: string) => string): string {
+  const caps =
+    nz(r.opponent_capacity) ||
+    joinCaps(r.opponent_capacity_first, r.opponent_capacity_appeal, r.opponent_capacity_cassation)
+  const action = nz(r.required_action) || nz(r.description) || nz(r.title)
+  return hrStack([hrLine(r.opponent_name, true), hrLine(caps), hrLine(action)], 1)
+}
+
+export function executionTasksRollTableHtml(
+  tasks: Record<string, unknown>[],
+  t: (k: string, opts?: Record<string, string>) => string,
+  lang: string,
+  opts?: { emptyLabel?: string }
+): { html: string; sheetTitle: string } {
+  const lawyerLine = BLANK_LAWYER_LINE
+  const emptyTitle = t('printKit.executionLedger')
+  if (!tasks.length) {
+    return {
+      sheetTitle: emptyTitle,
+      html: wrapRollTable(
+        lawyerLine,
+        `<tr><td colspan="6">${escPrint(opts?.emptyLabel || t('noData'))}</td></tr>`,
+        t,
+        'printKit.addressCol',
+        EXEC_COLGROUP
+      )
+    }
+  }
+  const groups = new Map<string, Record<string, unknown>[]>()
+  const order: string[] = []
+  for (const r of tasks) {
+    const key = nz(r.due_date)
+    if (!groups.has(key)) {
+      groups.set(key, [])
+      order.push(key)
+    }
+    groups.get(key)!.push(r)
+  }
+  const tbody = order
+    .map((key) => {
+      const rows = groups.get(key) || []
+      const header = groupHeaderRow(executionDayTitle(rows[0], lang, t))
+      const body = rows
+        .map(
+          (r) => `<tr>
+          <td>${execCourtCell(r, t)}</td>
+          <td>${execCaseNumberCell(r, t)}</td>
+          <td>${rollTypeCell(r, [r.start_date, r.due_date])}</td>
+          <td>${execClientCell(r, t)}</td>
+          <td>${execOpponentCell(r, t)}</td>
+          <td>${hrLine(r.opponent_address, true)}</td>
+        </tr>`
+        )
+        .join('')
+      return `${header}${body}`
+    })
+    .join('')
+  return {
+    sheetTitle:
+      distinctDates(tasks, 'due_date') > 1
+        ? t('printKit.executionLedger')
+        : executionDayTitle(tasks[0], lang, t) || emptyTitle,
+    html: wrapRollTable(lawyerLine, tbody, t, 'printKit.addressCol', EXEC_COLGROUP)
+  }
+}
+
 export function executionBlocksHtml(
   tasks: Record<string, unknown>[],
   t: (k: string) => string,
@@ -270,8 +742,13 @@ export function executionBlocksHtml(
   return wrapPrintBlocks(items, opts?.emptyLabel || t('noData'), opts?.subtitle)
 }
 
-export async function sendPrint(kind: 'report' | 'a4', title: string, body: string) {
-  await invoke('print:print', kind, title, body)
+export async function sendPrint(
+  kind: 'report' | 'a4',
+  title: string,
+  body: string,
+  layout?: 'hearingsRoll'
+) {
+  await invoke('print:print', kind, title, body, layout)
 }
 
 export type PrintFieldOpt = { id: string; label: string; defaultOn?: boolean }

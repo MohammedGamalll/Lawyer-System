@@ -6,8 +6,10 @@ import { LookupCombo } from './LookupCombo'
 import { DatePicker } from './DateTimePicker'
 import { formatCourtNumber, formatProgramCode } from '../lib/courtNumber'
 import {
-  executionBlocksHtml,
+  executionTasksRollTableHtml,
   hearingBlocksHtml,
+  hearingRollTableHtml,
+  taskRollTableHtml,
   escPrint,
   labeledCell,
   sendPrint,
@@ -50,14 +52,17 @@ export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'e
       const admin = tRows.filter((r) => String(r.work_kind || 'admin') !== 'execution')
       const range = [from, to].filter(Boolean).join(' — ')
       const subtitle = `${t('fields.venue')}: ${v}${range ? ` (${range})` : ''}`
+      const roll = hearingRollTableHtml(hRows, t, i18n.language, { emptyLabel: t('noData') })
+      const adminRoll = taskRollTableHtml(admin, t, i18n.language, { emptyLabel: t('noData') })
+      const execRoll = executionTasksRollTableHtml(exec, t, i18n.language, { emptyLabel: t('noData') })
       const body = `
         <h3 class="print-sub">${escPrint(subtitle)}</h3>
         <h2>${escPrint(t('nav.hearings'))}</h2>
-        ${hearingBlocksHtml(hRows, t, i18n.language, { emptyLabel: t('noData') })}
+        ${roll.html}
         <h2>${escPrint(t('nav.tasks'))}</h2>
-        ${taskBlocksHtml(admin, t, i18n.language, { emptyLabel: t('noData') })}
+        ${adminRoll.html}
         <h2>${escPrint(t('nav.execution'))}</h2>
-        ${executionBlocksHtml(exec, t, i18n.language, { emptyLabel: t('noData') })}`
+        ${execRoll.html}`
       await sendPrint('report', `${t('printVenueSheet')} ${v}`, body)
     } catch (e) {
       toast((e as Error).message, 'err')

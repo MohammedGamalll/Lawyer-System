@@ -436,6 +436,14 @@ export function createCase(actor: AuthedUser, data: Record<string, unknown>) {
   if (data.police_station != null) {
     db.prepare('UPDATE cases SET police_station = ?, updated_at = ? WHERE id = ?').run(data.police_station || null, ts, id)
   }
+  if (data.judgment_date != null || data.judgment_text != null) {
+    db.prepare('UPDATE cases SET judgment_date = ?, judgment_text = ?, updated_at = ? WHERE id = ?').run(
+      data.judgment_date || null,
+      data.judgment_text || null,
+      ts,
+      id
+    )
+  }
   rememberCaseLookups(data)
   syncCaseParties(id, data, true)
   if (data.total_fees) {
@@ -527,6 +535,14 @@ export function updateCase(actor: AuthedUser, id: string, data: Record<string, u
   recordLocalChange('cases', id, 'UPDATE')
   if (data.police_station != null) {
     db.prepare('UPDATE cases SET police_station = ?, updated_at = ? WHERE id = ?').run(data.police_station || null, nowIso(), id)
+  }
+  if (data.judgment_date != null || data.judgment_text != null) {
+    db.prepare('UPDATE cases SET judgment_date = ?, judgment_text = ?, updated_at = ? WHERE id = ?').run(
+      data.judgment_date || null,
+      data.judgment_text || null,
+      nowIso(),
+      id
+    )
   }
   rememberCaseLookups(data)
   syncCaseParties(id, data, false)
