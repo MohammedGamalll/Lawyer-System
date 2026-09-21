@@ -30,6 +30,7 @@ import * as printTemplates from '../services/printTemplates'
 import * as lookups from '../services/lookups'
 import * as scan from '../services/scan'
 import { getSyncState, runSyncCycle } from '../sync/service'
+import * as legacyArchive from '../services/archive'
 
 export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): void {
   const saveExcelBuffer = async (buf: Buffer, defaultName: string) => {
@@ -455,6 +456,10 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
   handle(ipc, IPC.search.global, {}, (_e, user, term) => ok(reports.globalSearch(String(term), user)))
   handle(ipc, IPC.search.advanced, { permission: 'cases.view' }, (_e, _u, f) => ok(reports.advancedSearch(f as never)))
   handle(ipc, IPC.search.legacy, { permission: 'archive.view' }, (_e, _u, term) => ok(reports.searchLegacyArchive(String(term))))
+  handle(ipc, IPC.archive.getTabs, { permission: 'archive.view' }, () => ok(legacyArchive.listArchiveTables()))
+  handle(ipc, IPC.archive.getTableData, { permission: 'archive.view' }, (_e, _u, tableName, page, limit, q) =>
+    ok(legacyArchive.getArchiveTableData(String(tableName || ''), Number(page) || 1, Number(limit) || 100, String(q || '')))
+  )
   handle(ipc, IPC.lookups.list, {}, (_e, _u, kind) => ok(lookups.listLookups(String(kind))))
   handle(ipc, IPC.lookups.remember, { write: true }, (_e, _u, kind, value) => {
     lookups.rememberLookup(String(kind), value)

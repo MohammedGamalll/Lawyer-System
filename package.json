@@ -1,6 +1,6 @@
 {
   "name": "law-office-management",
-  "version": "1.0.15",
+  "version": "1.0.16",
   "description": "Law Office Management System",
   "main": "./out/main/index.js",
   "author": "Law Office Management",
@@ -21,6 +21,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "import:saljas": "python scripts/import_saljas.py",
+    "archive:build": "python scripts/build-archive-db.py",
     "upload:saljas": "esbuild scripts/bulk-upload-saljas.ts --bundle --platform=node --format=cjs --external:better-sqlite3 --external:@supabase/supabase-js --outfile=scripts/bulk-upload-saljas.cjs"
   },
   "dependencies": {
@@ -110,6 +111,10 @@
       }
     ],
     "extraResources": [
+      {
+        "from": "resources/archive.db",
+        "to": "archive.db"
+      },
       {
         "from": "resources/docs",
         "to": "docs"

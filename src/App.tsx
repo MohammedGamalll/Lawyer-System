@@ -40,7 +40,7 @@ const ExpensesPage = lazy(() => import('./pages/FinanceDocs').then((m) => ({ def
 const CashboxPage = lazy(() => import('./pages/FinanceDocs').then((m) => ({ default: m.CashboxPage })))
 const InvoicesPage = lazy(() => import('./pages/FinanceDocs').then((m) => ({ default: m.InvoicesPage })))
 const ReportsPage = lazy(() => import('./pages/Admin').then((m) => ({ default: m.ReportsPage })))
-const ArchivePage = lazy(() => import('./pages/Admin').then((m) => ({ default: m.ArchivePage })))
+const ArchivePage = lazy(() => import('./pages/Archive').then((m) => ({ default: m.ArchivePage })))
 const UsersPage = lazy(() => import('./pages/Admin').then((m) => ({ default: m.UsersPage })))
 const AuditPage = lazy(() => import('./pages/Admin').then((m) => ({ default: m.AuditPage })))
 const SettingsPage = lazy(() => import('./pages/Admin').then((m) => ({ default: m.SettingsPage })))

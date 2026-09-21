@@ -96,6 +96,7 @@ export const IPC = {
   cashbox: { list: 'cashbox:list', create: 'cashbox:create', update: 'cashbox:update', transactions: 'cashbox:transactions', move: 'cashbox:move' },
   reports: { run: 'reports:run', export: 'reports:export' },
   search: { global: 'search:global', advanced: 'search:advanced', legacy: 'search:legacy' },
+  archive: { getTabs: 'archive:getTabs', getTableData: 'archive:getTableData' },
   lookups: { list: 'lookups:list', remember: 'lookups:remember', remove: 'lookups:remove', update: 'lookups:update', reorder: 'lookups:reorder' },
   audit: { list: 'audit:list', remove: 'audit:remove' },
   notifications: { list: 'notifications:list', read: 'notifications:read', readAll: 'notifications:readAll' },

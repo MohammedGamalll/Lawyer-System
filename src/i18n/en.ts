@@ -545,6 +545,19 @@ const en = {
     legacyTitle: 'Legacy archive search (read only)',
     legacyHint: 'Name or number from old data'
   },
+  archivePage: {
+    appArchived: 'Archived cases in this system',
+    noAppArchived: 'No archived cases in the current system.',
+    legacyTitle: 'Legacy system archive (view only)',
+    legacyHint: 'Flat records from the old system. No editing and no relationship decoding.',
+    searchHint: 'Search the current table',
+    missing: 'Legacy archive file is not installed.',
+    noTables: 'The archive has no tables.',
+    empty: 'No results.',
+    prev: 'Previous',
+    next: 'Next',
+    pageOf: 'Page {{page}} of {{pages}} — {{total}} rows'
+  },
   lookups: {
     confirmRemove: 'Remove “{{value}}” from the quick list?',
     typeOrChoose: 'Type or choose'
