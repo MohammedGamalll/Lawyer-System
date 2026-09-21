@@ -1,7 +1,4 @@
-import { getDb } from '../db/database'
-import { nowIso, addDays } from '../utils/time'
-import { newId, asIdOrNull, notDeleted } from '../db/ids'
-import { recordLocalChange } from '../sync/queue'
+import { formattedCourtNumber } from '@shared/printLabels'
 
 export function createReminder(data: {
   reminder_type: string
@@ -50,7 +47,7 @@ export function reminderBeforeExpiry(expiryDate: string, days: number): string {
 
 function alreadyNotifiedToday(type: string, relatedId?: string): boolean {
   if (!relatedId) return false
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayIso()
   const row = getDb()
     .prepare(
       `SELECT 1 as x FROM notifications
@@ -107,7 +104,7 @@ export function processDueReminders(): number {
 
 export function generateDailyNotifications(): void {
   const db = getDb()
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayIso()
   const tomorrow = addDays(today, 1).slice(0, 10)
 
   const todayHearings = db
@@ -131,14 +128,35 @@ export function generateDailyNotifications(): void {
   }
 
   const overdue = db
-    .prepare(`SELECT id, title FROM tasks WHERE status NOT IN ('completed','cancelled') AND due_date < ? AND ${notDeleted()}`)
-    .all(today) as { id: string; title: string }[]
+    .prepare(
+      `SELECT t.id, t.title, t.description, cs.case_number, cs.office_case_number, cs.case_year, cs.court, cs.opponent_name,
+              cl.full_name as client_name
+       FROM tasks t
+       LEFT JOIN cases cs ON cs.id = t.case_id AND ${notDeleted('cs')}
+       LEFT JOIN clients cl ON cl.id = COALESCE(t.client_id, cs.client_id) AND ${notDeleted('cl')}
+       WHERE t.status NOT IN ('completed','cancelled') AND t.due_date < ? AND ${notDeleted('t')}`
+    )
+    .all(today) as {
+      id: string
+      title: string
+      description?: string
+      case_number?: string
+      office_case_number?: string
+      case_year?: string
+      court?: string
+      opponent_name?: string
+      client_name?: string
+    }[]
   for (const t of overdue) {
     const changed = db
       .prepare(`UPDATE tasks SET status = 'overdue', updated_at = ? WHERE id = ? AND status != 'overdue'`)
       .run(nowIso(), t.id)
     if (changed.changes > 0) recordLocalChange('tasks', t.id, 'UPDATE')
-    notifyUser(null, 'مهمة متأخرة', t.title, 'task', 'task', t.id)
+    const courtNo = formattedCourtNumber(t as Record<string, unknown>)
+    const parties = [t.client_name, t.opponent_name].filter(Boolean).join(' / ')
+    const code = t.case_number ? `\u200E${String(t.case_number)}\u200E` : ''
+    const bits = [code, courtNo, parties, t.court, t.description || t.title].filter(Boolean)
+    notifyUser(null, 'مهمة متأخرة', bits.join(' — '), 'task', 'task', t.id)
   }
 
   const expiringPoa = db

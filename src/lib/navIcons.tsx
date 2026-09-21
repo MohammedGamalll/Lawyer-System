@@ -2,7 +2,7 @@ import type { ComponentType } from 'react'
 import {
   LayoutDashboard, Users, Briefcase, Gavel, CalendarDays, ListTodo, Bell, FileText, ScrollText,
   FileSignature, UserX, IdCard, MessageSquare, Mail, Wallet, Landmark, Receipt, BarChart3,
-  Archive, Shield, Settings, ClipboardList, LayoutGrid, Hammer
+  Archive, Shield, Settings, ClipboardList, LayoutGrid, Hammer, FileSearch
 } from 'lucide-react'
 import lawyerNav from '../assets/lawyer-nav.png'
 
@@ -42,6 +42,7 @@ export const NAV_ICONS: Record<string, ComponentType<{ size?: number; className?
   clients: Users,
   cases: Briefcase,
   hearings: Gavel,
+  experts: FileSearch,
   calendar: CalendarDays,
   tasks: ListTodo,
   execution: Hammer,

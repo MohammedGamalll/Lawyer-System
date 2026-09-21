@@ -1,6 +1,7 @@
 import { invoke } from './api'
 import { formatCell } from './datetime'
-import { formatCourtNumber, formatProgramCode, stripInternalPrefix } from './courtNumber'
+import { formatCourtNumber, formatProgramCode, isManualProgramCode, stripInternalPrefix } from './courtNumber'
+import { rtlIsolatedPair } from '@shared/rtlBidi'
 
 export function escPrint(s: unknown): string {
   return String(s ?? '')
@@ -10,13 +11,16 @@ export function escPrint(s: unknown): string {
     .replace(/"/g, '&quot;')
 }
 
-export type PrintPart = { label?: string; value: string }
+export type PrintPart = { label?: string; value: string; ltr?: boolean; html?: boolean }
 
 export function labeledCell(parts: PrintPart[]): string {
   return parts
     .map((p) => ({ ...p, value: String(p.value || '').trim() }))
     .filter((p) => p.value && p.value !== '—')
-    .map((p) => (p.label ? `<b>${escPrint(p.label)}:</b> ${escPrint(p.value)}` : escPrint(p.value)))
+    .map((p) => {
+      const body = p.html ? p.value : p.ltr ? ltrPrint(p.value) : escPrint(p.value)
+      return p.label ? `<b>${escPrint(p.label)}:</b> ${body}` : body
+    })
     .join(' — ')
 }
 
@@ -78,6 +82,18 @@ export function promoteSingleFilter(
   return { header: `${one.label}: ${one.value}`, dropKeys: new Set([one.key]) }
 }
 
+export function ltrPrint(text: unknown): string {
+  const s = String(text ?? '').trim()
+  if (!s || s === '—') return escPrint(s || '—')
+  return `<bdo dir="ltr">${escPrint(s)}</bdo>`
+}
+
+export function courtNumberPrint(row: Record<string, unknown>): string {
+  const text = formatCourtNumber(row)
+  if (!text || text === '—') return '—'
+  return `<span class="court-number" dir="rtl">${escPrint(text)}</span>`
+}
+
 export function printVal(key: string, value: unknown, lang: string, t: (k: string) => string): string {
   if (key === 'office_case_number' && value && typeof value === 'object') {
     return formatCourtNumber(value as Record<string, unknown>)
@@ -91,7 +107,12 @@ function nz(v: unknown) {
   return s && s !== '—' ? s : ''
 }
 
-function pcPair(label: string, value: unknown) {
+function pcPair(label: string, value: unknown, rawHtml = false) {
+  if (rawHtml) {
+    const v = String(value ?? '').trim()
+    if (!v) return ''
+    return `<span class="pc-pair"><strong>${escPrint(label)}:</strong> ${v}</span>`
+  }
   const v = nz(value)
   if (!v) return ''
   return `<span class="pc-pair"><strong>${escPrint(label)}:</strong> ${escPrint(v)}</span>`
@@ -116,10 +137,9 @@ function notesLine(label: string) {
 }
 
 function degreeNumber(num: unknown, year: unknown) {
-  const n = nz(num)
-  if (!n) return ''
-  const y = nz(year)
-  return y ? `${n} لسنة ${y} ق` : n
+  const pair = rtlIsolatedPair(num, year)
+  if (!pair) return ''
+  return `<span class="court-number" dir="rtl">${escPrint(pair)}</span>`
 }
 
 function joinCaps(...vals: unknown[]) {
@@ -150,9 +170,9 @@ function extraRefPairs(r: Record<string, unknown>, t: (k: string) => string) {
 
 function caseNumbersRow(r: Record<string, unknown>, t: (k: string) => string) {
   return pcRow([
-    pcPair(t('printKit.caseNumber'), degreeNumber(r.first_instance_number, r.first_instance_year)),
-    pcPair(t('fields.appeal_number'), degreeNumber(r.appeal_number, r.appeal_year)),
-    pcPair(t('fields.cassation_number'), degreeNumber(r.cassation_number, r.cassation_year)),
+    pcPair(t('printKit.caseNumber'), degreeNumber(r.first_instance_number, r.first_instance_year), true),
+    pcPair(t('fields.appeal_number'), degreeNumber(r.appeal_number, r.appeal_year), true),
+    pcPair(t('fields.cassation_number'), degreeNumber(r.cassation_number, r.cassation_year), true),
     ...extraRefPairs(r, t)
   ])
 }
@@ -294,6 +314,13 @@ function hrLine(text: unknown, dottedIfEmpty = false): string {
   return `<div class="hr-line">${body}</div>`
 }
 
+function hrHtml(html: string, dottedIfEmpty = false): string {
+  const v = String(html ?? '').trim()
+  if ((!v || v === '—') && !dottedIfEmpty) return ''
+  const body = v && v !== '—' ? v : `<span class="hr-dots">${ROLL_DOTS}</span>`
+  return `<div class="hr-line">${body}</div>`
+}
+
 function hrLabeled(label: string, value: unknown, dottedIfEmpty = true): string {
   const v = nz(value)
   if (!v && !dottedIfEmpty) return ''
@@ -309,12 +336,14 @@ function hrStack(lines: string[], min = 1): string {
 
 function rollCaseNumberLines(r: Record<string, unknown>, t: (k: string) => string): string {
   const lines: string[] = []
-  const first = degreeNumber(r.first_instance_number, r.first_instance_year)
-  lines.push(hrLine(first, true))
+  const first =
+    degreeNumber(r.first_instance_number, r.first_instance_year) ||
+    (courtNumberPrint(r) !== '—' ? courtNumberPrint(r) : '')
+  lines.push(hrHtml(first, true))
   const appeal = degreeNumber(r.appeal_number, r.appeal_year)
-  if (appeal) lines.push(hrLine(appeal))
+  if (appeal) lines.push(hrHtml(appeal))
   const cass = degreeNumber(r.cassation_number, r.cassation_year)
-  if (cass) lines.push(hrLine(cass))
+  if (cass) lines.push(hrHtml(cass))
   const refs: [unknown, unknown][] = [
     [r.extra_ref_type, r.extra_ref_number],
     [r.extra_ref2_type, r.extra_ref2_number],
@@ -339,9 +368,13 @@ function rollCourtCell(r: Record<string, unknown>, preferVenue = false): string 
   const place = preferVenue ? adminPlace(r) : hearingPlace(r)
   const hallFloor = [nz(r.hall), nz(r.floor)].filter(Boolean).join(' / ')
   const circuit = [nz(r.circuit), nz(r.circuit_number), hallFloor].filter(Boolean).join(' ')
+  const code = nz(r.system_code) || formatProgramCode(r)
+  const codeLine = isManualProgramCode(r)
+    ? `<div class="hr-line program-code-manual">${escPrint(code)}</div>`
+    : hrLine(code)
   return hrStack(
     [
-      hrLine(r.system_code || formatProgramCode(r)),
+      codeLine,
       hrLine(place),
       hrLine(r.litigation_degree),
       hrLine(circuit)
@@ -504,7 +537,17 @@ export function hearingRollTableHtml(
       const body = rows
         .map((r) => {
           const decision = nz(r.court_decision) || nz(r.what_happened) || nz(r.result)
-          return rollDataRow(r, t, hrLine(decision))
+          return rollDataRow(
+            r,
+            t,
+            hrStack(
+              [
+                nz(r.previous_decision) ? hrLabeled(t('fields.previous_decision'), r.previous_decision, false) : '',
+                hrLine(decision)
+              ],
+              1
+            )
+          )
         })
         .join('')
       return `${header}${body}`
@@ -516,6 +559,81 @@ export function hearingRollTableHtml(
         ? t('printKit.hearingsLedger')
         : hearingsSheetTitle(hearings[0], lang, t) || emptyTitle,
     html: wrapRollTable(lawyerLine, tbody, t)
+  }
+}
+
+export function expertRollTableHtml(
+  rows: Record<string, unknown>[],
+  t: (k: string, opts?: Record<string, string>) => string,
+  lang: string,
+  opts?: { emptyLabel?: string }
+): { html: string; sheetTitle: string } {
+  const lawyerLine = BLANK_LAWYER_LINE
+  const emptyTitle = t('nav.experts')
+  if (!rows.length) {
+    return {
+      sheetTitle: emptyTitle,
+      html: wrapRollTable(
+        lawyerLine,
+        `<tr><td colspan="6">${escPrint(opts?.emptyLabel || t('noData'))}</td></tr>`,
+        t,
+        'fields.current_action'
+      )
+    }
+  }
+  const groups = new Map<string, Record<string, unknown>[]>()
+  const order: string[] = []
+  for (const r of rows) {
+    const key = `${nz(r.hearing_date)}|${nz(r.expert_office)}`
+    if (!groups.has(key)) {
+      groups.set(key, [])
+      order.push(key)
+    }
+    groups.get(key)!.push(r)
+  }
+  const tbody = order
+    .map((key) => {
+      const group = groups.get(key) || []
+      const header = groupHeaderRow(hearingsDayTitle(group[0], lang, t))
+      const body = group
+        .map((r) => {
+          const code = nz(r.system_code) || formatProgramCode(r)
+          const codeLine = isManualProgramCode(r)
+            ? `<div class="hr-line program-code-manual">${escPrint(code)}</div>`
+            : hrLine(code)
+          const court = `<td>${hrStack(
+            [
+              codeLine,
+              hrLine(r.expert_office),
+              hrLabeled(t('printKit.expertNameLine'), r.expert_name, false),
+              hrLine([nz(r.floor), nz(r.hall)].filter(Boolean).join(' — '))
+            ],
+            2
+          )}</td>`
+          const decision = hrStack(
+            [
+              hrLabeled(t('fields.previous_action'), r.previous_action),
+              hrLabeled(t('fields.current_action'), r.current_action)
+            ],
+            1
+          )
+          return `<tr>
+          ${court}
+          <td>${rollCaseNumberLines(r, t)}</td>
+          <td>${hrStack([hrLine(r.case_type || r.case_type_name), hrLine(r.case_subject || r.case_title), hrLine(r.hearing_time)], 2)}</td>
+          <td>${rollClientCell(r)}</td>
+          <td>${rollOpponentCell(r, t)}</td>
+          <td>${decision}</td>
+        </tr>`
+        })
+        .join('')
+      return `${header}${body}`
+    })
+    .join('')
+  return {
+    sheetTitle:
+      distinctDates(rows, 'hearing_date') > 1 ? t('nav.experts') : hearingsSheetTitle(rows[0], lang, t) || emptyTitle,
+    html: wrapRollTable(lawyerLine, tbody, t, 'fields.current_action')
   }
 }
 
@@ -785,7 +903,7 @@ export function buildCasePrintTable(
   if (has(selected, 'received_date')) columns.push({ label: t('fields.received_date') })
   const rows = data.map((r) => {
     const cells: string[] = []
-    if (has(selected, 'number')) cells.push(escPrint(formatCourtNumber(r)))
+    if (has(selected, 'number')) cells.push(courtNumberPrint(r))
     if (has(selected, 'title')) cells.push(escPrint(printVal('title', r.title, lang, t)))
     if (has(selected, 'parties')) {
       cells.push(
@@ -843,7 +961,7 @@ export function buildHearingPrintTable(
     if (has(selected, 'parties')) {
       cells.push(
         labeledCell([
-          { label: t('printKit.caseLabel'), value: formatCourtNumber(r) || String(r.case_title || '') },
+          { label: t('printKit.caseLabel'), value: courtNumberPrint(r) !== '—' ? courtNumberPrint(r) : String(r.case_title || ''), html: courtNumberPrint(r) !== '—' },
           { label: t('printKit.client'), value: String(r.client_name || '') }
         ])
       )
@@ -893,7 +1011,7 @@ export function buildAdminPrintTable(
     if (has(selected, 'parties')) {
       cells.push(
         labeledCell([
-          { label: t('printKit.caseLabel'), value: formatCourtNumber(r) },
+          { label: t('printKit.caseLabel'), value: courtNumberPrint(r), html: true },
           { label: t('printKit.client'), value: String(r.client_name || '') }
         ])
       )
@@ -943,7 +1061,7 @@ export function buildExecutionPrintTable(
     if (has(selected, 'parties')) {
       cells.push(
         labeledCell([
-          { label: t('printKit.caseLabel'), value: formatCourtNumber(r) },
+          { label: t('printKit.caseLabel'), value: courtNumberPrint(r), html: true },
           { label: t('printKit.client'), value: String(r.client_name || '') },
           { label: t('printKit.opponent'), value: String(r.opponent_name || '') }
         ])

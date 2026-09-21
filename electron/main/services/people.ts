@@ -23,7 +23,8 @@ import {
   normalizeDigits
 } from '@shared/schemas'
 import { assertPersonIdentity, findDuplicateNationalId } from './personIdentity'
-import { createClient } from './clients'
+import { shouldMaskOpponentContact } from '@shared/permissions'
+import { createClient, maskEmail, maskPhone } from './clients'
 
 function photoDataUrl(filePath?: string | null) {
   if (!filePath || !fs.existsSync(filePath)) return null
@@ -864,17 +865,20 @@ export function addLeave(actor: AuthedUser, data: Record<string, unknown>) {
   return { id }
 }
 
-export function listOpponents(q: ListQuery = {}) {
-  return paged(
+export function listOpponents(q: ListQuery = {}, actor?: AuthedUser | null) {
+  const result = paged(
     'opponents',
     ['full_name', 'nickname', 'national_id', 'phone', 'lawyer_name', 'poa_number', 'poa_year', 'poa_letter', 'poa_office'],
     q
   )
+  return { ...result, rows: maskOpponentContactFields(result.rows, actor) }
 }
 
-export function getOpponent(id: string) {
+export function getOpponent(id: string, actor?: AuthedUser | null) {
   const db = getDb()
-  const opponent = db.prepare(`SELECT * FROM opponents WHERE id = ? AND ${notDeleted()}`).get(id)
+  const opponent = db.prepare(`SELECT * FROM opponents WHERE id = ? AND ${notDeleted()}`).get(id) as
+    | Record<string, unknown>
+    | undefined
   if (!opponent) throw new Error('الخصم غير موجود')
   const cases = db
     .prepare(
@@ -884,7 +888,22 @@ export function getOpponent(id: string) {
        WHERE co.opponent_id = ? AND ${notDeleted('c')} AND ${notDeleted('co')} AND ${notDeleted('cl')}`
     )
     .all(id)
-  return { opponent, cases }
+  return { opponent: maskOpponentContactFields([opponent], actor)[0], cases }
+}
+
+export function maskOpponentContactFields(rows: unknown[], actor?: AuthedUser | null) {
+  if (!actor) return rows as Record<string, unknown>[]
+  if (!shouldMaskOpponentContact(actor.roleCode, actor.permissions)) return rows as Record<string, unknown>[]
+  return (rows as Record<string, unknown>[]).map((r) => ({
+    ...r,
+    phone: maskPhone(r.phone),
+    phone2: maskPhone(r.phone2),
+    whatsapp: maskPhone(r.whatsapp),
+    phone_home: maskPhone(r.phone_home),
+    phone_work: maskPhone(r.phone_work),
+    lawyer_phone: maskPhone(r.lawyer_phone),
+    email: maskEmail(r.email)
+  }))
 }
 
 function storedNationalId(data: Record<string, unknown>) {

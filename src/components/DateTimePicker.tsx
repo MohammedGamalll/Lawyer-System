@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { daysInMonth, parseDateParts, parseTimeParts, toIsoDate, toIsoTime } from '../lib/datetime'
 import { Button, Select } from './ui'
@@ -18,6 +18,26 @@ const MONTHS_AR = [
   'ديسمبر'
 ]
 const MONTHS_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
+function OpenOnLabel({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const n = ref.current
+    if (!n) return
+    const open = () => {
+      const sel = n.querySelector('select') as (HTMLSelectElement & { showPicker?: () => void }) | null
+      sel?.focus()
+      sel?.showPicker?.()
+    }
+    n.addEventListener('open-on-label', open)
+    return () => n.removeEventListener('open-on-label', open)
+  }, [])
+  return (
+    <div ref={ref} data-open-on-label>
+      {children}
+    </div>
+  )
+}
 
 export function DatePicker({
   value,
@@ -49,6 +69,7 @@ export function DatePicker({
   }
 
   return (
+    <OpenOnLabel>
     <div className="flex flex-wrap items-center gap-1.5">
       <Select className="w-[80px]" value={empty ? '' : String(day)} onChange={(e) => set(y, m, Number(e.target.value))}>
         {empty && <option value="">{t('cal.pickDay')}</option>}
@@ -78,6 +99,7 @@ export function DatePicker({
         {t('cal.today')}
       </Button>
     </div>
+    </OpenOnLabel>
   )
 }
 
@@ -104,6 +126,7 @@ export function TimePicker({
   }
 
   return (
+    <OpenOnLabel>
     <div className="flex flex-wrap items-center gap-1.5">
       <Select className="w-[80px]" value={empty ? '' : String(h12)} onChange={(e) => set(Number(e.target.value), min, isPm)}>
         {empty && <option value="">{t('cal.hour')}</option>}
@@ -128,6 +151,7 @@ export function TimePicker({
         <option value="pm">{lang === 'en' ? 'PM' : 'مساءً'}</option>
       </Select>
     </div>
+    </OpenOnLabel>
   )
 }
 

@@ -1,15 +1,19 @@
+import { cairoAddDays, cairoDateTimeStamp, cairoTodayIso } from '@shared/cairoDate'
+
 export function nowIso(): string {
   return new Date().toISOString()
 }
 
 export function todayIso(): string {
-  return new Date().toISOString().slice(0, 10)
+  return cairoTodayIso()
+}
+
+export function printedAtStamp(): string {
+  return cairoDateTimeStamp()
 }
 
 export function addDays(dateIso: string, days: number): string {
-  const d = new Date(dateIso)
-  d.setDate(d.getDate() + days)
-  return d.toISOString()
+  return cairoAddDays(String(dateIso).slice(0, 10), days)
 }
 
 export function startOfDay(d = new Date()): string {

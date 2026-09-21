@@ -1,19 +1,22 @@
 import { getDb } from '../db/database'
-import { addDays } from '../utils/time'
+import { addDays, todayIso } from '../utils/time'
 import { notDeleted } from '../db/ids'
 import type { AuthedUser } from '../ipc/helpers'
 import { hasAnyPermission } from '../ipc/session'
 
 export function dashboardStats(actor?: AuthedUser | null) {
   const db = getDb()
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayIso()
   const tomorrow = addDays(today, 1).slice(0, 10)
   const weekEnd = addDays(today, 7).slice(0, 10)
   const monthStart = today.slice(0, 8) + '01'
   const scalar = (sql: string, ...p: unknown[]) => (db.prepare(sql).get(...p) as { c: number }).c
 
   const clients = scalar(`SELECT COUNT(*) as c FROM clients WHERE is_archived = 0 AND ${notDeleted()}`)
-  const newClients = scalar(`SELECT COUNT(*) as c FROM clients WHERE date(created_at) >= ? AND ${notDeleted()}`, monthStart)
+  const newClients = scalar(
+    `SELECT COUNT(*) as c FROM clients WHERE is_archived = 0 AND date(created_at) >= ? AND ${notDeleted()}`,
+    monthStart
+  )
   const cases = scalar(`SELECT COUNT(*) as c FROM cases WHERE is_archived = 0 AND ${notDeleted()}`)
   const openCases = scalar(
     `SELECT COUNT(*) as c FROM cases WHERE is_archived = 0 AND status NOT IN ('closed','archived') AND ${notDeleted()}`
@@ -23,16 +26,17 @@ export function dashboardStats(actor?: AuthedUser | null) {
   const actionCases = scalar(
     `SELECT COUNT(*) as c FROM cases WHERE status IN ('new','under_review','for_judgment','execution') AND is_archived = 0 AND ${notDeleted()}`
   )
+  const notExpert = ` AND NOT (IFNULL(hearing_type,'') LIKE '%خبير%' OR IFNULL(hearing_type,'') LIKE '%expert%')`
   const hearingsToday = scalar(
-    `SELECT COUNT(*) as c FROM hearings WHERE hearing_date = ? AND status = 'upcoming' AND ${notDeleted()}`,
+    `SELECT COUNT(*) as c FROM hearings WHERE hearing_date = ? AND status = 'upcoming' AND ${notDeleted()}${notExpert}`,
     today
   )
   const hearingsTomorrow = scalar(
-    `SELECT COUNT(*) as c FROM hearings WHERE hearing_date = ? AND status = 'upcoming' AND ${notDeleted()}`,
+    `SELECT COUNT(*) as c FROM hearings WHERE hearing_date = ? AND status = 'upcoming' AND ${notDeleted()}${notExpert}`,
     tomorrow
   )
   const hearingsWeek = scalar(
-    `SELECT COUNT(*) as c FROM hearings WHERE hearing_date BETWEEN ? AND ? AND status = 'upcoming' AND ${notDeleted()}`,
+    `SELECT COUNT(*) as c FROM hearings WHERE hearing_date BETWEEN ? AND ? AND status = 'upcoming' AND ${notDeleted()}${notExpert}`,
     today,
     weekEnd
   )
@@ -48,7 +52,7 @@ export function dashboardStats(actor?: AuthedUser | null) {
     `SELECT COUNT(*) as c FROM tasks WHERE due_date = ? AND status NOT IN ('completed','cancelled') AND ${notDeleted()}`,
     today
   )
-  const reminders = scalar(`SELECT COUNT(*) as c FROM reminders WHERE is_dismissed = 0 AND is_sent = 0 AND ${notDeleted()}`)
+  const reminders = scalar(`SELECT COUNT(*) as c FROM reminders WHERE is_dismissed = 0 AND ${notDeleted()}`)
   const income = (db.prepare(`SELECT COALESCE(SUM(amount),0) as c FROM payments WHERE ${notDeleted()}`).get() as { c: number }).c
   const expenses = (db.prepare(`SELECT COALESCE(SUM(amount),0) as c FROM expenses WHERE ${notDeleted()}`).get() as { c: number }).c
   const due = (db.prepare(`SELECT COALESCE(SUM(remaining),0) as c FROM case_fees WHERE ${notDeleted()}`).get() as { c: number }).c
@@ -92,6 +96,7 @@ export function dashboardStats(actor?: AuthedUser | null) {
       `SELECT h.*, cs.case_number, cs.title as case_title, cs.id as case_id, cl.full_name as client_name
        FROM hearings h JOIN cases cs ON cs.id = h.case_id JOIN clients cl ON cl.id = cs.client_id
        WHERE h.hearing_date = ? AND ${notDeleted('h')} AND ${notDeleted('cs')} AND ${notDeleted('cl')}
+         AND NOT (IFNULL(h.hearing_type,'') LIKE '%خبير%' OR IFNULL(h.hearing_type,'') LIKE '%expert%')
        ORDER BY h.hearing_time`
     )
     .all(today)

@@ -97,6 +97,14 @@ function applySchema(database: BetterSqlite3.Database, dbPath: string): void {
     ensureSetting(database, 'ui_font_size', '16')
     ensureSetting(database, 'supabase_url', '')
     ensureSetting(database, 'supabase_anon_key', '')
+    const landscapeLegacy = database.prepare('SELECT value FROM settings WHERE key = ?').get('print_landscape') as
+      | { value: string }
+      | undefined
+    ensureSetting(
+      database,
+      'print_orientation',
+      landscapeLegacy?.value === 'true' ? 'landscape' : 'portrait'
+    )
   } catch (err) {
     log.warn('default settings skipped', err)
   }
@@ -285,6 +293,8 @@ function seedIfEmpty(database: BetterSqlite3.Database): void {
     silent_print: 'false',
     print_a4_printer: '',
     print_thermal_printer: '',
+    print_landscape: 'false',
+    print_orientation: 'portrait',
     auto_update: 'true',
     update_feed_url: '',
     backup_schedule: 'daily',

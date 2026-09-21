@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ClipboardList, Gavel, Hammer, Wallet } from 'lucide-react'
+import { ClipboardList, FileSearch, Gavel, Hammer, Wallet } from 'lucide-react'
 import { invoke } from '../lib/api'
 import { useApp } from '../store'
 import { Button, Card, Field, InfoGrid, Input, MiniTable, Modal, PageHeader, Select, StatusBadge, UiTabs } from '../components/ui'
@@ -10,16 +10,17 @@ import { CaseFormExtras } from '../components/CaseFormExtras'
 import { caseFormFields, hydrateCaseForm } from '../lib/caseForm'
 import { caseSchema } from '@shared/schemas'
 import { onDataChanged } from '../lib/bus'
-import { formatCourtNumber, formatProgramCode, displayClientCode } from '../lib/courtNumber'
+import { formatProgramCode, displayClientCode, isManualProgramCode } from '../lib/courtNumber'
+import { CourtNumberText } from '../components/CourtNumberText'
 import { cleanPartyName } from '../lib/partyName'
 import { AndOthers } from '../components/AndOthers'
 import { caseInteriorHtml } from '../components/VenuePrintBar'
-import { HearingsPage, TasksPage } from './WorkPages'
+import { HearingsPage, TasksPage, ExpertsPage } from './WorkPages'
 import { PrintTemplatePicker } from '../components/PrintTemplatePicker'
 import { sendPrint } from '../lib/printKit'
 import { LookupCombo } from '../components/LookupCombo'
 
-type CaseTab = 'hearings' | 'admin' | 'execution' | 'finance'
+type CaseTab = 'hearings' | 'experts' | 'admin' | 'execution' | 'finance'
 
 function IconBtn({
   label,
@@ -49,6 +50,25 @@ function IconBtn({
 function dash(v: unknown) {
   const s = String(v ?? '').trim()
   return s || '—'
+}
+
+function CapBits({
+  items
+}: {
+  items: { label: string; value: unknown }[]
+}) {
+  const shown = items.filter((i) => String(i.value ?? '').trim())
+  if (!shown.length) return null
+  return (
+    <div className="flex flex-wrap gap-4">
+      {shown.map((i) => (
+        <div key={i.label}>
+          <div className="text-xs font-semibold text-navy-500">{i.label}</div>
+          <div className="font-semibold">{String(i.value)}</div>
+        </div>
+      ))}
+    </div>
+  )
 }
 
 export function CaseProfilePage() {
@@ -145,7 +165,7 @@ export function CaseProfilePage() {
         <div className="flex flex-wrap items-end gap-4">
           <div>
             <div className="text-xs font-semibold text-navy-500">{t('fields.program_code')}</div>
-            <div className="text-4xl font-black tracking-wide text-red-600">{formatProgramCode(row)}</div>
+            <div className={`text-4xl font-black tracking-wide ${isManualProgramCode(row) ? 'text-red-600' : 'text-navy-900 dark:text-white'}`}>{formatProgramCode(row)}</div>
           </div>
           <div
             className="cursor-pointer"
@@ -160,10 +180,13 @@ export function CaseProfilePage() {
               />
             </div>
           </div>
-          <div>
-            <div className="text-xs font-semibold text-navy-500">{t('fields.capacity_first')}</div>
-            <div className="font-semibold">{String(row.capacity_first || '—')}</div>
-          </div>
+          <CapBits
+            items={[
+              { label: t('fields.capacity_first'), value: row.capacity_first },
+              { label: t('fields.capacity_appeal'), value: row.capacity_appeal },
+              { label: t('fields.capacity_cassation'), value: row.capacity_cassation }
+            ]}
+          />
         </div>
         <div className="flex flex-wrap gap-2">
           {can('cases.update') && (
@@ -223,14 +246,17 @@ export function CaseProfilePage() {
             />
           </div>
         </div>
-        <div>
-          <div className="text-xs font-semibold text-navy-500">{t('fields.opponent_capacity_first')}</div>
-          <div className="font-semibold">{String(row.opponent_capacity_first || '—')}</div>
-        </div>
+        <CapBits
+          items={[
+            { label: t('fields.opponent_capacity_first'), value: row.opponent_capacity_first },
+            { label: t('fields.opponent_capacity_appeal'), value: row.opponent_capacity_appeal },
+            { label: t('fields.opponent_capacity_cassation'), value: row.opponent_capacity_cassation }
+          ]}
+        />
         <div>
           <div className="text-xs font-semibold text-navy-500">{t('fields.court_number')}</div>
-          <div dir="ltr" className="font-bold" style={{ unicodeBidi: 'isolate' }}>
-            {formatCourtNumber(row)}
+          <div className="font-bold">
+            <CourtNumberText row={row} />
           </div>
         </div>
       </div>
@@ -240,6 +266,11 @@ export function CaseProfilePage() {
             {can('hearings.view') && (
               <IconBtn gold={tab === 'hearings'} label={t('nav.hearings')} onClick={() => setTab('hearings')}>
                 <Gavel className="h-6 w-6" />
+              </IconBtn>
+            )}
+            {can('hearings.view') && (
+              <IconBtn gold={tab === 'experts'} label={t('nav.experts')} onClick={() => setTab('experts')}>
+                <FileSearch className="h-6 w-6" />
               </IconBtn>
             )}
             {can('tasks.view') && (
@@ -259,6 +290,7 @@ export function CaseProfilePage() {
             )}
           </div>
           {tab === 'hearings' && can('hearings.view') && <HearingsPage embeddedCaseId={id} />}
+          {tab === 'experts' && can('hearings.view') && <ExpertsPage embeddedCaseId={id} />}
           {tab === 'admin' && can('tasks.view') && (
             <TasksPage embeddedCaseId={id} embeddedClientId={String(row.client_id || '')} embeddedWorkKind="admin" />
           )}
@@ -626,7 +658,7 @@ export function CaseProfilePage() {
         </div>
       </Modal>
       <Modal open={editOpen} title={t('edit')} onClose={() => setEditOpen(false)} wide>
-        <div className="mb-3 text-center text-4xl font-black text-red-600">{formatProgramCode(form)}</div>
+        <div className={`mb-3 text-center text-4xl font-black ${isManualProgramCode(form) ? 'text-red-600' : 'text-navy-900 dark:text-white'}`}>{formatProgramCode(form)}</div>
         <CaseFormExtras
           form={form}
           setField={(n, v) => setForm((prev) => ({ ...prev, [n]: v }))}

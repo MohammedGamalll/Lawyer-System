@@ -36,6 +36,10 @@ export function listClients(query: ListQuery = {}, actor?: AuthedUser | null) {
     where += ' AND c.client_type = ?'
     params.push(query.filters.client_type)
   }
+  if (query.filters?.created_from) {
+    where += ' AND date(c.created_at) >= ?'
+    params.push(query.filters.created_from)
+  }
   const isLookup = pageKind(query) === 'lookup'
   const pinIds = includeIds(query)
   const total = (db.prepare(`SELECT COUNT(*) as c FROM clients c ${where}`).get(...params) as { c: number }).c
@@ -379,14 +383,14 @@ function shouldMask(user?: AuthedUser | null) {
   return shouldMaskClientContact(user.roleCode, user.permissions)
 }
 
-function maskPhone(v: unknown) {
+export function maskPhone(v: unknown) {
   const s = String(v ?? '')
   if (!s) return s
   if (s.length <= 4) return '****'
   return `${s.slice(0, 3)}****${s.slice(-2)}`
 }
 
-function maskEmail(v: unknown) {
+export function maskEmail(v: unknown) {
   const s = String(v ?? '')
   const at = s.indexOf('@')
   if (!s) return s

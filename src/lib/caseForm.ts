@@ -88,12 +88,8 @@ export function hydrateCaseForm(row: Record<string, unknown>, full: Record<strin
       capacity_appeal: o.capacity_appeal || '',
       capacity_cassation: o.capacity_cassation || ''
     }))
-  if (!next.office_case_number && typeof next.case_number === 'string') {
-    const m = String(next.case_number).match(/^(.*)\/(\d{2,4})$/)
-    if (m && !String(next.case_number).startsWith('CS-')) {
-      next.office_case_number = m[1]
-      if (!next.case_year) next.case_year = m[2]
-    }
-  }
+  const code = String(next.case_number || '').trim()
+  next.__numbering_mode = code && !/^CS-/i.test(code) ? 'manual' : 'auto'
+  next.numbering_mode = next.__numbering_mode
   return next
 }

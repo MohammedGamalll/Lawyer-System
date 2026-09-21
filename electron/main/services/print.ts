@@ -3,11 +3,18 @@ import { getSetting } from './settings'
 import { getTempDir, getDataRoot } from '../paths'
 import path from 'path'
 import fs from 'fs'
-import { nowIso } from '../utils/time'
+import { cairoDateTimeStamp } from '@shared/cairoDate'
 import { buildPrintHtml, stripPrintCodes, type PrintKind } from './printHtml'
 
 export type { PrintKind }
 export { buildPrintHtml, stripPrintCodes }
+
+function a4Landscape() {
+  const orientation = getSetting('print_orientation', '').trim().toLowerCase()
+  if (orientation === 'landscape') return true
+  if (orientation === 'portrait') return false
+  return getSetting('print_landscape', 'false') === 'true'
+}
 
 function pageOpts(kind: PrintKind) {
   const paper = { marginType: 'custom' as const, top: 0.55, bottom: 0.55, left: 0.55, right: 0.55 }
@@ -17,7 +24,7 @@ function pageOpts(kind: PrintKind) {
       margins: { marginType: 'custom' as const, top: 0.2, bottom: 0.2, left: 0.2, right: 0.2 }
     }
   }
-  return { pageSize: 'A4' as const, landscape: false, margins: paper }
+  return { pageSize: 'A4' as const, landscape: a4Landscape(), margins: paper }
 }
 
 export function appFontFace(): string {
@@ -88,9 +95,10 @@ export function wrapHtml(title: string, body: string, kind: PrintKind, layout?: 
     address,
     fontFace: appFontFace(),
     logo: logoImg(),
-    printedAt: nowIso().slice(0, 16).replace('T', ' '),
+    printedAt: cairoDateTimeStamp(),
     recipientLine: kind === 'report' && layout !== 'hearingsRoll' ? recipientLine : undefined,
-    layout
+    layout,
+    landscape: kind !== 'receipt' && kind !== 'voucher' && a4Landscape()
   })
 }
 
@@ -189,7 +197,7 @@ export async function printHtml(html: string, kind: PrintKind, parent?: BrowserW
           printBackground: true,
           ...(kind === 'receipt' || kind === 'voucher'
             ? {}
-            : { pageSize: 'A4' as const, landscape: false }),
+            : { pageSize: 'A4' as const, landscape: a4Landscape() }),
           margins: {
             marginType: kind === 'receipt' || kind === 'voucher' ? 'printableArea' : 'none'
           }

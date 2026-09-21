@@ -6,7 +6,8 @@ import { useApp } from '../store'
 import { Button, Card, Field, PageHeader, Select, StatusBadge } from '../components/ui'
 import { DatePicker } from '../components/DateTimePicker'
 import { EntitySelect } from '../components/EntitySelect'
-import { displayCaseCode } from '../lib/courtNumber'
+import { displayCaseCode, formatCourtNumber } from '../lib/courtNumber'
+import { CourtNumberText } from '../components/CourtNumberText'
 import { compactTableHtml, sendPrint } from '../lib/printKit'
 
 export function SearchPage() {
@@ -140,7 +141,7 @@ export function SearchPage() {
                 ],
                 rows: rows.map((r) => [
                   displayCaseCode(r),
-                  String(r.office_case_number || ''),
+                  formatCourtNumber(r),
                   String(r.title || r.case_title || r.description || ''),
                   String(r.client_name || ''),
                   String(r.status || '')
@@ -191,8 +192,8 @@ export function SearchPage() {
                   }}
                 >
                   <td className="px-3 py-2">{displayCaseCode(r)}</td>
-                  <td className="px-3 py-2" dir="ltr">
-                    {String(r.office_case_number || '')}
+                  <td className="px-3 py-2">
+                    <CourtNumberText row={r} />
                   </td>
                   <td className="px-3 py-2">{String(r.title || r.case_title || r.description || '')}</td>
                   <td className="px-3 py-2">{String(r.client_name || '')}</td>

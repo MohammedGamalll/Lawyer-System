@@ -82,13 +82,63 @@ export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
   )
 }
 
-export function Field({ label, children, required, error }: { label: string; children: React.ReactNode; required?: boolean; error?: string }) {
+export function Field({
+  label,
+  children,
+  required,
+  error,
+  hint
+}: {
+  label: string
+  children: React.ReactNode
+  required?: boolean
+  error?: string
+  hint?: string
+}) {
+  const box = React.useRef<HTMLDivElement>(null)
+  const autoId = React.useId().replace(/:/g, '')
+  const [controlId, setControlId] = React.useState(autoId)
+  React.useLayoutEffect(() => {
+    const root = box.current
+    if (!root) return
+    const el = root.querySelector<HTMLElement>(
+      '[data-open-on-label] input:not([type="hidden"]), [data-open-on-label] button, input:not([type="hidden"]), select, textarea, [data-open-on-label] [tabindex]:not([tabindex="-1"])'
+    )
+    if (!el) return
+    if (!el.id) el.id = autoId
+    if (el.id !== controlId) setControlId(el.id)
+  })
+  const focusControl = () => {
+    const host = box.current?.querySelector<HTMLElement>('[data-open-on-label]')
+    if (host) {
+      host.dispatchEvent(new Event('open-on-label'))
+      const inner = host.querySelector<HTMLElement>(
+        'input:not([type="hidden"]):not([disabled]),button:not([disabled]),select:not([disabled]),textarea:not([disabled])'
+      )
+      inner?.focus()
+      return
+    }
+    const el = box.current?.querySelector<HTMLElement>(
+      'input:not([type="hidden"]):not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
+    )
+    el?.focus()
+    const sel = box.current?.querySelector('select') as (HTMLSelectElement & { showPicker?: () => void }) | null
+    sel?.showPicker?.()
+  }
   return (
-    <div className="block space-y-1 text-start">
-      <span className="text-xs font-semibold text-navy-600 dark:text-navy-200">
+    <div ref={box} className="block space-y-1 text-start">
+      <label
+        htmlFor={controlId}
+        className="cursor-pointer text-xs font-semibold text-navy-600 dark:text-navy-200"
+        onClick={(e) => {
+          e.preventDefault()
+          focusControl()
+        }}
+      >
         {label} {required && <span className="text-red-500">*</span>}
-      </span>
+      </label>
       {children}
+      {hint ? <span className="block text-[11px] leading-snug text-navy-500">{hint}</span> : null}
       {error && <span className="block text-xs text-red-600">{error}</span>}
     </div>
   )
@@ -176,6 +226,8 @@ export function StatusBadge({ value }: { value?: string | null }) {
       ? 'green'
       : value === 'overdue' || value === 'cancelled'
         ? 'red'
+        : value === 'not_done'
+          ? 'gold'
         : value === 'postponed' || value === 'upcoming'
           ? 'gold'
           : 'navy'

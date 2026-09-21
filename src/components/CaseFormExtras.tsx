@@ -239,23 +239,45 @@ export function CaseFormExtras({
         <Field label={t('caseForm.numberingMode')}>
           <select
             className="flex h-9 w-full max-w-xs rounded-md border border-navy-200 bg-white px-3 text-sm dark:border-navy-700 dark:bg-navy-900"
-            value={String(form.__numbering_mode || (String(form.office_case_number || '').trim() ? 'manual' : 'auto'))}
+            value={String(
+              form.__numbering_mode ||
+                (form.id && String(form.case_number || '').trim() && !/^CS-/i.test(String(form.case_number))
+                  ? 'manual'
+                  : 'auto')
+            )}
             onChange={(e) => {
               const mode = e.target.value
               setField('__numbering_mode', mode)
-              if (mode === 'auto') setField('office_case_number', '')
+              setField('numbering_mode', mode)
             }}
           >
             <option value="auto">{t('caseForm.numberingAuto')}</option>
             <option value="manual">{t('caseForm.numberingManual')}</option>
           </select>
         </Field>
-        {String(form.__numbering_mode || (String(form.office_case_number || '').trim() ? 'manual' : 'auto')) === 'auto' ? (
+        {String(
+          form.__numbering_mode ||
+            (form.id && String(form.case_number || '').trim() && !/^CS-/i.test(String(form.case_number))
+              ? 'manual'
+              : 'auto')
+        ) === 'auto' ? (
           <p className="text-xs text-navy-500">{t('caseForm.numberingAutoHint')}</p>
         ) : (
           <>
-        <div className="flex flex-wrap items-end gap-2">
-          <Field label={t('fields.office_case_number')}>
+            <Field label={t('fields.program_code')}>
+              <Input
+                className="w-40"
+                dir="ltr"
+                value={String(form.case_number || '')}
+                onChange={(e) => setField('case_number', e.target.value)}
+                placeholder="245"
+              />
+            </Field>
+            <p className="text-xs text-navy-500">{t('caseForm.numberingManualHint')}</p>
+          </>
+        )}
+        <div className="flex flex-wrap items-end gap-2 pt-2">
+          <Field label={t('fields.court_number')}>
             <Input
               className="w-32"
               dir="ltr"
@@ -264,10 +286,16 @@ export function CaseFormExtras({
               placeholder="6720"
             />
           </Field>
+          <Field label={t('fields.case_year')}>
+            <Input
+              className="w-24"
+              dir="ltr"
+              value={String(form.case_year || '')}
+              onChange={(e) => setField('case_year', e.target.value)}
+              placeholder="2026"
+            />
+          </Field>
         </div>
-        <p className="text-xs text-navy-500">{t('caseForm.numberingManualHint')}</p>
-          </>
-        )}
       </div>
 
       <div className="space-y-2 rounded-lg border border-navy-100 p-2 dark:border-navy-700">

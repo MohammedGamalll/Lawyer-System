@@ -32,6 +32,7 @@ export const PERMISSIONS = [
   { code: 'contracts.manage', nameAr: 'إدارة العقود', nameEn: 'Manage contracts', module: 'contracts' },
   { code: 'opponents.view', nameAr: 'مشاهدة الخصوم', nameEn: 'View opponents', module: 'opponents' },
   { code: 'opponents.manage', nameAr: 'إدارة الخصوم', nameEn: 'Manage opponents', module: 'opponents' },
+  { code: 'opponents.unmask_contact', nameAr: 'إظهار هاتف وإيميل الخصم', nameEn: 'Unmask opponent contact', module: 'opponents' },
   { code: 'lawyers.view', nameAr: 'مشاهدة المحامين', nameEn: 'View lawyers', module: 'lawyers' },
   { code: 'employees.view', nameAr: 'مشاهدة الموظفين', nameEn: 'View employees', module: 'employees' },
   { code: 'employees.manage', nameAr: 'إدارة الموظفين', nameEn: 'Manage employees', module: 'employees' },
@@ -54,6 +55,12 @@ export function shouldMaskClientContact(roleCode?: string, permissions: string[]
   if (!roleCode) return false
   if (roleCode === 'admin') return false
   return !permissions.includes('clients.unmask_contact')
+}
+
+export function shouldMaskOpponentContact(roleCode?: string, permissions: string[] = []): boolean {
+  if (!roleCode) return false
+  if (roleCode === 'admin') return false
+  return !permissions.includes('opponents.unmask_contact')
 }
 
 export type PermissionCode = (typeof PERMISSIONS)[number]['code']
@@ -92,6 +99,7 @@ export const ROLE_PERMISSIONS: Record<string, PermissionCode[]> = {
     'contracts.manage',
     'opponents.view',
     'opponents.manage',
+    'opponents.unmask_contact',
     'lawyers.view',
     'consultations.view',
     'consultations.manage',
@@ -172,6 +180,7 @@ export const PAGE_ACCESS: Record<string, PermissionCode | PermissionCode[] | []>
   cases: 'cases.view',
   caseProfile: 'cases.view',
   hearings: 'hearings.view',
+  experts: 'hearings.view',
   calendar: 'calendar.view',
   tasks: 'tasks.view',
   execution: 'tasks.view',
@@ -208,6 +217,7 @@ export const NAV_ITEMS: { id: string; permission?: PermissionCode; icon?: string
   { id: 'clients', permission: 'clients.view' },
   { id: 'cases', permission: 'cases.view' },
   { id: 'hearings', permission: 'hearings.view' },
+  { id: 'experts', permission: 'hearings.view' },
   { id: 'calendar', permission: 'calendar.view' },
   { id: 'appointments', permission: 'appointments.view' },
   { id: 'tasks', permission: 'tasks.view' },

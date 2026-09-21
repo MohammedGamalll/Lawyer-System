@@ -53,6 +53,13 @@ export const IPC = {
     remove: 'hearings:remove',
     postpone: 'hearings:postpone'
   },
+  experts: {
+    list: 'experts:list',
+    get: 'experts:get',
+    create: 'experts:create',
+    update: 'experts:update',
+    remove: 'experts:remove'
+  },
   dashboard: { stats: 'dashboard:stats' },
   lawyers: { list: 'lawyers:list', get: 'lawyers:get', create: 'lawyers:create', update: 'lawyers:update', remove: 'lawyers:remove', reorder: 'lawyers:reorder', dashboard: 'lawyers:dashboard', savePhoto: 'lawyers:savePhoto', saveStaff: 'lawyers:saveStaff' },
   employees: { list: 'employees:list', get: 'employees:get', create: 'employees:create', update: 'employees:update', remove: 'employees:remove', attendance: 'employees:attendance', leave: 'employees:leave', staff: 'employees:staff', savePhoto: 'employees:savePhoto' },
@@ -66,7 +73,7 @@ export const IPC = {
     checkNationalId: 'opponents:checkNationalId',
     copyToClient: 'opponents:copyToClient'
   },
-  caseTypes: { list: 'caseTypes:list', create: 'caseTypes:create', update: 'caseTypes:update', remove: 'caseTypes:remove' },
+  caseTypes: { list: 'caseTypes:list', create: 'caseTypes:create', update: 'caseTypes:update', remove: 'caseTypes:remove', reorder: 'caseTypes:reorder' },
   tasks: { list: 'tasks:list', get: 'tasks:get', create: 'tasks:create', update: 'tasks:update', remove: 'tasks:remove' },
   reminders: { list: 'reminders:list', get: 'reminders:get', create: 'reminders:create', update: 'reminders:update', remove: 'reminders:remove', dismiss: 'reminders:dismiss' },
   appointments: { list: 'appointments:list', get: 'appointments:get', create: 'appointments:create', update: 'appointments:update', remove: 'appointments:remove' },
@@ -89,7 +96,7 @@ export const IPC = {
   cashbox: { list: 'cashbox:list', create: 'cashbox:create', update: 'cashbox:update', transactions: 'cashbox:transactions', move: 'cashbox:move' },
   reports: { run: 'reports:run', export: 'reports:export' },
   search: { global: 'search:global', advanced: 'search:advanced', legacy: 'search:legacy' },
-  lookups: { list: 'lookups:list', remember: 'lookups:remember', remove: 'lookups:remove', update: 'lookups:update' },
+  lookups: { list: 'lookups:list', remember: 'lookups:remember', remove: 'lookups:remove', update: 'lookups:update', reorder: 'lookups:reorder' },
   audit: { list: 'audit:list', remove: 'audit:remove' },
   notifications: { list: 'notifications:list', read: 'notifications:read', readAll: 'notifications:readAll' },
   settings: { get: 'settings:get', set: 'settings:set', saveLogo: 'settings:saveLogo' },

@@ -116,6 +116,8 @@ export const clientUpdateSchema = clientSchema
 
 export const caseSchema = z.object({
   title: reqStr,
+  case_number: optStr,
+  numbering_mode: z.enum(['auto', 'manual']).optional(),
   office_case_number: optStr,
   case_year: optStr,
   client_id: reqId,
@@ -226,6 +228,21 @@ export const hearingSchema = z.object({
     .optional()
 })
 
+export const expertHearingSchema = z.object({
+  case_id: reqId,
+  hearing_date: reqStr,
+  hearing_time: optStr,
+  expert_office: optStr,
+  expert_name: optStr,
+  floor: optStr,
+  hall: optStr,
+  previous_action: optStr,
+  current_action: optStr,
+  notes: optStr,
+  lawyer_id: optId,
+  status: optStr
+})
+
 export const taskSchema = z.object({
   title: optStr,
   description: reqStr,
@@ -248,7 +265,10 @@ export const taskSchema = z.object({
   execution_number: optStr,
   execution_officer: optStr,
   judgment_date: optStr,
-  judgment_text: optStr
+  judgment_text: optStr,
+  notes: optStr,
+  opponent_address: optStr,
+  opponent_phone: optStr
 })
 
 export const reminderSchema = z.object({

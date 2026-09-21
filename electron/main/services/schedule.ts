@@ -1,5 +1,5 @@
 import { getDb } from '../db/database'
-import { nowIso } from '../utils/time'
+import { nowIso, todayIso } from '../utils/time'
 import { audit } from './audit'
 import { newId, asIdOrNull, notDeleted } from '../db/ids'
 import { recordLocalChange, softDelete } from '../sync/queue'
@@ -11,6 +11,25 @@ import { rememberLookup } from './lookups'
 import { clampPageSize, pageKind, pickSort, sqlDir } from '../db/queryLimits'
 import { casePrintJoinSql, casePrintSelectSql, enrichPrintRows } from './printCaseFields'
 
+function opponentContactFromCase(caseId: string | null) {
+  if (!caseId) return { address: '', phone: '' }
+  const row = getDb()
+    .prepare(
+      `SELECT ox.address as address, ox.phone as phone
+       FROM case_opponents xo
+       JOIN opponents ox ON ox.id = xo.opponent_id AND ${notDeleted('ox')}
+       WHERE xo.case_id = ? AND ${notDeleted('xo')}
+       ORDER BY IFNULL(xo.sort_order, 0)
+       LIMIT 1`
+    )
+    .get(caseId) as { address?: string; phone?: string } | undefined
+  return { address: String(row?.address || '').trim(), phone: String(row?.phone || '').trim() }
+}
+
+function looksMasked(v: unknown) {
+  return String(v ?? '').includes('****')
+}
+
 export function listTasks(query: ListQuery = {}, userId?: string) {
   const db = getDb()
   const page = query.page ?? 1
@@ -18,13 +37,23 @@ export function listTasks(query: ListQuery = {}, userId?: string) {
   const params: unknown[] = []
   let where = `WHERE ${notDeleted('t')}`
   const f = query.filters ?? {}
+  const cairoToday = todayIso()
   if (f.view === 'mine' && userId) {
     where += ' AND t.assignee_id = ?'
     params.push(userId)
   }
-  if (f.view === 'overdue') where += ` AND t.status NOT IN ('completed','cancelled') AND t.due_date < date('now')`
-  if (f.view === 'today') where += ` AND t.due_date = date('now')`
-  if (f.view === 'upcoming') where += ` AND t.due_date > date('now') AND t.status NOT IN ('completed','cancelled')`
+  if (f.view === 'overdue') {
+    where += ` AND t.status NOT IN ('completed','cancelled') AND t.due_date < ?`
+    params.push(cairoToday)
+  }
+  if (f.view === 'today') {
+    where += ` AND t.due_date = ? AND t.status NOT IN ('completed','cancelled')`
+    params.push(cairoToday)
+  }
+  if (f.view === 'upcoming') {
+    where += ` AND t.due_date > ? AND t.status NOT IN ('completed','cancelled')`
+    params.push(cairoToday)
+  }
   if (f.assignee_id) {
     where += ' AND t.assignee_id = ?'
     params.push(f.assignee_id)
@@ -60,12 +89,16 @@ export function listTasks(query: ListQuery = {}, userId?: string) {
     status: 't.status',
     venue: 't.venue',
     case_number: 'cs.case_number',
+    office_case_number: 'cs.office_case_number',
+    description: 't.description',
+    notes: 't.notes',
     assignee_name: 'u.full_name'
   }, 't.due_date IS NULL, t.due_date ASC')
   const dir = query.sortBy ? ` ${sqlDir(query.sortDir)}` : ''
   const rows = db
     .prepare(
-      `SELECT t.id, t.title, t.description as required_action, t.description, t.venue,
+      `SELECT t.id, t.title, t.description as required_action, t.description, t.venue, t.notes,
+              t.opponent_address, t.opponent_phone,
               t.case_subject, t.assignee_id, t.case_id, t.client_id,
               t.start_date, t.due_date, t.priority, t.status, t.progress, t.work_kind, t.hearing_id, t.execution_kind,
               t.police_report_no, t.police_report_kind, t.police_station,
@@ -89,11 +122,13 @@ export function listTasks(query: ListQuery = {}, userId?: string) {
 export function getTask(id: string) {
   const row = getDb()
     .prepare(
-      `SELECT t.*, u.full_name as assignee_name, cs.case_number, cl.full_name as client_name
+      `SELECT t.*, u.full_name as assignee_name, cs.case_number, cs.office_case_number, cs.case_year, cs.court,
+              cs.opponent_name, cs.title as case_title, COALESCE(cl.full_name, c2.full_name) as client_name
        FROM tasks t
        LEFT JOIN users u ON u.id = t.assignee_id AND ${notDeleted('u')}
        LEFT JOIN cases cs ON cs.id = t.case_id AND ${notDeleted('cs')}
        LEFT JOIN clients cl ON cl.id = t.client_id AND ${notDeleted('cl')}
+       LEFT JOIN clients c2 ON c2.id = cs.client_id AND ${notDeleted('c2')}
        WHERE t.id = ? AND ${notDeleted('t')}`
     )
     .get(id)
@@ -107,15 +142,17 @@ export function createTask(actor: AuthedUser, data: Record<string, unknown>) {
   if (!description) throw new Error('البيان مطلوب لحفظ العمل الإداري')
   if (!String(data.due_date ?? '').trim()) throw new Error('تاريخ العمل الإداري مطلوب')
   const workKind = String(data.work_kind || 'admin')
-  let title = String(data.title ?? '').trim()
-  if (workKind === 'execution') title = description.slice(0, 80)
-  if (!title) throw new Error('اسم المهمة مطلوب')
+  const title = description.slice(0, 80)
   const ts = nowIso()
   const id = newId()
+  const caseId = asIdOrNull(data.case_id)
+  const opp = workKind === 'execution' ? opponentContactFromCase(caseId) : { address: '', phone: '' }
+  const opponentAddress = looksMasked(data.opponent_address) ? opp.address : String(data.opponent_address || '').trim() || opp.address || null
+  const opponentPhone = looksMasked(data.opponent_phone) ? opp.phone : String(data.opponent_phone || '').trim() || opp.phone || null
   getDb()
     .prepare(
-      `INSERT INTO tasks (id, title, description, venue, case_subject, assignee_id, case_id, client_id, start_date, due_date, priority, status, progress, work_kind, hearing_id, execution_kind, police_report_no, police_report_kind, police_station, execution_number, execution_officer, judgment_date, judgment_text, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      `INSERT INTO tasks (id, title, description, venue, case_subject, assignee_id, case_id, client_id, start_date, due_date, priority, status, progress, work_kind, hearing_id, execution_kind, police_report_no, police_report_kind, police_station, execution_number, execution_officer, judgment_date, judgment_text, notes, opponent_address, opponent_phone, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     )
     .run(
       id,
@@ -124,7 +161,7 @@ export function createTask(actor: AuthedUser, data: Record<string, unknown>) {
       data.venue ?? null,
       data.case_subject ?? null,
       asIdOrNull(data.assignee_id),
-      asIdOrNull(data.case_id),
+      caseId,
       asIdOrNull(data.client_id),
       data.start_date ?? null,
       data.due_date ?? null,
@@ -141,11 +178,14 @@ export function createTask(actor: AuthedUser, data: Record<string, unknown>) {
       data.execution_officer ?? null,
       data.judgment_date ?? null,
       data.judgment_text ?? null,
+      data.notes ?? null,
+      opponentAddress,
+      opponentPhone,
       ts,
       ts
     )
   recordLocalChange('tasks', id, 'INSERT')
-  rememberLookup(workKind === 'execution' ? 'execution_action' : 'admin_action', workKind === 'execution' ? description : title)
+  rememberLookup(workKind === 'execution' ? 'execution_action' : 'admin_action', description)
   rememberLookup('venue', data.venue)
   rememberLookup('case_subject', data.case_subject)
   rememberLookup('task_status', data.status)
@@ -173,14 +213,20 @@ export function updateTask(actor: AuthedUser, id: string, data: Record<string, u
   if (!description) throw new Error('البيان مطلوب لحفظ العمل الإداري')
   if (!String(data.due_date ?? '').trim()) throw new Error('تاريخ العمل الإداري مطلوب')
   const workKind = String(data.work_kind || 'admin')
-  let title = String(data.title ?? '').trim()
-  if (workKind === 'execution') title = description.slice(0, 80)
-  if (!title) throw new Error('اسم المهمة مطلوب')
+  const title = description.slice(0, 80)
+  const caseId = asIdOrNull(data.case_id)
+  const opp = workKind === 'execution' ? opponentContactFromCase(caseId) : { address: '', phone: '' }
+  const opponentAddress = looksMasked(data.opponent_address)
+    ? opp.address
+    : String(data.opponent_address || '').trim() || opp.address || null
+  const opponentPhone = looksMasked(data.opponent_phone)
+    ? opp.phone
+    : String(data.opponent_phone || '').trim() || opp.phone || null
   getDb()
     .prepare(
       `UPDATE tasks SET title=?, description=?, venue=?, case_subject=?, assignee_id=?, case_id=?, client_id=?, start_date=?, due_date=?,
         priority=?, status=?, progress=?, work_kind=?, hearing_id=?, execution_kind=?, police_report_no=?, police_report_kind=?, police_station=?,
-        execution_number=?, execution_officer=?, judgment_date=?, judgment_text=?, updated_at=? WHERE id=?`
+        execution_number=?, execution_officer=?, judgment_date=?, judgment_text=?, notes=?, opponent_address=?, opponent_phone=?, updated_at=? WHERE id=?`
     )
     .run(
       title,
@@ -188,7 +234,7 @@ export function updateTask(actor: AuthedUser, id: string, data: Record<string, u
       data.venue ?? null,
       data.case_subject ?? null,
       asIdOrNull(data.assignee_id),
-      asIdOrNull(data.case_id),
+      caseId,
       asIdOrNull(data.client_id),
       data.start_date ?? null,
       data.due_date ?? null,
@@ -205,11 +251,14 @@ export function updateTask(actor: AuthedUser, id: string, data: Record<string, u
       data.execution_officer ?? null,
       data.judgment_date ?? null,
       data.judgment_text ?? null,
+      data.notes ?? null,
+      opponentAddress,
+      opponentPhone,
       nowIso(),
       id
     )
   recordLocalChange('tasks', id, 'UPDATE')
-  rememberLookup(workKind === 'execution' ? 'execution_action' : 'admin_action', workKind === 'execution' ? description : title)
+  rememberLookup(workKind === 'execution' ? 'execution_action' : 'admin_action', description)
   rememberLookup('venue', data.venue)
   rememberLookup('case_subject', data.case_subject)
   rememberLookup('task_status', data.status)
@@ -325,6 +374,15 @@ export function listAppointments(query: ListQuery = {}) {
     where += ' AND (a.title LIKE ? OR cl.full_name LIKE ?)'
     const s = `%${query.search}%`
     params.push(s, s)
+  }
+  const af = query.filters ?? {}
+  if (af.date_from) {
+    where += ' AND a.date >= ?'
+    params.push(af.date_from)
+  }
+  if (af.status) {
+    where += ' AND a.status = ?'
+    params.push(af.status)
   }
   const total = (
     db

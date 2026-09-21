@@ -20,6 +20,7 @@ const ClientProfilePage = lazy(() => import('./pages/Modules').then((m) => ({ de
 const CasesPage = lazy(() => import('./pages/Modules').then((m) => ({ default: m.CasesPage })))
 const CaseProfilePage = lazy(() => import('./pages/Modules').then((m) => ({ default: m.CaseProfilePage })))
 const HearingsPage = lazy(() => import('./pages/Modules').then((m) => ({ default: m.HearingsPage })))
+const ExpertsPage = lazy(() => import('./pages/Modules').then((m) => ({ default: m.ExpertsPage })))
 const TasksPage = lazy(() => import('./pages/Modules').then((m) => ({ default: m.TasksPage })))
 const ExecutionPage = lazy(() => import('./pages/Modules').then((m) => ({ default: m.ExecutionPage })))
 const RemindersPage = lazy(() => import('./pages/Modules').then((m) => ({ default: m.RemindersPage })))
@@ -55,6 +56,7 @@ const PAGE: Record<string, LazyExoticComponent<ComponentType>> = {
   cases: CasesPage,
   caseProfile: CaseProfilePage,
   hearings: HearingsPage,
+  experts: ExpertsPage,
   calendar: CalendarPage,
   tasks: TasksPage,
   execution: ExecutionPage,

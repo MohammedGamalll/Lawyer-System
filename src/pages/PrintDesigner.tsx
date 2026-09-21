@@ -3,6 +3,9 @@ import { useTranslation } from 'react-i18next'
 import { invoke } from '../lib/api'
 import { useApp } from '../store'
 import { Button, Card, Field, Input, Select } from '../components/ui'
+import { formatCell } from '../lib/datetime'
+import { formatProgramCode } from '../lib/courtNumber'
+import { CourtNumberText } from '../components/CourtNumberText'
 import {
   PAGE_H,
   PAGE_W,
@@ -25,7 +28,7 @@ function nid() {
 type TemplateRow = { id: string; name: string; layout_json?: string }
 
 export function PrintDesigner() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { toast } = useApp()
   const [list, setList] = useState<TemplateRow[]>([])
   const [sel, setSel] = useState('')
@@ -92,7 +95,7 @@ export function PrintDesigner() {
       x: 12,
       y,
       w: bind === 'office.logo' ? 36 : 186,
-      h: bind === 'office.logo' ? 22 : bind === 'hearings.list' || bind === 'tasks.list' ? 28 : 14,
+      h: bind === 'office.logo' ? 22 : bind === 'hearings.list' || bind === 'tasks.list' || bind === 'experts.list' ? 28 : 14,
       title: t(`printDesigner.field.${bind}`),
       bind,
       text: '',
@@ -102,6 +105,12 @@ export function PrintDesigner() {
     }
     setBlocks([...layout.blocks, next])
     setActive(next.id)
+    toast(t('printDesigner.placeHint'))
+  }
+
+  const removeBlock = (id: string) => {
+    setLayout((prev) => ({ page: 'A4', blocks: prev.blocks.filter((b) => b.id !== id) }))
+    setActive(null)
   }
 
   const addSection = () => {
@@ -121,7 +130,21 @@ export function PrintDesigner() {
     }
     setBlocks([...layout.blocks, next])
     setActive(next.id)
+    toast(t('printDesigner.placeHint'))
   }
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!active) return
+      const tag = (e.target as HTMLElement | null)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return
+      e.preventDefault()
+      removeBlock(active)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [active])
 
   const onPointerDown = (e: PointerEvent<HTMLElement>, b: PrintBlock, mode: 'move' | 'resize') => {
     e.preventDefault()
@@ -228,7 +251,23 @@ export function PrintDesigner() {
     if (b.kind === 'text' || b.bind === 'custom') return b.text || b.title
     if (b.kind === 'logo') return t('printDesigner.field.office.logo')
     const val = values[b.bind] || ''
-    return b.title ? `${b.title}: ${val || '—'}` : val || '—'
+    const key = b.bind.split('.').pop() || b.bind
+    const shown = formatCell(key, val, i18n.language, t)
+    const body = shown || '—'
+    if (b.bind === 'case.office_case_number' || b.bind === 'case.court_number') {
+      return (
+        <>
+          {b.title ? `${b.title}: ` : ''}
+          <CourtNumberText
+            row={{
+              office_case_number: values['case.office_case_number'] || values['case.court_number'] || body,
+              case_year: values['case.case_year']
+            }}
+          />
+        </>
+      )
+    }
+    return b.title ? `${b.title}: ${body}` : body
   }
 
   const groups = useMemo(() => PRINT_FIELD_GROUPS, [])
@@ -259,7 +298,7 @@ export function PrintDesigner() {
             <option value="">{t('printDesigner.officeOnly')}</option>
             {cases.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.case_number} — {c.title}
+                {formatProgramCode(c)} — {c.title}
               </option>
             ))}
           </Select>
@@ -338,6 +377,20 @@ export function PrintDesigner() {
               }}
             >
               <div className="inner w-full cursor-move px-1 py-0.5 leading-tight text-navy-900">{display(b)}</div>
+              {active === b.id ? (
+                <button
+                  type="button"
+                  className="absolute top-0 end-0 z-10 flex h-5 w-5 items-center justify-center bg-red-600 text-xs font-bold text-white"
+                  title={t('delete')}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    removeBlock(b.id)
+                  }}
+                >
+                  ×
+                </button>
+              ) : null}
               <span
                 className="absolute bottom-0 end-0 h-3 w-3 cursor-nwse-resize bg-gold-400"
                 onPointerDown={(e) => onPointerDown(e, b, 'resize')}
@@ -407,14 +460,7 @@ export function PrintDesigner() {
                   </Field>
                 ))}
               </div>
-              <Button
-                type="button"
-                variant="danger"
-                onClick={() => {
-                  setBlocks(layout.blocks.filter((b) => b.id !== block.id))
-                  setActive(null)
-                }}
-              >
+              <Button type="button" variant="danger" onClick={() => removeBlock(block.id)}>
                 {t('delete')}
               </Button>
             </>

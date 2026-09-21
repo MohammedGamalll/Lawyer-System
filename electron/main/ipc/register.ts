@@ -10,6 +10,7 @@ import * as settings from '../services/settings'
 import * as clients from '../services/clients'
 import * as cases from '../services/cases'
 import * as hearings from '../services/hearings'
+import * as experts from '../services/experts'
 import * as people from '../services/people'
 import * as schedule from '../services/schedule'
 import * as documents from '../services/documents'
@@ -173,8 +174,14 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
     cases.removeCaseType(String(id))
     return ok(true)
   })
+  handle(ipc, IPC.caseTypes.reorder, { permission: 'settings.manage', write: true }, (_e, _u, id, dir) => {
+    cases.reorderCaseType(String(id), dir)
+    return ok(true)
+  })
 
-  handle(ipc, IPC.hearings.list, { permission: 'hearings.view' }, (_e, _u, q) => ok(hearings.listHearings(q as never)))
+  handle(ipc, IPC.hearings.list, { permission: 'hearings.view' }, (_e, user, q) =>
+    ok(hearings.listHearings(q as never, user?.id))
+  )
   handle(ipc, IPC.hearings.get, { permission: 'hearings.view' }, (_e, _u, id) => ok(hearings.getHearing(String(id))))
   handle(ipc, IPC.hearings.create, { permission: 'hearings.create', write: true }, (_e, user, data) => ok(hearings.createHearing(user!, data as never)))
   handle(ipc, IPC.hearings.update, { permission: 'hearings.update', write: true }, (_e, user, id, data) => ok(hearings.updateHearing(user!, String(id), data as never)))
@@ -183,6 +190,19 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
   )
   handle(ipc, IPC.hearings.remove, { permission: 'hearings.delete', write: true }, (_e, user, id) => {
     hearings.removeHearing(user!, String(id))
+    return ok(true)
+  })
+
+  handle(ipc, IPC.experts.list, { permission: 'hearings.view' }, (_e, _u, q) => ok(experts.listExpertHearings(q as never)))
+  handle(ipc, IPC.experts.get, { permission: 'hearings.view' }, (_e, _u, id) => ok(experts.getExpertHearing(String(id))))
+  handle(ipc, IPC.experts.create, { permission: 'hearings.create', write: true }, (_e, user, data) =>
+    ok(experts.createExpertHearing(user!, data as never))
+  )
+  handle(ipc, IPC.experts.update, { permission: 'hearings.update', write: true }, (_e, user, id, data) =>
+    ok(experts.updateExpertHearing(user!, String(id), data as never))
+  )
+  handle(ipc, IPC.experts.remove, { permission: 'hearings.delete', write: true }, (_e, user, id) => {
+    experts.removeExpertHearing(user!, String(id))
     return ok(true)
   })
 
@@ -228,8 +248,8 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
   handle(ipc, IPC.employees.attendance, { permission: 'employees.manage', write: true }, (_e, user, data) => ok(people.addAttendance(user!, data as never)))
   handle(ipc, IPC.employees.leave, { permission: 'employees.manage', write: true }, (_e, user, data) => ok(people.addLeave(user!, data as never)))
 
-  handle(ipc, IPC.opponents.list, { permission: 'opponents.view' }, (_e, _u, q) => ok(people.listOpponents(q as never)))
-  handle(ipc, IPC.opponents.get, { permission: 'opponents.view' }, (_e, _u, id) => ok(people.getOpponent(String(id))))
+  handle(ipc, IPC.opponents.list, { permission: 'opponents.view' }, (_e, user, q) => ok(people.listOpponents(q as never, user)))
+  handle(ipc, IPC.opponents.get, { permission: 'opponents.view' }, (_e, user, id) => ok(people.getOpponent(String(id), user)))
   handle(ipc, IPC.opponents.create, { permission: 'opponents.manage', write: true }, (_e, user, data) => ok(people.createOpponent(user!, data as never)))
   handle(ipc, IPC.opponents.update, { permission: 'opponents.manage', write: true }, (_e, user, id, data) => ok(people.updateOpponent(user!, String(id), data as never)))
   handle(ipc, IPC.opponents.remove, { permission: 'opponents.manage', write: true }, (_e, user, id) => {
@@ -448,6 +468,10 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
     lookups.updateLookup(String(kind), from, to)
     return ok(true)
   })
+  handle(ipc, IPC.lookups.reorder, { write: true }, (_e, _u, kind, value, dir) => {
+    lookups.reorderLookup(String(kind), value, dir)
+    return ok(true)
+  })
   handle(ipc, IPC.audit.list, { permission: 'audit.view' }, (_e, _u, q) => ok(reports.listAudit(q as never)))
   handle(ipc, IPC.audit.remove, { permission: 'audit.delete', write: true }, (_e, _user, ids) => {
     const list = Array.isArray(ids) ? (ids as string[]) : [String(ids)]
@@ -541,8 +565,13 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
   handle(ipc, IPC.printTemplates.fields, { permission: ['settings.manage', 'cases.view'] }, () =>
     ok(printTemplates.printFieldCatalog())
   )
-  handle(ipc, IPC.printTemplates.context, { permission: ['settings.manage', 'cases.view', 'clients.view'] }, (_e, _u, opts) =>
-    ok(printTemplates.buildPrintContext((opts as { caseId?: string; clientId?: string }) || {}))
+  handle(ipc, IPC.printTemplates.context, { permission: ['settings.manage', 'cases.view', 'clients.view'] }, (_e, user, opts) =>
+    ok(
+      printTemplates.buildPrintContext({
+        ...((opts as { caseId?: string; clientId?: string }) || {}),
+        actor: user
+      })
+    )
   )
   handle(ipc, IPC.printTemplates.create, { permission: 'settings.manage', write: true }, (_e, user, data) =>
     ok(printTemplates.createPrintTemplate(user!, data as never))
@@ -554,12 +583,20 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
     printTemplates.removePrintTemplate(user!, String(id))
     return ok(true)
   })
-  handle(ipc, IPC.printTemplates.print, { permission: ['settings.manage', 'cases.view', 'clients.view'] }, async (_e, _u, id, opts) => {
-    await printTemplates.printTemplate(String(id), (opts as { caseId?: string; clientId?: string }) || {}, getWin())
+  handle(ipc, IPC.printTemplates.print, { permission: ['settings.manage', 'cases.view', 'clients.view'] }, async (_e, user, id, opts) => {
+    await printTemplates.printTemplate(
+      String(id),
+      { ...((opts as { caseId?: string; clientId?: string }) || {}), actor: user },
+      getWin()
+    )
     return ok(true)
   })
-  handle(ipc, IPC.printTemplates.printLayout, { permission: ['settings.manage', 'cases.view', 'clients.view'] }, async (_e, _u, layout, opts) => {
-    await printTemplates.printLayout(layout, (opts as { caseId?: string; clientId?: string }) || {}, getWin())
+  handle(ipc, IPC.printTemplates.printLayout, { permission: ['settings.manage', 'cases.view', 'clients.view'] }, async (_e, user, layout, opts) => {
+    await printTemplates.printLayout(
+      layout,
+      { ...((opts as { caseId?: string; clientId?: string }) || {}), actor: user },
+      getWin()
+    )
     return ok(true)
   })
 

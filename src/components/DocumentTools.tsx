@@ -1,85 +1,94 @@
-import { useEffect, useRef, useState } from 'react'
-import { useTranslation } from 'react-i18next'
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { Paperclip } from 'lucide-react'
-import { invoke } from '../lib/api'
-import { useApp } from '../store'
-import { parseSourceOrder, type AttachSource } from '../lib/attachSources'
-import { Button, Field, Modal, Select } from './ui'
-import { LookupCombo } from './LookupCombo'
+import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { Paperclip } from "lucide-react";
+import { invoke } from "../lib/api";
+import { useApp } from "../store";
+import { parseSourceOrder, type AttachSource } from "../lib/attachSources";
+import { Button, Field, Modal, Select } from "./ui";
+import { LookupCombo } from "./LookupCombo";
 
-export type PickedFile = { name: string; data: number[]; mime?: string }
+export type PickedFile = { name: string; data: number[]; mime?: string };
 
 export type PendingDoc = {
-  localId: string
-  category: string
-  title: string
-  save_format: 'jpeg' | 'pdf'
-  sides?: 'front' | 'front_back'
-  pages: PickedFile[]
-}
+  localId: string;
+  category: string;
+  title: string;
+  save_format: "jpeg" | "pdf";
+  sides?: "front" | "front_back";
+  pages: PickedFile[];
+};
 
 export const DOC_CATEGORIES = [
-  { id: 'id', key: 'docs.catId' },
-  { id: 'card', key: 'docs.catCard' },
-  { id: 'poa', key: 'docs.catPoa' },
-  { id: 'passport', key: 'docs.catPassport' },
-  { id: 'contract', key: 'docs.catContract' },
-  { id: 'birth', key: 'docs.catBirth' },
-  { id: 'other', key: 'docs.catOther' }
-] as const
+  { id: "id", key: "docs.catId" },
+  { id: "card", key: "docs.catCard" },
+  { id: "poa", key: "docs.catPoa" },
+  { id: "passport", key: "docs.catPassport" },
+  { id: "contract", key: "docs.catContract" },
+  { id: "birth", key: "docs.catBirth" },
+  { id: "other", key: "docs.catOther" },
+] as const;
 
 function useSourceOrder() {
-  const [order, setOrder] = useState<AttachSource[]>(parseSourceOrder(''))
+  const [order, setOrder] = useState<AttachSource[]>(parseSourceOrder(""));
   useEffect(() => {
-    invoke<Record<string, string>>('settings:get')
+    invoke<Record<string, string>>("settings:get")
       .then((s) => setOrder(parseSourceOrder(s.attach_source_order)))
-      .catch(() => undefined)
-  }, [])
-  return order
+      .catch(() => undefined);
+  }, []);
+  return order;
 }
 
 export function UploadSourceMenu({
   onFile,
   label,
   multiple,
-  compact
+  compact,
 }: {
-  onFile: (file: PickedFile) => void
-  label?: string
-  multiple?: boolean
-  compact?: boolean
+  onFile: (file: PickedFile) => void;
+  label?: string;
+  multiple?: boolean;
+  compact?: boolean;
 }) {
-  const { t } = useTranslation()
-  const { toast } = useApp()
-  const [cam, setCam] = useState(false)
-  const fileRef = useRef<HTMLInputElement>(null)
-  const order = useSourceOrder()
+  const { t } = useTranslation();
+  const { toast } = useApp();
+  const [cam, setCam] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const order = useSourceOrder();
   const pickScan = async () => {
     try {
-      onFile(await invoke<PickedFile>('files:scan'))
+      onFile(await invoke<PickedFile>("files:scan"));
     } catch (e) {
-      toast((e as Error).message, 'err')
+      toast((e as Error).message, "err");
     }
-  }
+  };
   const onLocalFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || [])
-    e.target.value = ''
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
     for (const file of files) {
-      const buf = new Uint8Array(await file.arrayBuffer())
-      onFile({ name: file.name, data: Array.from(buf), mime: file.type })
+      const buf = new Uint8Array(await file.arrayBuffer());
+      onFile({ name: file.name, data: Array.from(buf), mime: file.type });
     }
-  }
+  };
   const actions: Record<AttachSource, { label: string; run: () => void }> = {
-    scanner: { label: t('docs.fromScanner'), run: () => void pickScan() },
-    camera: { label: t('docs.fromCamera'), run: () => setCam(true) },
-    file: { label: label || t('docs.fromFile'), run: () => fileRef.current?.click() }
-  }
+    scanner: { label: t("docs.fromScanner"), run: () => void pickScan() },
+    camera: { label: t("docs.fromCamera"), run: () => setCam(true) },
+    file: {
+      label: label || t("docs.fromFile"),
+      run: () => fileRef.current?.click(),
+    },
+  };
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
         {order.map((src) => (
-          <Button key={src} type="button" variant="outline" size={compact ? 'sm' : 'default'} onClick={actions[src].run}>
+          <Button
+            key={src}
+            type="button"
+            variant="outline"
+            size={compact ? "sm" : "default"}
+            onClick={actions[src].run}
+          >
             {actions[src].label}
           </Button>
         ))}
@@ -92,216 +101,274 @@ export function UploadSourceMenu({
           onChange={(ev) => onLocalFile(ev)}
         />
       </div>
-      {!compact ? <p className="text-[11px] text-navy-500">{t('docs.scannerHint')}</p> : null}
-      <CameraCapture open={cam} onClose={() => setCam(false)} onFile={onFile} stayOpen={multiple} />
+      {!compact ? (
+        <p className="text-[11px] text-navy-500">{t("docs.scannerHint")}</p>
+      ) : null}
+      <CameraCapture
+        open={cam}
+        onClose={() => setCam(false)}
+        onFile={onFile}
+        stayOpen={multiple}
+      />
     </>
-  )
+  );
 }
 
 function CameraCapture({
   open,
   onClose,
   onFile,
-  stayOpen
+  stayOpen,
 }: {
-  open: boolean
-  onClose: () => void
-  onFile: (file: PickedFile) => void
-  stayOpen?: boolean
+  open: boolean;
+  onClose: () => void;
+  onFile: (file: PickedFile) => void;
+  stayOpen?: boolean;
 }) {
-  const { t } = useTranslation()
-  const { toast } = useApp()
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const streamRef = useRef<MediaStream | null>(null)
+  const { t } = useTranslation();
+  const { toast } = useApp();
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
-    if (!open) return
-    let stopped = false
+    if (!open) return;
+    let stopped = false;
     navigator.mediaDevices
-      .getUserMedia({ video: { facingMode: 'environment' } })
+      .getUserMedia({ video: { facingMode: "environment" } })
       .then((stream) => {
         if (stopped) {
-          stream.getTracks().forEach((tr) => tr.stop())
-          return
+          stream.getTracks().forEach((tr) => tr.stop());
+          return;
         }
-        streamRef.current = stream
-        if (videoRef.current) videoRef.current.srcObject = stream
+        streamRef.current = stream;
+        if (videoRef.current) videoRef.current.srcObject = stream;
       })
-      .catch(() => toast(t('docs.cameraDenied'), 'err'))
+      .catch(() => toast(t("docs.cameraDenied"), "err"));
     return () => {
-      stopped = true
-      streamRef.current?.getTracks().forEach((tr) => tr.stop())
-      streamRef.current = null
-    }
-  }, [open])
+      stopped = true;
+      streamRef.current?.getTracks().forEach((tr) => tr.stop());
+      streamRef.current = null;
+    };
+  }, [open]);
 
   const snap = () => {
-    const video = videoRef.current
-    if (!video || !video.videoWidth) return
-    const canvas = document.createElement('canvas')
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
-    canvas.getContext('2d')?.drawImage(video, 0, 0)
+    const video = videoRef.current;
+    if (!video || !video.videoWidth) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext("2d")?.drawImage(video, 0, 0);
     canvas.toBlob(
       async (blob) => {
-        if (!blob) return
-        const buf = new Uint8Array(await blob.arrayBuffer())
-        onFile({ name: `camera-${Date.now()}.jpg`, data: Array.from(buf), mime: 'image/jpeg' })
-        if (!stayOpen) onClose()
+        if (!blob) return;
+        const buf = new Uint8Array(await blob.arrayBuffer());
+        onFile({
+          name: `camera-${Date.now()}.jpg`,
+          data: Array.from(buf),
+          mime: "image/jpeg",
+        });
+        if (!stayOpen) onClose();
       },
-      'image/jpeg',
-      0.88
-    )
-  }
+      "image/jpeg",
+      0.88,
+    );
+  };
 
   return (
-    <Modal open={open} title={t('docs.fromCamera')} onClose={onClose} wide>
-      <video ref={videoRef} autoPlay playsInline className="max-h-80 w-full rounded bg-black" />
+    <Modal open={open} title={t("docs.fromCamera")} onClose={onClose} wide>
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        className="max-h-80 w-full rounded bg-black"
+      />
       <div className="mt-3 flex gap-2">
         <Button type="button" onClick={snap}>
-          {t('docs.capture')}
+          {t("docs.capture")}
         </Button>
         <Button type="button" variant="outline" onClick={onClose}>
-          {t('cancel')}
+          {t("cancel")}
         </Button>
       </div>
     </Modal>
-  )
+  );
 }
 
 export type PreviewItem =
-  | { kind: 'image'; name: string; mime: string; dataUrl: string }
-  | { kind: 'image_large'; name: string; mime: string }
-  | { kind: 'pdf'; name: string }
-  | { kind: 'other'; name: string }
+  | { kind: "image"; name: string; mime: string; dataUrl: string }
+  | { kind: "image_large"; name: string; mime: string }
+  | { kind: "pdf"; name: string }
+  | { kind: "other"; name: string };
 
-export type PreviewData = PreviewItem | { kind: 'multi'; name: string; pages: PreviewItem[] }
+export type PreviewData =
+  | PreviewItem
+  | { kind: "multi"; name: string; pages: PreviewItem[] };
 
-function PreviewBody({ p, onOpenFile }: { p: PreviewItem; onOpenFile?: () => void }) {
-  const { t } = useTranslation()
-  if (p.kind === 'image') return <img src={p.dataUrl} alt={p.name} className="max-h-[70vh] w-full object-contain" />
-  if (p.kind === 'pdf') {
+function PreviewBody({
+  p,
+  onOpenFile,
+}: {
+  p: PreviewItem;
+  onOpenFile?: () => void;
+}) {
+  const { t } = useTranslation();
+  if (p.kind === "image")
+    return (
+      <img
+        src={p.dataUrl}
+        alt={p.name}
+        className="max-h-[70vh] w-full object-contain"
+      />
+    );
+  if (p.kind === "pdf") {
     return (
       <div className="space-y-3 py-8 text-center">
         <p className="text-sm text-navy-600 dark:text-navy-200">{p.name}</p>
-        <p className="text-sm text-navy-500">{t('docs.pdfExternalHint')}</p>
+        <p className="text-sm text-navy-500">{t("docs.pdfExternalHint")}</p>
         {onOpenFile ? (
           <Button type="button" onClick={onOpenFile}>
-            {t('docs.openExternal')}
+            {t("docs.openExternal")}
           </Button>
         ) : null}
       </div>
-    )
+    );
   }
   return (
     <div className="space-y-3 py-6 text-center">
       <p>{p.name}</p>
       {onOpenFile ? (
         <Button type="button" onClick={onOpenFile}>
-          {t('docs.openExternal')}
+          {t("docs.openExternal")}
         </Button>
       ) : null}
     </div>
-  )
+  );
 }
 
 export function DocumentPreviewModal({
   id,
-  onClose
+  onClose,
 }: {
-  id: string | null
-  onClose: () => void
+  id: string | null;
+  onClose: () => void;
 }) {
-  const { t } = useTranslation()
-  const { toast } = useApp()
-  const [p, setP] = useState<PreviewData | null>(null)
-  const [page, setPage] = useState(0)
+  const { t } = useTranslation();
+  const { toast } = useApp();
+  const [p, setP] = useState<PreviewData | null>(null);
+  const [page, setPage] = useState(0);
 
   useEffect(() => {
     if (!id) {
-      setP(null)
-      setPage(0)
-      return
+      setP(null);
+      setPage(0);
+      return;
     }
-    invoke<PreviewData>('documents:preview', id)
+    invoke<PreviewData>("documents:preview", id)
       .then((data) => {
-        setP(data)
-        setPage(0)
+        setP(data);
+        setPage(0);
       })
-      .catch((e) => toast((e as Error).message, 'err'))
-  }, [id])
+      .catch((e) => toast((e as Error).message, "err"));
+  }, [id]);
 
-  const items: PreviewItem[] = p ? (p.kind === 'multi' ? p.pages : [p]) : []
-  const pageSafe = items.length ? Math.min(page, items.length - 1) : 0
-  const current = items[pageSafe]
-  const isPdfDoc = items.length > 0 && items.every((it) => it.kind === 'pdf' || it.kind === 'other')
+  const items: PreviewItem[] = p ? (p.kind === "multi" ? p.pages : [p]) : [];
+  const pageSafe = items.length ? Math.min(page, items.length - 1) : 0;
+  const current = items[pageSafe];
+  const isPdfDoc =
+    items.length > 0 &&
+    items.every((it) => it.kind === "pdf" || it.kind === "other");
 
   useEffect(() => {
-    if (!id || !p || !isPdfDoc) return
-    invoke('documents:open', id)
+    if (!id || !p || !isPdfDoc) return;
+    invoke("documents:open", id)
       .then(() => onClose())
-      .catch((e) => toast((e as Error).message, 'err'))
-  }, [id, p, isPdfDoc])
+      .catch((e) => toast((e as Error).message, "err"));
+  }, [id, p, isPdfDoc]);
 
   return (
-    <Modal open={!!id} title={t('docs.preview')} onClose={onClose} wide>
+    <Modal open={!!id} title={t("docs.preview")} onClose={onClose} wide>
       {!p || !current ? (
-        <div>{t('loading')}</div>
+        <div>{t("loading")}</div>
       ) : (
         <div className="space-y-3">
           <PreviewBody
             p={current}
-            onOpenFile={id ? () => invoke('documents:open', id).catch((e) => toast((e as Error).message, 'err')) : undefined}
+            onOpenFile={
+              id
+                ? () =>
+                    invoke("documents:open", id).catch((e) =>
+                      toast((e as Error).message, "err"),
+                    )
+                : undefined
+            }
           />
           {items.length > 1 ? (
             <div className="flex items-center justify-between text-sm">
-              <Button type="button" variant="outline" disabled={pageSafe <= 0} onClick={() => setPage((n) => n - 1)}>
-                {t('prev')}
+              <Button
+                type="button"
+                variant="outline"
+                disabled={pageSafe <= 0}
+                onClick={() => setPage((n) => n - 1)}
+              >
+                {t("prev")}
               </Button>
               <span>
                 {pageSafe + 1} / {items.length}
               </span>
-              <Button type="button" variant="outline" disabled={pageSafe >= items.length - 1} onClick={() => setPage((n) => n + 1)}>
-                {t('next')}
+              <Button
+                type="button"
+                variant="outline"
+                disabled={pageSafe >= items.length - 1}
+                onClick={() => setPage((n) => n + 1)}
+              >
+                {t("next")}
               </Button>
             </div>
           ) : null}
           {id ? (
-            <Button type="button" variant="outline" onClick={() => invoke('documents:open', id).catch((e) => toast((e as Error).message, 'err'))}>
-              {t('docs.openExternal')}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() =>
+                invoke("documents:open", id).catch((e) =>
+                  toast((e as Error).message, "err"),
+                )
+              }
+            >
+              {t("docs.openExternal")}
             </Button>
           ) : null}
         </div>
       )}
     </Modal>
-  )
+  );
 }
 
 export function DocumentThumb({
   id,
   title,
   onOpen,
-  onOpenExternal
+  onOpenExternal,
 }: {
-  id: string
-  title?: string
-  onOpen?: () => void
-  onOpenExternal?: () => void
+  id: string;
+  title?: string;
+  onOpen?: () => void;
+  onOpenExternal?: () => void;
 }) {
-  const { t } = useTranslation()
-  const [src, setSrc] = useState<string | null>(null)
-  const [kind, setKind] = useState<string>('')
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const { t } = useTranslation();
+  const [src, setSrc] = useState<string | null>(null);
+  const [kind, setKind] = useState<string>("");
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   useEffect(() => {
-    invoke<PreviewData>('documents:preview', id)
+    invoke<PreviewData>("documents:preview", id)
       .then((p) => {
-        const first = p.kind === 'multi' ? p.pages[0] : p
-        setKind(first.kind)
-        if (first.kind === 'image') setSrc(first.dataUrl)
-        else setSrc(null)
+        const first = p.kind === "multi" ? p.pages[0] : p;
+        setKind(first.kind);
+        if (first.kind === "image") setSrc(first.dataUrl);
+        else setSrc(null);
       })
-      .catch(() => undefined)
-  }, [id])
+      .catch(() => undefined);
+  }, [id]);
   return (
     <div className="relative flex min-w-0 flex-1 items-center gap-2">
       <button
@@ -309,27 +376,40 @@ export function DocumentThumb({
         className="flex min-w-0 items-center gap-2 text-start"
         onClick={onOpen}
         onDoubleClick={(e) => {
-          e.preventDefault()
-          onOpen?.()
+          e.preventDefault();
+          onOpen?.();
         }}
         onContextMenu={(e) => {
-          e.preventDefault()
-          setMenu({ x: e.clientX, y: e.clientY })
+          e.preventDefault();
+          setMenu({ x: e.clientX, y: e.clientY });
         }}
         data-no-row
       >
-        {kind === 'image' && src ? (
-          <img src={src} alt="" className="h-12 w-12 rounded border object-cover" />
-        ) : kind === 'pdf' ? (
-          <span className="flex h-12 w-12 items-center justify-center rounded border bg-navy-50 text-[10px] font-bold">PDF</span>
+        {kind === "image" && src ? (
+          <img
+            src={src}
+            alt=""
+            className="h-12 w-12 rounded border object-cover"
+          />
+        ) : kind === "pdf" ? (
+          <span className="flex h-12 w-12 items-center justify-center rounded border bg-navy-50 text-[10px] font-bold">
+            PDF
+          </span>
         ) : (
-          <span className="flex h-12 w-12 items-center justify-center rounded border bg-navy-50 text-[10px]">ملف</span>
+          <span className="flex h-12 w-12 items-center justify-center rounded border bg-navy-50 text-[10px]">
+            ملف
+          </span>
         )}
         <span className="max-w-[14rem] truncate">{title}</span>
       </button>
       {menu ? (
         <>
-          <button type="button" className="fixed inset-0 z-[90]" onClick={() => setMenu(null)} aria-label={t('cancel')} />
+          <button
+            type="button"
+            className="fixed inset-0 z-[90]"
+            onClick={() => setMenu(null)}
+            aria-label={t("cancel")}
+          />
           <div
             className="fixed z-[91] min-w-[10rem] rounded-md border border-navy-100 bg-white py-1 text-sm shadow-lg dark:border-navy-700 dark:bg-navy-900"
             style={{ left: menu.x, top: menu.y }}
@@ -338,52 +418,65 @@ export function DocumentThumb({
               type="button"
               className="block w-full px-3 py-1.5 text-start hover:bg-navy-50 dark:hover:bg-navy-800"
               onClick={() => {
-                setMenu(null)
-                onOpen?.()
+                setMenu(null);
+                onOpen?.();
               }}
             >
-              {t('docs.preview')}
+              {t("docs.preview")}
             </button>
             <button
               type="button"
               className="block w-full px-3 py-1.5 text-start hover:bg-navy-50 dark:hover:bg-navy-800"
               onClick={() => {
-                setMenu(null)
-                onOpenExternal?.()
+                setMenu(null);
+                onOpenExternal?.();
               }}
             >
-              {t('docs.openExternal')}
+              {t("docs.openExternal")}
             </button>
           </div>
         </>
       ) : null}
     </div>
-  )
+  );
 }
 
 function fileToUrl(file: PickedFile) {
-  const mime = file.mime || (file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg')
-  return URL.createObjectURL(new Blob([new Uint8Array(file.data)], { type: mime }))
+  const mime =
+    file.mime ||
+    (file.name.toLowerCase().endsWith(".pdf")
+      ? "application/pdf"
+      : "image/jpeg");
+  return URL.createObjectURL(
+    new Blob([new Uint8Array(file.data)], { type: mime }),
+  );
 }
 
 function LocalFileThumb({
   file,
   label,
   onOpen,
-  onClear
+  onClear,
 }: {
-  file: PickedFile
-  label: string
-  onOpen: () => void
-  onClear: () => void
+  file: PickedFile;
+  label: string;
+  onOpen: () => void;
+  onClear: () => void;
 }) {
-  const { t } = useTranslation()
-  const pdf = (file.mime || '').includes('pdf') || file.name.toLowerCase().endsWith('.pdf')
+  const { t } = useTranslation();
+  const pdf =
+    (file.mime || "").includes("pdf") ||
+    file.name.toLowerCase().endsWith(".pdf");
   return (
     <div className="flex items-center gap-2 rounded border border-navy-100 px-2 py-1 dark:border-navy-800">
-      <button type="button" className="flex min-w-0 items-center gap-2 text-start" onClick={onOpen} onDoubleClick={onOpen}>
+      <button
+        type="button"
+        className="flex min-w-0 items-center gap-2 text-start"
+        onClick={onOpen}
+        onDoubleClick={onOpen}
+      >
         <span className="flex h-12 w-12 items-center justify-center rounded bg-navy-50 text-[10px] font-bold">
-          {pdf ? 'PDF' : t('docs.page')}
+          {pdf ? "PDF" : t("docs.page")}
         </span>
         <span className="max-w-[9rem] truncate text-xs">
           {label}
@@ -392,10 +485,10 @@ function LocalFileThumb({
         </span>
       </button>
       <Button type="button" variant="ghost" size="sm" onClick={onClear}>
-        {t('delete')}
+        {t("delete")}
       </Button>
     </div>
-  )
+  );
 }
 
 function LocalPreviewModal({
@@ -405,51 +498,70 @@ function LocalPreviewModal({
   onPrev,
   onNext,
   canPrev,
-  canNext
+  canNext,
 }: {
-  file: PickedFile | null
-  title: string
-  onClose: () => void
-  onPrev?: () => void
-  onNext?: () => void
-  canPrev?: boolean
-  canNext?: boolean
+  file: PickedFile | null;
+  title: string;
+  onClose: () => void;
+  onPrev?: () => void;
+  onNext?: () => void;
+  canPrev?: boolean;
+  canNext?: boolean;
 }) {
-  const { t } = useTranslation()
-  const [url, setUrl] = useState<string | null>(null)
-  const pdf = !!file && ((file.mime || '').includes('pdf') || file.name.toLowerCase().endsWith('.pdf'))
+  const { t } = useTranslation();
+  const [url, setUrl] = useState<string | null>(null);
+  const pdf =
+    !!file &&
+    ((file.mime || "").includes("pdf") ||
+      file.name.toLowerCase().endsWith(".pdf"));
   useEffect(() => {
     if (!file || pdf) {
-      setUrl(null)
-      return
+      setUrl(null);
+      return;
     }
-    const u = fileToUrl(file)
-    setUrl(u)
-    return () => URL.revokeObjectURL(u)
-  }, [file, pdf])
+    const u = fileToUrl(file);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [file, pdf]);
   return (
     <Modal open={!!file} title={title} onClose={onClose} wide>
       {!file ? (
-        <div>{t('loading')}</div>
+        <div>{t("loading")}</div>
       ) : pdf ? (
-        <p className="py-8 text-center text-sm text-navy-500">{t('docs.pdfExternalHint')}</p>
+        <p className="py-8 text-center text-sm text-navy-500">
+          {t("docs.pdfExternalHint")}
+        </p>
       ) : !url ? (
-        <div>{t('loading')}</div>
+        <div>{t("loading")}</div>
       ) : (
-        <img src={url} alt={file.name} className="max-h-[70vh] w-full object-contain" />
+        <img
+          src={url}
+          alt={file.name}
+          className="max-h-[70vh] w-full object-contain"
+        />
       )}
       {onPrev || onNext ? (
         <div className="mt-3 flex justify-between">
-          <Button type="button" variant="outline" disabled={!canPrev} onClick={onPrev}>
-            {t('prev')}
+          <Button
+            type="button"
+            variant="outline"
+            disabled={!canPrev}
+            onClick={onPrev}
+          >
+            {t("prev")}
           </Button>
-          <Button type="button" variant="outline" disabled={!canNext} onClick={onNext}>
-            {t('next')}
+          <Button
+            type="button"
+            variant="outline"
+            disabled={!canNext}
+            onClick={onNext}
+          >
+            {t("next")}
           </Button>
         </div>
       ) : null}
     </Modal>
-  )
+  );
 }
 
 export function AttachDocumentControl({
@@ -457,112 +569,129 @@ export function AttachDocumentControl({
   onChange,
   existing,
   owner,
-  onUploaded
+  onUploaded,
 }: {
-  docs: PendingDoc[]
-  onChange: (docs: PendingDoc[]) => void
-  existing?: { id?: string; title: string; category: string }[]
-  owner?: { client_id?: string; opponent_id?: string; lawyer_id?: string; employee_id?: string }
-  onUploaded?: () => void
+  docs: PendingDoc[];
+  onChange: (docs: PendingDoc[]) => void;
+  existing?: { id?: string; title: string; category: string }[];
+  owner?: {
+    client_id?: string;
+    opponent_id?: string;
+    lawyer_id?: string;
+    employee_id?: string;
+  };
+  onUploaded?: () => void;
 }) {
-  const { t } = useTranslation()
-  const { toast } = useApp()
-  const [open, setOpen] = useState(false)
+  const { t } = useTranslation();
+  const { toast } = useApp();
+  const [open, setOpen] = useState(false);
   const [category, setCategory] = useState(() => {
     try {
-      return sessionStorage.getItem('doc.lastCategory') || 'id'
+      return sessionStorage.getItem("doc.lastCategory") || "id";
     } catch {
-      return 'id'
+      return "id";
     }
-  })
-  const [saveFormat, setSaveFormat] = useState<'jpeg' | 'pdf'>('jpeg')
-  const [pages, setPages] = useState<PickedFile[]>([])
-  const [preview, setPreview] = useState<{ file: PickedFile; title: string } | null>(null)
-  const [previewPages, setPreviewPages] = useState<PickedFile[] | null>(null)
-  const [previewPage, setPreviewPage] = useState(0)
-  const [savedPreview, setSavedPreview] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [extraCats, setExtraCats] = useState<string[]>([])
+  });
+  const [saveFormat, setSaveFormat] = useState<"jpeg" | "pdf">("jpeg");
+  const [pages, setPages] = useState<PickedFile[]>([]);
+  const [preview, setPreview] = useState<{
+    file: PickedFile;
+    title: string;
+  } | null>(null);
+  const [previewPages, setPreviewPages] = useState<PickedFile[] | null>(null);
+  const [previewPage, setPreviewPage] = useState(0);
+  const [savedPreview, setSavedPreview] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [extraCats, setExtraCats] = useState<string[]>([]);
   const catLabel = (id: string) => {
-    const hit = DOC_CATEGORIES.find((c) => c.id === id)
-    return hit ? t(hit.key) : id
-  }
-  const hasOwner = Boolean(owner?.client_id || owner?.opponent_id || owner?.lawyer_id || owner?.employee_id)
+    const hit = DOC_CATEGORIES.find((c) => c.id === id);
+    return hit ? t(hit.key) : id;
+  };
+  const hasOwner = Boolean(
+    owner?.client_id ||
+    owner?.opponent_id ||
+    owner?.lawyer_id ||
+    owner?.employee_id,
+  );
 
   useEffect(() => {
-    invoke<{ value: string }[]>('lookups:list', 'doc_category')
+    invoke<{ value: string }[]>("lookups:list", "doc_category")
       .then((rows) =>
         setExtraCats(
           rows
             .map((r) => r.value)
-            .filter((v) => !DOC_CATEGORIES.some((c) => c.id === v || t(c.key) === v))
-        )
+            .filter(
+              (v) => !DOC_CATEGORIES.some((c) => c.id === v || t(c.key) === v),
+            ),
+        ),
       )
-      .catch(() => undefined)
-  }, [])
+      .catch(() => undefined);
+  }, []);
 
   const rememberCat = (id: string) => {
     try {
-      sessionStorage.setItem('doc.lastCategory', id)
+      sessionStorage.setItem("doc.lastCategory", id);
     } catch {
       /* ignore */
     }
-    invoke('lookups:remember', 'doc_category', catLabel(id)).catch(() => undefined)
-  }
+    invoke("lookups:remember", "doc_category", catLabel(id)).catch(
+      () => undefined,
+    );
+  };
 
   const openDraft = (id: string) => {
-    setCategory(id)
-    setSaveFormat(id === 'poa' || id === 'contract' ? 'pdf' : 'jpeg')
-    resetDraft()
-    setOpen(true)
-  }
+    setCategory(id);
+    setSaveFormat(id === "poa" || id === "contract" ? "pdf" : "jpeg");
+    resetDraft();
+    setOpen(true);
+  };
 
   const resetDraft = () => {
-    setPages([])
-  }
+    setPages([]);
+  };
 
   const commit = async () => {
-    const filled = pages.filter((p) => p.data?.length)
-    if (!filled.length) return toast(t('docs.pickFirst'), 'err')
-    rememberCat(category)
+    const filled = pages.filter((p) => p.data?.length);
+    if (!filled.length) return toast(t("docs.pickFirst"), "err");
+    rememberCat(category);
     const next: PendingDoc = {
       localId: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       category,
-      title: `${catLabel(category)}${filled.length > 1 ? ` — ${filled.length}` : ''}`,
-      save_format: filled.length > 1 ? 'pdf' : saveFormat,
-      pages: filled
-    }
-    setBusy(true)
+      title: `${catLabel(category)}${filled.length > 1 ? ` — ${filled.length}` : ""}`,
+      save_format: filled.length > 1 ? "pdf" : saveFormat,
+      pages: filled,
+    };
+    setBusy(true);
     try {
       if (hasOwner) {
         await invoke(
-          'documents:upload',
+          "documents:upload",
           {
             ...owner,
             title: next.title,
             category: next.category,
-            save_format: next.save_format
+            save_format: next.save_format,
           },
-          { pages: next.pages, save_format: next.save_format }
-        )
-        toast(t('docs.uploaded'))
-        onUploaded?.()
+          { pages: next.pages, save_format: next.save_format },
+        );
+        toast(t("docs.uploaded"));
+        onUploaded?.();
       } else {
-        onChange([...docs, next])
+        onChange([...docs, next]);
       }
-      resetDraft()
-      setOpen(false)
+      resetDraft();
+      setOpen(false);
     } catch (e) {
-      toast((e as Error).message, 'err')
+      toast((e as Error).message, "err");
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
-  }
+  };
 
   const allItems = [
-    ...docs.map((d) => ({ kind: 'pending' as const, doc: d })),
-    ...(existing || []).map((d) => ({ kind: 'saved' as const, doc: d }))
-  ]
+    ...docs.map((d) => ({ kind: "pending" as const, doc: d })),
+    ...(existing || []).map((d) => ({ kind: "saved" as const, doc: d })),
+  ];
 
   return (
     <div className="ms-auto flex w-full max-w-xl flex-col items-end gap-2">
@@ -570,7 +699,7 @@ export function AttachDocumentControl({
         <DropdownMenu.Trigger asChild>
           <Button type="button" variant="outline" className="gap-1">
             <Paperclip size={16} />
-            {t('docs.attach')}
+            {t("docs.attach")}
           </Button>
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
@@ -607,10 +736,12 @@ export function AttachDocumentControl({
               key={d.localId}
               type="button"
               className="rounded border border-navy-100 px-2 py-1 text-xs hover:bg-navy-50 dark:border-navy-800"
-              onClick={() => d.pages[0] && setPreview({ file: d.pages[0], title: d.title })}
+              onClick={() =>
+                d.pages[0] && setPreview({ file: d.pages[0], title: d.title })
+              }
               onDoubleClick={() => {
-                setPreviewPages(d.pages)
-                setPreviewPage(0)
+                setPreviewPages(d.pages);
+                setPreviewPage(0);
               }}
             >
               {d.title}
@@ -623,31 +754,47 @@ export function AttachDocumentControl({
                 id={d.id}
                 title={d.title}
                 onOpen={() => setSavedPreview(d.id || null)}
-                onOpenExternal={() => invoke('documents:open', d.id).catch((e) => toast((e as Error).message, 'err'))}
+                onOpenExternal={() =>
+                  invoke("documents:open", d.id).catch((e) =>
+                    toast((e as Error).message, "err"),
+                  )
+                }
               />
             ) : (
               <span key={d.title} className="text-xs text-navy-500">
                 {d.title}
               </span>
-            )
+            ),
           )}
         </div>
       ) : null}
-      <Modal open={open} title={`${t('docs.attach')} — ${catLabel(category)}`} onClose={() => setOpen(false)} wide>
+      <Modal
+        open={open}
+        title={`${t("docs.attach")} — ${catLabel(category)}`}
+        onClose={() => setOpen(false)}
+        wide
+      >
         <div className="space-y-3">
-          <p className="text-xs text-navy-500">{t('docs.multiPageHint')}</p>
-          <Field label={t('docs.customCategory')}>
+          <p className="text-xs text-navy-500">{t("docs.multiPageHint")}</p>
+          <Field label={t("docs.customCategory")}>
             <LookupCombo
               kind="doc_category"
-              value={DOC_CATEGORIES.some((c) => c.id === category) ? catLabel(category) : category}
+              value={
+                DOC_CATEGORIES.some((c) => c.id === category)
+                  ? catLabel(category)
+                  : category
+              }
               onChange={(v) => {
-                const hit = DOC_CATEGORIES.find((c) => t(c.key) === v)
-                setCategory(hit?.id || v)
+                const hit = DOC_CATEGORIES.find((c) => t(c.key) === v);
+                setCategory(hit?.id || v);
               }}
             />
           </Field>
-          <Field label={t('docs.saveFormat')}>
-            <Select value={saveFormat} onChange={(e) => setSaveFormat(e.target.value as 'jpeg' | 'pdf')}>
+          <Field label={t("docs.saveFormat")}>
+            <Select
+              value={saveFormat}
+              onChange={(e) => setSaveFormat(e.target.value as "jpeg" | "pdf")}
+            >
               <option value="jpeg">JPEG</option>
               <option value="pdf">PDF</option>
             </Select>
@@ -657,112 +804,140 @@ export function AttachDocumentControl({
               <LocalFileThumb
                 key={`${p.name}-${i}`}
                 file={p}
-                label={`${t('docs.page')} ${i + 1}`}
+                label={`${t("docs.page")} ${i + 1}`}
                 onOpen={() => {
-                  if (!p.data?.length) return
-                  setPreviewPages(pages)
-                  setPreviewPage(i)
+                  if (!p.data?.length) return;
+                  setPreviewPages(pages);
+                  setPreviewPage(i);
                 }}
-                onClear={() => setPages((prev) => prev.filter((_, idx) => idx !== i))}
+                onClear={() =>
+                  setPages((prev) => prev.filter((_, idx) => idx !== i))
+                }
               />
             ))}
             <div className="flex min-h-[4.5rem] min-w-[8rem] flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-navy-200 p-2 dark:border-navy-700">
-              <button
-                type="button"
-                className="flex h-8 w-8 items-center justify-center rounded-md border border-navy-200 text-lg font-bold leading-none text-navy-700 hover:bg-navy-50 dark:border-navy-600 dark:text-navy-100"
-                title={t('docs.addPagesNow')}
-                onClick={() =>
-                  setPages((prev) => [
-                    ...prev,
-                    { name: `${t('docs.page')} ${prev.length + 2}`, data: [], mime: '' }
-                  ])
-                }
-              >
-                +
-              </button>
               <UploadSourceMenu
                 compact
                 multiple
                 onFile={(file) =>
                   setPages((prev) => {
-                    const i = prev.findIndex((p) => !p.data?.length)
+                    const i = prev.findIndex((p) => !p.data?.length);
                     if (i >= 0) {
-                      const next = [...prev]
-                      next[i] = file
-                      return next
+                      const next = [...prev];
+                      next[i] = file;
+                      return next;
                     }
-                    return [...prev, file]
+                    return [...prev, file];
                   })
                 }
               />
             </div>
           </div>
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-              {t('cancel')}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setOpen(false)}
+            >
+              {t("cancel")}
             </Button>
-            <Button type="button" disabled={busy || !pages.some((p) => p.data?.length)} onClick={() => void commit()}>
-              {busy ? t('saving') : t('docs.addPages')}
+            <Button
+              type="button"
+              disabled={busy || !pages.some((p) => p.data?.length)}
+              onClick={() => void commit()}
+            >
+              {busy ? t("saving") : t("docs.addPages")}
             </Button>
           </div>
         </div>
       </Modal>
       <LocalPreviewModal
-        file={previewPages ? previewPages[previewPage] || null : preview?.file || null}
+        file={
+          previewPages
+            ? previewPages[previewPage] || null
+            : preview?.file || null
+        }
         title={
           previewPages
-            ? `${t('docs.page')} ${previewPage + 1} / ${previewPages.length}`
-            : preview?.title || t('docs.preview')
+            ? `${t("docs.page")} ${previewPage + 1} / ${previewPages.length}`
+            : preview?.title || t("docs.preview")
         }
         onClose={() => {
-          setPreview(null)
-          setPreviewPages(null)
+          setPreview(null);
+          setPreviewPages(null);
         }}
-        onPrev={previewPages && previewPages.length > 1 ? () => setPreviewPage((n) => Math.max(0, n - 1)) : undefined}
+        onPrev={
+          previewPages && previewPages.length > 1
+            ? () => setPreviewPage((n) => Math.max(0, n - 1))
+            : undefined
+        }
         onNext={
           previewPages && previewPages.length > 1
-            ? () => setPreviewPage((n) => Math.min(previewPages.length - 1, n + 1))
+            ? () =>
+                setPreviewPage((n) => Math.min(previewPages.length - 1, n + 1))
             : undefined
         }
         canPrev={Boolean(previewPages && previewPage > 0)}
         canNext={Boolean(previewPages && previewPage < previewPages.length - 1)}
       />
-      <DocumentPreviewModal id={savedPreview} onClose={() => setSavedPreview(null)} />
+      <DocumentPreviewModal
+        id={savedPreview}
+        onClose={() => setSavedPreview(null)}
+      />
     </div>
-  )
+  );
 }
 
 export async function uploadPendingDocs(
-  owner: { client_id?: string; opponent_id?: string; lawyer_id?: string; employee_id?: string },
+  owner: {
+    client_id?: string;
+    opponent_id?: string;
+    lawyer_id?: string;
+    employee_id?: string;
+  },
   form: Record<string, unknown>,
-  extra?: Record<string, unknown>
+  extra?: Record<string, unknown>,
 ) {
-  const docs = (form.__pending_docs as PendingDoc[] | undefined) || []
-  const legacy: PendingDoc[] = []
-  const idFile = form.__pending_id as PickedFile | undefined
-  const poaFile = form.__pending_poa as PickedFile | undefined
+  const docs = (form.__pending_docs as PendingDoc[] | undefined) || [];
+  const legacy: PendingDoc[] = [];
+  const idFile = form.__pending_id as PickedFile | undefined;
+  const poaFile = form.__pending_poa as PickedFile | undefined;
   if (idFile?.data) {
-    legacy.push({ localId: 'id', category: 'id', title: idFile.name || 'بطاقة', save_format: 'jpeg', sides: 'front', pages: [idFile] })
+    legacy.push({
+      localId: "id",
+      category: "id",
+      title: idFile.name || "بطاقة",
+      save_format: "jpeg",
+      sides: "front",
+      pages: [idFile],
+    });
   }
   if (poaFile?.data) {
-    legacy.push({ localId: 'poa', category: 'poa', title: poaFile.name || 'توكيل', save_format: 'pdf', sides: 'front', pages: [poaFile] })
+    legacy.push({
+      localId: "poa",
+      category: "poa",
+      title: poaFile.name || "توكيل",
+      save_format: "pdf",
+      sides: "front",
+      pages: [poaFile],
+    });
   }
-  const ids: string[] = []
+  const ids: string[] = [];
   for (const doc of [...docs, ...legacy]) {
     const r = await invoke<{ id?: string }>(
-      'documents:upload',
+      "documents:upload",
       {
         ...owner,
         ...extra,
         title: doc.title,
         category: extra?.category || doc.category,
-        save_format: doc.save_format
+        save_format: doc.save_format,
       },
-      { pages: doc.pages, save_format: doc.save_format }
-    )
-    if (r?.id) ids.push(r.id)
+      { pages: doc.pages, save_format: doc.save_format },
+    );
+    if (r?.id) ids.push(r.id);
   }
-  return ids
+  return ids;
 }
 
 export function ClientDocumentUpload({
@@ -770,23 +945,28 @@ export function ClientDocumentUpload({
   opponentId,
   lawyerId,
   employeeId,
-  onDone
+  onDone,
 }: {
-  clientId?: string
-  opponentId?: string
-  lawyerId?: string
-  employeeId?: string
-  onDone: () => void
+  clientId?: string;
+  opponentId?: string;
+  lawyerId?: string;
+  employeeId?: string;
+  onDone: () => void;
 }) {
-  const { can } = useApp()
-  const [docs, setDocs] = useState<PendingDoc[]>([])
-  if (!can('documents.upload')) return null
+  const { can } = useApp();
+  const [docs, setDocs] = useState<PendingDoc[]>([]);
+  if (!can("documents.upload")) return null;
   return (
     <AttachDocumentControl
       docs={docs}
       onChange={setDocs}
-      owner={{ client_id: clientId, opponent_id: opponentId, lawyer_id: lawyerId, employee_id: employeeId }}
+      owner={{
+        client_id: clientId,
+        opponent_id: opponentId,
+        lawyer_id: lawyerId,
+        employee_id: employeeId,
+      }}
       onUploaded={onDone}
     />
-  )
+  );
 }

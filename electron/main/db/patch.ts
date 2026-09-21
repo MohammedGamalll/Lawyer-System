@@ -172,6 +172,9 @@ export function patchSchema(db: Db): void {
   addColumn(db, 'tasks', 'execution_officer', 'TEXT')
   addColumn(db, 'tasks', 'judgment_date', 'TEXT')
   addColumn(db, 'tasks', 'judgment_text', 'TEXT')
+  addColumn(db, 'tasks', 'notes', 'TEXT')
+  addColumn(db, 'tasks', 'opponent_address', 'TEXT')
+  addColumn(db, 'tasks', 'opponent_phone', 'TEXT')
   addColumn(db, 'cases', 'judgment_date', 'TEXT')
   addColumn(db, 'cases', 'judgment_text', 'TEXT')
   addColumn(db, 'lawyers', 'national_id', 'TEXT')
@@ -215,13 +218,102 @@ export function patchSchema(db: Db): void {
       deleted_at TEXT
     );
   `)
+  addColumn(db, 'lookup_values', 'sort_order', 'INTEGER NOT NULL DEFAULT 0')
   seedLookups(db)
+  backfillLookupSort(db)
+  migrateExpertHearings(db)
   for (const stmt of PERFORMANCE_INDEXES.split(';').map((s) => s.trim()).filter(Boolean)) {
     try {
       db.exec(stmt)
     } catch (err) {
       console.warn('index skipped', stmt.slice(0, 80), err)
     }
+  }
+}
+
+function migrateExpertHearings(db: Db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS expert_hearings (
+      id TEXT PRIMARY KEY,
+      case_id TEXT NOT NULL REFERENCES cases(id),
+      hearing_date TEXT NOT NULL,
+      hearing_time TEXT,
+      expert_office TEXT,
+      expert_name TEXT,
+      floor TEXT,
+      hall TEXT,
+      previous_action TEXT,
+      current_action TEXT,
+      notes TEXT,
+      lawyer_id TEXT REFERENCES lawyers(id),
+      status TEXT NOT NULL DEFAULT 'upcoming',
+      source_hearing_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deleted_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_expert_hearings_date ON expert_hearings(hearing_date);
+    CREATE INDEX IF NOT EXISTS idx_expert_hearings_case ON expert_hearings(case_id);
+  `)
+  addColumn(db, 'expert_hearings', 'source_hearing_id', 'TEXT')
+  const flag = db.prepare(`SELECT value FROM settings WHERE key = 'expert_hearings_migrated'`).get() as
+    | { value: string }
+    | undefined
+  if (flag?.value === '1') return
+  const rows = db
+    .prepare(
+      `SELECT * FROM hearings
+       WHERE deleted_at IS NULL AND (hearing_type LIKE '%خبير%' OR hearing_type LIKE '%expert%')`
+    )
+    .all() as Record<string, unknown>[]
+  const ts = nowIso()
+  try {
+    const copied = new Set(
+      (
+        db.prepare(`SELECT source_hearing_id FROM expert_hearings WHERE source_hearing_id IS NOT NULL`).all() as {
+          source_hearing_id: string
+        }[]
+      ).map((r) => r.source_hearing_id)
+    )
+    const insert = db.prepare(
+      `INSERT INTO expert_hearings (
+          id, case_id, hearing_date, hearing_time, expert_office, expert_name, floor, hall,
+          previous_action, current_action, notes, lawyer_id, status, source_hearing_id, created_at, updated_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    )
+    db.transaction(() => {
+      for (const r of rows) {
+        const hid = String(r.id)
+        if (copied.has(hid)) continue
+        insert.run(
+          newId(),
+          r.case_id,
+          r.hearing_date,
+          r.hearing_time ?? null,
+          r.expert_office ?? null,
+          r.expert_name ?? null,
+          r.floor ?? null,
+          r.hall ?? null,
+          r.previous_decision ?? null,
+          r.court_decision ?? r.what_happened ?? r.next_actions ?? null,
+          r.notes ?? null,
+          r.lawyer_id ?? null,
+          r.status ?? 'upcoming',
+          hid,
+          r.created_at ?? ts,
+          ts
+        )
+      }
+      db.prepare(
+        `INSERT INTO settings (key, value, updated_at) VALUES ('expert_hearings_migrated', '1', ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+      ).run(ts)
+    })()
+  } catch (err) {
+    const n = rows.length
+    throw new Error(
+      `تعذر نسخ جلسات الخبراء (${n}). أوقفنا الترحيل دون حذف الصفوف الأصلية. ${err instanceof Error ? err.message : ''}`
+    )
   }
 }
 
@@ -377,16 +469,37 @@ function mergeDuplicateClientsByNationalId(db: Db): void {
   }
 }
 
+function backfillLookupSort(db: Db): void {
+  if (!tableCols(db, 'lookup_values').has('sort_order')) return
+  const kinds = db.prepare(`SELECT DISTINCT kind FROM lookup_values`).all() as { kind: string }[]
+  const list = db.prepare(
+    `SELECT id FROM lookup_values WHERE kind = ? AND deleted_at IS NULL ORDER BY IFNULL(sort_order, 0), value COLLATE NOCASE`
+  )
+  const zeros = db.prepare(
+    `SELECT COUNT(*) as c FROM lookup_values WHERE kind = ? AND deleted_at IS NULL AND IFNULL(sort_order, 0) = 0`
+  )
+  const totalStmt = db.prepare(`SELECT COUNT(*) as c FROM lookup_values WHERE kind = ? AND deleted_at IS NULL`)
+  const upd = db.prepare(`UPDATE lookup_values SET sort_order = ? WHERE id = ?`)
+  for (const { kind } of kinds) {
+    const total = (totalStmt.get(kind) as { c: number }).c
+    const z = (zeros.get(kind) as { c: number }).c
+    if (!total || z !== total) continue
+    const rows = list.all(kind) as { id: string }[]
+    rows.forEach((r, i) => upd.run(i, r.id))
+  }
+}
+
 function seedLookups(db: Db): void {
   const ts = nowIso()
   const exists = db.prepare('SELECT 1 FROM lookup_values WHERE kind = ? AND value = ? AND deleted_at IS NULL')
+  const maxOrder = db.prepare(`SELECT COALESCE(MAX(sort_order), -1) as m FROM lookup_values WHERE kind = ?`)
   const insert = db.prepare(
-    'INSERT INTO lookup_values (id, kind, value, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+    'INSERT INTO lookup_values (id, kind, value, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
   )
   for (const [kind, values] of Object.entries(LOOKUP_SEEDS)) {
     for (const value of values) {
       if (exists.get(kind, value)) continue
-      insert.run(newId(), kind, value, ts, ts)
+      insert.run(newId(), kind, value, Number((maxOrder.get(kind) as { m: number }).m) + 1, ts, ts)
     }
   }
 }

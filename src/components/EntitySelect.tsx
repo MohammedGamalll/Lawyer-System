@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { fetchLookup, type LookupKind, type LookupOption } from '../lib/lookups'
 import { cn } from '../lib/utils'
@@ -15,7 +15,8 @@ export function EntitySelect({
   clientId,
   excludeIds,
   extraOptions,
-  className
+  className,
+  id
 }: {
   kind: LookupKind
   value?: string | number
@@ -24,6 +25,7 @@ export function EntitySelect({
   excludeIds?: Array<string | number>
   extraOptions?: LookupOption[]
   className?: string
+  id?: string
 }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
@@ -33,6 +35,13 @@ export function EntitySelect({
   const [missingLabel, setMissingLabel] = useState('')
   const box = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const uid = useId().replace(/:/g, '')
+  const triggerId = id || `entity-select-${kind}-${uid}`
+  const openMenu = () => {
+    setOpen(true)
+    triggerRef.current?.focus()
+  }
   const includeIds = [
     ...((extraOptions || []).map((o) => String(o.value))),
     ...(value ? [String(value)] : [])
@@ -59,6 +68,12 @@ export function EntitySelect({
       }, kind),
     [kind, clientId, open, dq]
   )
+  useEffect(() => {
+    const n = box.current
+    if (!n) return
+    n.addEventListener('open-on-label', openMenu)
+    return () => n.removeEventListener('open-on-label', openMenu)
+  }, [])
 
   useEffect(() => {
     const id = String(value ?? '')
@@ -103,14 +118,38 @@ export function EntitySelect({
   }, [opts, extraOptions, excludeIds])
 
   return (
-    <div ref={box} className={cn('relative', className)}>
+    <div ref={box} data-open-on-label className={cn('relative', className)}>
       <button
+        ref={triggerRef}
+        id={triggerId}
         type="button"
-        className="flex h-9 w-full items-center justify-between rounded-md border border-navy-200 bg-white px-3 text-sm text-navy-900 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-gold-400 dark:bg-navy-900 dark:border-navy-700 dark:text-navy-50"
-        onClick={() => setOpen((v) => !v)}
+        className="flex h-9 w-full items-center justify-between gap-1 rounded-md border border-navy-200 bg-white px-3 text-sm text-navy-900 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-gold-400 dark:bg-navy-900 dark:border-navy-700 dark:text-navy-50"
+        aria-expanded={open}
+        onClick={openMenu}
+        onFocus={() => setOpen(true)}
       >
-        <span className={display ? '' : 'text-navy-400'}>{display || t('pickFromList')}</span>
-        <span className="text-navy-400">▾</span>
+        <span className={cn('min-w-0 truncate', display ? '' : 'text-navy-400')}>{display || t('pickFromList')}</span>
+        <span className="flex shrink-0 items-center gap-0.5">
+          {display ? (
+            <span
+              role="button"
+              tabIndex={-1}
+              className="flex h-6 w-6 items-center justify-center rounded text-navy-400 hover:bg-navy-50 hover:text-navy-800 dark:hover:bg-navy-800"
+              title={t('clearField')}
+              aria-label={t('clearField')}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={(e) => {
+                e.stopPropagation()
+                onChange('')
+                setQ('')
+                setOpen(true)
+              }}
+            >
+              ×
+            </span>
+          ) : null}
+          <span className="text-navy-400">▾</span>
+        </span>
       </button>
       <FloatingMenu open={open} onClose={() => setOpen(false)} anchor={box} minWidth={240}>
         <div className="p-1">

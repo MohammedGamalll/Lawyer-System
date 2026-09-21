@@ -11,6 +11,7 @@ import { formatDateTime } from '../lib/datetime'
 import { dashboardCardTheme, DASHBOARD_CHART_WRAP } from '../lib/dashboardCardThemes'
 import { displayCaseCode } from '../lib/courtNumber'
 import { orderedDashboardSections, type DashboardSectionId } from '../lib/layoutPrefs'
+import { cairoTodayIso } from '@shared/cairoDate'
 
 const COLORS = ['#122f4d', '#c9a227', '#3d6d9e', '#8c6b16', '#6e97c0', '#163a5f']
 
@@ -79,7 +80,54 @@ export function DashboardPage() {
             <Card
               key={c.key}
               className={`min-h-[92px] cursor-pointer ${theme.wrap}`}
-              onDoubleClick={() => c.page && setPage(c.page)}
+              onClick={() => {
+                if (!c.page) return
+                if (c.key === 'actionCases') {
+                  setPage('cases', { status_in: 'new,under_review,for_judgment,execution' })
+                  return
+                }
+                if (c.key === 'openCases') {
+                  setPage('cases', { status_not_in: 'closed,archived' })
+                  return
+                }
+                if (c.key === 'closedCases') {
+                  setPage('cases', { status: 'closed' })
+                  return
+                }
+                if (c.key === 'postponedCases') {
+                  setPage('cases', { status: 'postponed' })
+                  return
+                }
+                if (c.key === 'hearingsToday') {
+                  setPage('hearings', { view: 'today' })
+                  return
+                }
+                if (c.key === 'hearingsTomorrow') {
+                  setPage('hearings', { view: 'tomorrow' })
+                  return
+                }
+                if (c.key === 'hearingsWeek') {
+                  setPage('hearings', { view: 'week' })
+                  return
+                }
+                if (c.key === 'overdueTasks') {
+                  setPage('tasks', { view: 'overdue' })
+                  return
+                }
+                if (c.key === 'todayTasks') {
+                  setPage('tasks', { view: 'today' })
+                  return
+                }
+                if (c.key === 'newClients') {
+                  setPage('clients', { created_from: `${cairoTodayIso().slice(0, 8)}01` })
+                  return
+                }
+                if (c.key === 'upcomingAppointments') {
+                  setPage('appointments', { date_from: cairoTodayIso(), status: 'scheduled' })
+                  return
+                }
+                setPage(c.page)
+              }}
             >
               <div className={`text-xs ${theme.label}`}>{c.label}</div>
               <div className={`mt-1 text-2xl font-bold ${theme.value}`}>{String(c.value)}</div>

@@ -49,6 +49,12 @@ export function casePrintSelectSql(cs = 'cs'): string {
                 WHERE xo.case_id = ${cs}.id AND ${notDeleted('xo')} AND ${notDeleted('ox')}
                 ORDER BY IFNULL(xo.sort_order, 0) LIMIT 1
               ) as opponent_address,
+              (
+                SELECT ox.phone FROM case_opponents xo
+                JOIN opponents ox ON ox.id = xo.opponent_id
+                WHERE xo.case_id = ${cs}.id AND ${notDeleted('xo')} AND ${notDeleted('ox')}
+                ORDER BY IFNULL(xo.sort_order, 0) LIMIT 1
+              ) as opponent_phone,
               COALESCE(
                 (SELECT cc.capacity_first FROM case_clients cc
                  WHERE cc.case_id = ${cs}.id AND IFNULL(cc.is_primary,0)=1 AND ${notDeleted('cc')} LIMIT 1),

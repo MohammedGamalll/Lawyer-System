@@ -65,6 +65,8 @@ describe('hearing roll print', () => {
           court: 'محكمة جنوب الجيزة',
           client_name: 'ايمان ناصف محمد',
           opponent_name: 'عطالله علي احمد',
+          previous_decision: 'حافظة مستندات',
+          court_decision: 'تأجيل للمرافعة',
           expert_name: 'محمد الخبير',
           case_type: 'مدني',
           case_title: 'مطالبة بمبلغ',
@@ -81,6 +83,8 @@ describe('hearing roll print', () => {
     expect(html).toContain('جنوب الجيزة')
     expect(html).not.toContain('محكمة جنوب')
     expect(html).toContain('اسم الخبير: محمد الخبير')
+    expect(html).toContain('حافظة مستندات')
+    expect(html).toContain('تأجيل للمرافعة')
     expect(html).toContain('الأستاذ / ........................................................................')
     expect(html).not.toContain('الأستاذ / محمد')
     expect(html).toContain('class="group-header"')
@@ -126,6 +130,23 @@ describe('hearing roll print', () => {
     expect(html).toContain('justify-content: space-between')
     expect(html).toContain('text-align: left')
     expect(html).not.toContain('اسم المحامي المستلم')
+  })
+
+  it('keeps office phones and print datetime on hearings roll', () => {
+    const html = buildPrintHtml({
+      title: 'كشف جلسات المحكمة',
+      body: '',
+      kind: 'report',
+      office: 'اسم المكتب',
+      phone: '0100 — 0111',
+      printedAt: '2026-09-21 09:15',
+      layout: 'hearingsRoll'
+    })
+    expect(html).toContain('0100 — 0111')
+    expect(html).toContain('2026-09-21 09:15')
+    expect(html).toContain('unicode-bidi: isolate')
+    expect(html).toContain('class="muted"')
+    expect(html).toContain('class="gold"')
   })
 
   it('builds an execution roll with address column and execution fields', () => {
@@ -193,6 +214,29 @@ describe('hearing roll print', () => {
     expect(html).not.toContain('محكمة جنوب')
     expect(sheetTitle).toContain('أعمال إدارية يوم')
     expect(sheetTitle).not.toContain('القاهرة')
+  })
+
+  it('prints court numbers as formatted text, not escaped html tags', () => {
+    const { html } = adminTasksRollTableHtml(
+      [
+        {
+          due_date: '2025-07-15',
+          venue: 'جنوب القاهرة',
+          first_instance_number: '4523',
+          first_instance_year: '2025',
+          office_case_number: '4523',
+          case_year: '2025',
+          description: 'تصوير قضية'
+        }
+      ],
+      t,
+      'ar'
+    )
+    expect(html).toContain('class="court-number"')
+    expect(html).toContain('4523 / 2025')
+    expect(html).not.toContain('&lt;span')
+    expect(html).not.toContain('&lt;span class=&quot;court-number&quot;')
+    expect(html).not.toMatch(/&lt;span class=/)
   })
 
   it('groups admin tasks by date only even when venues differ', () => {

@@ -12,6 +12,7 @@ export const PRINT_FIELD_KEYS = [
   'client.capacity',
   'case.case_number',
   'case.office_case_number',
+  'case.court_number',
   'case.case_year',
   'case.title',
   'case.court',
@@ -28,10 +29,25 @@ export const PRINT_FIELD_KEYS = [
   'case.description',
   'case.litigation_degree',
   'case.session_place',
+  'case.capacity_first',
+  'case.capacity_appeal',
+  'case.capacity_cassation',
   'opponent.full_name',
   'opponent.lawyer',
+  'opponent.phone',
+  'opponent.capacity_first',
+  'opponent.capacity_appeal',
+  'opponent.capacity_cassation',
   'hearings.list',
   'hearings.next',
+  'expert.name',
+  'expert.office',
+  'expert.floor',
+  'expert.hall',
+  'expert.datetime',
+  'expert.previous_action',
+  'expert.current_action',
+  'experts.list',
   'tasks.list',
   'tasks.upcoming',
   'fees.total',
@@ -62,6 +78,7 @@ export const PRINT_FIELD_GROUPS: { id: string; keys: PrintFieldKey[] }[] = [
     keys: [
       'case.case_number',
       'case.office_case_number',
+      'case.court_number',
       'case.case_year',
       'case.title',
       'case.court',
@@ -77,11 +94,37 @@ export const PRINT_FIELD_GROUPS: { id: string; keys: PrintFieldKey[] }[] = [
       'case.summary',
       'case.description',
       'case.litigation_degree',
-      'case.session_place'
+      'case.session_place',
+      'case.capacity_first',
+      'case.capacity_appeal',
+      'case.capacity_cassation'
     ]
   },
-  { id: 'opponent', keys: ['opponent.full_name', 'opponent.lawyer'] },
+  {
+    id: 'opponent',
+    keys: [
+      'opponent.full_name',
+      'opponent.lawyer',
+      'opponent.phone',
+      'opponent.capacity_first',
+      'opponent.capacity_appeal',
+      'opponent.capacity_cassation'
+    ]
+  },
   { id: 'hearings', keys: ['hearings.list', 'hearings.next'] },
+  {
+    id: 'expert',
+    keys: [
+      'expert.name',
+      'expert.office',
+      'expert.floor',
+      'expert.hall',
+      'expert.datetime',
+      'expert.previous_action',
+      'expert.current_action',
+      'experts.list'
+    ]
+  },
   { id: 'tasks', keys: ['tasks.list', 'tasks.upcoming'] },
   { id: 'fees', keys: ['fees.total', 'fees.paid', 'fees.remaining'] },
   { id: 'meta', keys: ['today', 'custom'] }
@@ -230,7 +273,11 @@ export function renderLayoutHtml(
     .map((b) => {
       const label = escapeHtml(b.title)
       const valRaw = values[b.bind] ?? ''
-      const val = escapeHtml(valRaw).replace(/\n/g, '<br/>')
+      const valEsc = escapeHtml(valRaw).replace(/\n/g, '<br/>')
+      const val =
+        b.bind === 'case.office_case_number' || b.bind === 'case.court_number'
+          ? `<span class="court-number" dir="rtl">${valEsc}</span>`
+          : valEsc
       let inner = ''
       if (b.kind === 'logo' || b.bind === 'office.logo' || b.bind === 'office.name' || b.bind === 'office.phone' || b.bind === 'office.address') {
         return ''
@@ -262,6 +309,7 @@ body { width: 210mm; min-height: 297mm; font-family: 'IBM Plex Sans Arabic', Tah
 .block .inner { width: 100%; color: #122f4d; overflow-wrap: break-word; word-break: normal; white-space: pre-wrap; line-height: 1.35; }
 .block .lbl { color: #3d4f61; font-size: 8.5pt; }
 .block .val { color: #122f4d; }
+.court-number { unicode-bidi: isolate; }
 .block img { display: block; max-width: 100%; max-height: 100%; }
 .print-date { position: absolute; top: 4mm; left: 6mm; font-size: 9pt; color: #5b6b7c; z-index: 4; }
 .print-logo-center { position: absolute; top: 3mm; left: 50%; transform: translateX(-50%); height: 16mm; z-index: 3; }

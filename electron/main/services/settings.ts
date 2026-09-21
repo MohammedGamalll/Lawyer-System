@@ -46,6 +46,9 @@ export function getPublicSettings(): Record<string, string> {
     out.case_sequence_current = String(seq.current_value)
     out.case_sequence_next = `${seq.prefix}${String(seq.current_value + 1).padStart(seq.padding, '0')}`
   }
+  if (!out.print_orientation) {
+    out.print_orientation = out.print_landscape === 'true' ? 'landscape' : 'portrait'
+  }
   return out
 }
 
@@ -62,6 +65,12 @@ export function setSettings(actor: AuthedUser, values: Record<string, string>) {
     upsert.run(k, v ?? '', ts)
     saved[k] = v ?? ''
     if (!k.startsWith('sync_')) recordLocalChange('settings', k, 'UPDATE')
+  }
+  if (saved.print_orientation) {
+    const landscape = saved.print_orientation === 'landscape' ? 'true' : 'false'
+    upsert.run('print_landscape', landscape, ts)
+    saved.print_landscape = landscape
+    recordLocalChange('settings', 'print_landscape', 'UPDATE')
   }
   if (values.case_sequence_current != null && values.case_sequence_current !== '') {
     const nextVal = Number(values.case_sequence_current)

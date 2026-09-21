@@ -39,5 +39,25 @@ describe('print RTL / Arabic shaping template', () => {
     expect(voucher).toContain('72mm')
     expect(receipt).toContain('إيصال قبض')
     expect(voucher).toContain('سند صرف')
+    expect(receipt).not.toContain('A4 landscape')
+  })
+
+  it('uses A4 portrait by default and A4 landscape when requested', () => {
+    const portrait = buildPrintHtml({
+      title: 'شيت',
+      body: '<p>جلسات</p>',
+      kind: 'report',
+      office: 'مكتب',
+      landscape: false
+    })
+    const landscape = buildPrintHtml({
+      title: 'شيت',
+      body: '<p>جلسات</p>',
+      kind: 'report',
+      office: 'مكتب',
+      landscape: true
+    })
+    expect(portrait).toContain('size: A4 portrait')
+    expect(landscape).toContain('size: A4 landscape')
   })
 })

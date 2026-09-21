@@ -7,6 +7,8 @@ import { hasAnyPermission } from '../ipc/session'
 import { maskClientContactFields } from './clients'
 import { ftsQuery } from '../db/fts'
 import { arabicLike, foldedLikeTerm } from '@shared/arabic'
+import { listHearings } from './hearings'
+import { listTasks } from './schedule'
 
 export type ReportQuery = {
   type: string
@@ -16,6 +18,7 @@ export type ReportQuery = {
   lawyer_id?: string
   case_type_id?: string
   format?: 'json' | 'xlsx' | 'csv'
+  print?: boolean
 }
 
 function dateWhere(col: string, from?: string, to?: string, params: unknown[] = []) {
@@ -107,6 +110,18 @@ export function runReport(q: ReportQuery) {
         )
         .all()
     case 'hearings': {
+      if (q.print) {
+        return listHearings({
+          page: 1,
+          pageSize: 1000,
+          print: true,
+          filters: {
+            date_from: q.from || undefined,
+            date_to: q.to || undefined,
+            venue: q.venue || undefined
+          }
+        }).rows
+      }
       const d = dateWhere('hearing_date', q.from, q.to, params)
       let sql = `SELECT h.hearing_date, cs.case_number, cl.full_name as client_name, h.hearing_type, h.venue, h.previous_decision,
                   h.hall, h.floor, cs.court, h.status, h.result
@@ -139,6 +154,19 @@ export function runReport(q: ReportQuery) {
         )
         .all()
     case 'tasks': {
+      if (q.print) {
+        return listTasks({
+          page: 1,
+          pageSize: 1000,
+          print: true,
+          filters: {
+            work_kind: 'admin',
+            date_from: q.from || undefined,
+            date_to: q.to || undefined,
+            venue: q.venue || undefined
+          }
+        }).rows
+      }
       const d = dateWhere('t.due_date', q.from, q.to, params)
       let sql = `SELECT t.title, cs.case_number, cl.full_name as client_name, u.full_name as assignee_name,
                   t.due_date, t.priority, t.status, t.progress, t.venue
@@ -146,7 +174,34 @@ export function runReport(q: ReportQuery) {
            LEFT JOIN cases cs ON cs.id = t.case_id AND ${notDeleted('cs')}
            LEFT JOIN clients cl ON cl.id = t.client_id AND ${notDeleted('cl')}
            LEFT JOIN users u ON u.id = t.assignee_id AND ${notDeleted('u')}
-           WHERE ${notDeleted('t')} ${d.sql}`
+           WHERE ${notDeleted('t')} AND IFNULL(t.work_kind, 'admin') = 'admin' ${d.sql}`
+      if (q.venue) {
+        sql += ' AND t.venue LIKE ?'
+        d.params.push(`%${String(q.venue).trim()}%`)
+      }
+      return db.prepare(`${sql} ORDER BY t.due_date LIMIT 5000`).all(...d.params)
+    }
+    case 'executions': {
+      if (q.print) {
+        return listTasks({
+          page: 1,
+          pageSize: 1000,
+          print: true,
+          filters: {
+            work_kind: 'execution',
+            date_from: q.from || undefined,
+            date_to: q.to || undefined,
+            venue: q.venue || undefined
+          }
+        }).rows
+      }
+      const d = dateWhere('t.due_date', q.from, q.to, params)
+      let sql = `SELECT t.title, t.description, cs.case_number, cl.full_name as client_name, cs.opponent_name,
+                  t.due_date, t.status, t.venue, t.execution_kind, t.police_station, t.police_report_kind, t.police_report_no
+           FROM tasks t
+           LEFT JOIN cases cs ON cs.id = t.case_id AND ${notDeleted('cs')}
+           LEFT JOIN clients cl ON cl.id = t.client_id AND ${notDeleted('cl')}
+           WHERE ${notDeleted('t')} AND IFNULL(t.work_kind, 'admin') = 'execution' ${d.sql}`
       if (q.venue) {
         sql += ' AND t.venue LIKE ?'
         d.params.push(`%${String(q.venue).trim()}%`)

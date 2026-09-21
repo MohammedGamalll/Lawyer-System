@@ -12,7 +12,7 @@ import { DatePicker, DateTimePicker, TimePicker } from './DateTimePicker'
 import { EntitySelect } from './EntitySelect'
 import { LookupCombo } from './LookupCombo'
 import { formatCell } from '../lib/datetime'
-import { formatProgramCode } from '../lib/courtNumber'
+import { formatProgramCode, isManualProgramCode } from '../lib/courtNumber'
 import { applyPrintColFilters, compactTableHtml, escPrint, printVal } from '../lib/printKit'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
@@ -62,6 +62,7 @@ export type FieldDef = {
   size?: 'sm' | 'xs'
   widthCh?: number
   hidden?: boolean
+  hint?: string
 }
 
 export function schemaFromFields(fields: FieldDef[]) {
@@ -112,7 +113,7 @@ export function FormFields({
         return (
           <React.Fragment key={f.name}>
           <div className={full ? 'w-full basis-full' : 'max-w-full'} style={full ? undefined : { width: `${ch}ch` }}>
-            <Field label={f.label} required={f.required} error={err}>
+            <Field label={f.label} required={f.required} error={err} hint={f.hint}>
               {f.type === 'textarea' ? (
                 <Textarea {...reg} value={String(val)} onChange={(e) => { reg.onChange?.(e); onChange(f.name, e.target.value) }} />
               ) : f.lookup ? (
@@ -236,7 +237,7 @@ export function CrudPage({
   updateSchema?: z.ZodTypeAny
   extraFilters?: React.ReactNode
   listFilters?: Record<string, unknown>
-  onRowOpen?: (row: Record<string, unknown>) => void
+  onRowOpen?: (row: Record<string, unknown>, edit: () => void) => void
   extraActions?: React.ReactNode
   rowActions?: (row: Record<string, unknown>, reload: () => Promise<void>) => React.ReactNode
   formExtra?: (form: Record<string, unknown>, setField: SetField) => React.ReactNode
@@ -443,19 +444,20 @@ export function CrudPage({
         /* keep list row */
       }
     }
+    if (listChannel === 'experts:list' && row.id) {
+      try {
+        const full = await invoke<Record<string, unknown>>('experts:get', row.id)
+        next = { ...next, ...full }
+      } catch {
+        /* keep list row */
+      }
+    }
     if (listChannel === 'cases:list' && row.id) {
       try {
         const full = await invoke<Record<string, unknown>>('cases:get', row.id)
         next = hydrateCaseForm(next, full)
       } catch {
         /* keep list row */
-      }
-    }
-    if (!next.office_case_number && typeof next.case_number === 'string') {
-      const m = String(next.case_number).match(/^(.*)\/(\d{2,4})$/)
-      if (m && !String(next.case_number).startsWith('CS-')) {
-        next.office_case_number = m[1]
-        if (!next.case_year) next.case_year = m[2]
       }
     }
     setForm(next)
@@ -472,6 +474,7 @@ export function CrudPage({
       const pwd = String(payload.password ?? form.password ?? '').trim()
       if (pwd) payload.password = pwd
       else delete payload.password
+      if (payload.__numbering_mode && !payload.numbering_mode) payload.numbering_mode = payload.__numbering_mode
       for (const k of Object.keys(payload)) {
         if (k.startsWith('__')) delete payload[k]
       }
@@ -571,7 +574,7 @@ export function CrudPage({
         <td
           key={c.key}
           title={c.render ? undefined : formatCell(c.key, row[c.key], i18n.language, t)}
-          className={`max-w-[12rem] truncate px-2 py-1.5 text-start align-middle leading-relaxed text-navy-900 dark:text-white ${c.onCellClick ? 'cursor-pointer underline decoration-navy-300' : ''}`}
+          className={`max-w-[18rem] whitespace-normal break-words px-2 py-1.5 text-start align-middle leading-relaxed text-navy-900 dark:text-white ${c.onCellClick ? 'cursor-pointer underline decoration-navy-300' : ''}`}
           onClick={(e) => {
             if (!c.onCellClick) return
             e.stopPropagation()
@@ -592,7 +595,7 @@ export function CrudPage({
       <td className="w-12 px-1 py-2 text-center align-middle" data-no-row onClick={(e) => e.stopPropagation()}>
         <RowMenu
           items={[
-            ...(onRowOpen ? [{ label: t('details'), onClick: () => onRowOpen(row) }] : []),
+            ...(onRowOpen ? [{ label: t('details'), onClick: () => onRowOpen(row, () => startEdit(row)) }] : []),
             ...(onEditRow || (updateChannel && (!updatePerm || can(updatePerm)))
               ? [{ label: t('edit'), onClick: () => (onEditRow ? onEditRow(row) : startEdit(row)) }]
               : []),
@@ -640,7 +643,7 @@ export function CrudPage({
   const onRowClick = (e: React.MouseEvent, row: Record<string, unknown>) => {
     const el = e.target as HTMLElement
     if (el.closest('button, a, input, textarea, select, [data-no-row]')) return
-    if (onRowOpen) onRowOpen(row)
+    if (onRowOpen) onRowOpen(row, () => startEdit(row))
     else if (updateChannel && (!updatePerm || can(updatePerm))) startEdit(row)
     else if (onEditRow) onEditRow(row)
   }
@@ -770,7 +773,11 @@ export function CrudPage({
       <Modal open={open} title={editing ? t('edit') : t('add')} onClose={() => setOpen(false)} wide>
         <form onSubmit={save}>
           {listChannel === 'cases:list' ? (
-            <div className="mb-3 text-center text-4xl font-black text-red-600">
+            <div
+              className={`mb-3 text-center text-4xl font-black ${
+                editing && isManualProgramCode(editing) ? 'text-red-600' : 'text-navy-900 dark:text-white'
+              }`}
+            >
               {editing ? formatProgramCode(editing) : t('caseForm.autoCode')}
             </div>
           ) : null}

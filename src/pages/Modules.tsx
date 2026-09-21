@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { CrudPage, FieldDef } from '../components/CrudPage'
 import { CaseFormExtras } from '../components/CaseFormExtras'
@@ -9,7 +9,8 @@ import { Button, Input, Select } from '../components/ui'
 import { EntitySelect } from '../components/EntitySelect'
 import { LookupCombo } from '../components/LookupCombo'
 import { DatePicker } from '../components/DateTimePicker'
-import { formatCourtNumber, formatProgramCode, displayClientCode } from '../lib/courtNumber'
+import { formatProgramCode, displayClientCode, isManualProgramCode } from '../lib/courtNumber'
+import { CourtNumberText } from '../components/CourtNumberText'
 import { invoke } from '../lib/api'
 import { useApp } from '../store'
 import { REMINDER_TYPES } from '@shared/types'
@@ -119,12 +120,15 @@ const emptyCasePrintExtra = (): CasePrintExtra => ({
 
 export function ClientsPage() {
   const { t } = useTranslation()
-  const { setPage, can, toast } = useApp()
+  const { setPage, can, toast, pageMeta } = useApp()
   const showContact = can('clients.unmask_contact')
+  const listFilters: Record<string, unknown> = {}
+  if (pageMeta.created_from) listFilters.created_from = String(pageMeta.created_from)
   return (
     <CrudPage
       title={t('nav.clients')}
       listChannel="clients:list"
+      listFilters={Object.keys(listFilters).length ? listFilters : undefined}
       createChannel="clients:create"
       updateChannel="clients:update"
       removeChannel="clients:remove"
@@ -204,15 +208,32 @@ export function ClientsPage() {
 
 export function CasesPage() {
   const { t, i18n } = useTranslation()
-  const { setPage, toast } = useApp()
+  const { setPage, toast, pageMeta } = useApp()
   const [draft, setDraft] = useState({ office_case_number: '', program_code: '', client_name: '', opponent_name: '' })
-  const [applied, setApplied] = useState(draft)
+  const [applied, setApplied] = useState<Record<string, unknown>>(draft)
   const [printOpen, setPrintOpen] = useState(false)
   const [printScope, setPrintScope] = useState<'filtered' | 'all' | 'upcoming'>('filtered')
   const [printColFilters, setPrintColFilters] = useState<Record<string, string>>({})
   const [printExtra, setPrintExtra] = useState<CasePrintExtra>(emptyCasePrintExtra)
+  useEffect(() => {
+    setApplied((p) => {
+      const next = { ...p }
+      delete next.status_in
+      delete next.status
+      delete next.status_not_in
+      if (pageMeta.status_in) next.status_in = String(pageMeta.status_in)
+      if (pageMeta.status) next.status = String(pageMeta.status)
+      if (pageMeta.status_not_in) next.status_not_in = String(pageMeta.status_not_in)
+      return next
+    })
+  }, [pageMeta.status_in, pageMeta.status, pageMeta.status_not_in])
   const runSearch = () => {
-    setApplied({ ...draft })
+    setApplied({
+      ...draft,
+      ...(pageMeta.status_in ? { status_in: String(pageMeta.status_in) } : {}),
+      ...(pageMeta.status ? { status: String(pageMeta.status) } : {}),
+      ...(pageMeta.status_not_in ? { status_not_in: String(pageMeta.status_not_in) } : {})
+    })
   }
   const setExtra = <K extends keyof CasePrintExtra>(key: K, value: CasePrintExtra[K]) =>
     setPrintExtra((p) => ({ ...p, [key]: value }))
@@ -236,6 +257,7 @@ export function CasesPage() {
             className="min-w-[10rem] flex-1"
             autoFocus
             placeholder={t('cases.searchCourtHint')}
+            dir="ltr"
             value={draft.office_case_number}
             onChange={(e) => setDraft({ ...draft, office_case_number: e.target.value })}
             onKeyDown={(e) => e.key === 'Enter' && runSearch()}
@@ -243,6 +265,7 @@ export function CasesPage() {
           <Input
             className="min-w-[10rem] flex-1"
             placeholder={t('fields.program_code')}
+            dir="ltr"
             value={draft.program_code}
             onChange={(e) => setDraft({ ...draft, program_code: e.target.value })}
             onKeyDown={(e) => e.key === 'Enter' && runSearch()}
@@ -270,17 +293,15 @@ export function CasesPage() {
         {
           key: 'case_number',
           label: t('fields.program_code'),
-          render: (r) => formatProgramCode(r),
+          render: (r) => (
+            <span className={isManualProgramCode(r) ? 'font-bold text-red-600' : ''}>{formatProgramCode(r)}</span>
+          ),
           onCellClick: (r) => setPage('caseProfile', { id: r.id })
         },
         {
           key: 'office_case_number',
           label: t('fields.court_number'),
-          render: (r) => (
-            <span dir="ltr" style={{ unicodeBidi: 'isolate' }}>
-              {formatCourtNumber(r)}
-            </span>
-          )
+          render: (r) => <CourtNumberText row={r} />
         },
         { key: 'title', label: t('fields.case_subject'), onCellClick: (r) => setPage('caseProfile', { id: r.id }) },
         {
@@ -503,7 +524,7 @@ export function CasesPage() {
   )
 }
 
-export { HearingsPage, TasksPage, ExecutionPage } from './WorkPages'
+export { HearingsPage, TasksPage, ExecutionPage, ExpertsPage } from './WorkPages'
 
 export function RemindersPage() {
   const { t } = useTranslation()
@@ -928,11 +949,15 @@ export function CorrespondencePage() {
 
 export function AppointmentsPage() {
   const { t } = useTranslation()
-  const { setPage } = useApp()
+  const { setPage, pageMeta } = useApp()
+  const listFilters: Record<string, unknown> = {}
+  if (pageMeta.date_from) listFilters.date_from = String(pageMeta.date_from)
+  if (pageMeta.status) listFilters.status = String(pageMeta.status)
   return (
     <CrudPage
       title={t('nav.appointments')}
       listChannel="appointments:list"
+      listFilters={Object.keys(listFilters).length ? listFilters : undefined}
       createChannel="appointments:create"
       updateChannel="appointments:update"
       removeChannel="appointments:remove"

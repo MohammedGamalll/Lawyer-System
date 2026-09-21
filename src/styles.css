@@ -138,15 +138,23 @@ label {
   border-collapse: collapse;
 }
 
-.data-table-wrap th,
-.data-table-wrap td {
+.data-table-wrap th {
   white-space: nowrap;
-  max-width: 12rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  overflow-wrap: normal;
-  word-break: normal;
   vertical-align: middle;
+}
+
+.data-table-wrap td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 22rem;
+  overflow: visible;
+  text-overflow: unset;
+  vertical-align: top;
+}
+
+.court-number {
+  unicode-bidi: isolate;
 }
 
 .dark tbody td,

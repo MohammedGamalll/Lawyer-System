@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PERMISSIONS, ROLE_PERMISSIONS, ROLES, shouldMaskClientContact, canAccessPage, NAV_ITEMS, PAGE_ACCESS } from '../shared/permissions'
+import { PERMISSIONS, ROLE_PERMISSIONS, ROLES, shouldMaskClientContact, shouldMaskOpponentContact, canAccessPage, NAV_ITEMS, PAGE_ACCESS } from '../shared/permissions'
 
 describe('permissions matrix', () => {
   const allCodes = PERMISSIONS.map((p) => p.code)
@@ -69,6 +69,15 @@ describe('permissions matrix', () => {
     expect(shouldMaskClientContact('admin', [])).toBe(false)
   })
 
+  it('masks opponent contact unless unmask permission is granted', () => {
+    expect(shouldMaskOpponentContact('secretary', ['opponents.view'])).toBe(true)
+    expect(shouldMaskOpponentContact('legal_assistant', ['opponents.view'])).toBe(true)
+    expect(shouldMaskOpponentContact('lawyer', ['opponents.view', 'opponents.unmask_contact'])).toBe(false)
+    expect(shouldMaskOpponentContact('admin', [])).toBe(false)
+    expect(ROLE_PERMISSIONS.lawyer).toContain('opponents.unmask_contact')
+    expect(ROLE_PERMISSIONS.legal_assistant).not.toContain('opponents.unmask_contact')
+  })
+
   it('covers every office permission the admin can assign', () => {
     const listed = [
       'accounts.expense',
@@ -111,6 +120,7 @@ describe('permissions matrix', () => {
       'invoices.view',
       'lawyers.view',
       'opponents.manage',
+      'opponents.unmask_contact',
       'opponents.view',
       'poa.manage',
       'poa.view',

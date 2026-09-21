@@ -7,7 +7,7 @@ export function listLookups(kind: string): { value: string }[] {
   if (!kind) return []
   return getDb()
     .prepare(
-      `SELECT value FROM lookup_values WHERE kind = ? AND ${notDeleted()} ORDER BY value COLLATE NOCASE`
+      `SELECT value FROM lookup_values WHERE kind = ? AND ${notDeleted()} ORDER BY IFNULL(sort_order, 0), value COLLATE NOCASE`
     )
     .all(kind) as { value: string }[]
 }
@@ -28,13 +28,14 @@ export function rememberLookup(kind: string, raw?: unknown): void {
     return
   }
   const id = newId()
-  db.prepare('INSERT INTO lookup_values (id, kind, value, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run(
-    id,
-    kind,
-    value,
-    ts,
-    ts
-  )
+  const max = db
+    .prepare(
+      `SELECT COALESCE(MAX(sort_order), -1) as m FROM lookup_values WHERE kind = ? AND ${notDeleted()}`
+    )
+    .get(kind) as { m: number }
+  db.prepare(
+    'INSERT INTO lookup_values (id, kind, value, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(id, kind, value, Number(max?.m ?? -1) + 1, ts, ts)
   recordLocalChange('lookup_values', id, 'INSERT')
 }
 
@@ -59,6 +60,34 @@ export function updateLookup(kind: string, oldRaw: unknown, newRaw: unknown): vo
   }
   db.prepare('UPDATE lookup_values SET value = ?, updated_at = ? WHERE id = ?').run(to, ts, row.id)
   recordLocalChange('lookup_values', row.id, 'UPDATE')
+}
+
+export function reorderLookup(kind: string, raw: unknown, dirRaw: unknown): void {
+  const value = String(raw ?? '').trim()
+  const dir = String(dirRaw ?? '') === 'down' ? 'down' : 'up'
+  if (!kind || !value) return
+  const db = getDb()
+  const rows = db
+    .prepare(
+      `SELECT id, value FROM lookup_values WHERE kind = ? AND ${notDeleted()} ORDER BY IFNULL(sort_order, 0), value COLLATE NOCASE`
+    )
+    .all(kind) as { id: string; value: string }[]
+  const i = rows.findIndex((r) => r.value === value)
+  const j = dir === 'up' ? i - 1 : i + 1
+  if (i < 0 || j < 0 || j >= rows.length) return
+  const swapped = [...rows]
+  const tmp = swapped[i]
+  swapped[i] = swapped[j]
+  swapped[j] = tmp
+  const ts = nowIso()
+  const upd = db.prepare('UPDATE lookup_values SET sort_order = ?, updated_at = ? WHERE id = ?')
+  const tx = db.transaction(() => {
+    swapped.forEach((r, idx) => {
+      upd.run(idx, ts, r.id)
+      recordLocalChange('lookup_values', r.id, 'UPDATE')
+    })
+  })
+  tx()
 }
 
 export function removeLookup(kind: string, raw?: unknown): void {

@@ -20,22 +20,29 @@ export function buildPrintHtml(opts: {
   printedAt?: string
   recipientLine?: string
   layout?: string
+  landscape?: boolean
 }): string {
   const isTicket = opts.kind === 'receipt' || opts.kind === 'voucher'
   const isReport = opts.kind === 'report'
   const isA4 = opts.kind === 'a4'
   const hearingsRoll = opts.layout === 'hearingsRoll'
-  const width = isTicket ? '72mm' : '190mm'
+  const landscape = Boolean(opts.landscape) && !isTicket
+  const width = isTicket ? '72mm' : landscape ? '277mm' : '190mm'
   const fontSize = isTicket ? '13px' : isA4 ? '15px' : '11px'
   const tableFont = isTicket ? 'inherit' : isA4 ? '13px' : '9.5px'
   const thFont = isTicket ? 'inherit' : isA4 ? '14px' : '10.5px'
   const pageMargin = isTicket ? '5mm 6mm' : isA4 ? '12mm 12mm' : hearingsRoll ? '8mm 8mm' : '10mm 10mm'
   const bodyPad = isTicket ? '6mm 7mm' : isA4 ? '12px 10px' : hearingsRoll ? '6px 4px' : '8px 8px'
-  const leftBox = hearingsRoll
-    ? `<div class="print-date">${escapeHtml(opts.title)}</div>`
-    : isReport
-      ? `<div class="print-date"><div class="recipient">${escapeHtml(opts.recipientLine || '')}</div><div>${escapeHtml(opts.printedAt || '')}</div></div>`
-      : `<div class="print-date">${escapeHtml(opts.printedAt || '')}</div>`
+  const phones = escapeHtml(opts.phone || '')
+  const address = escapeHtml(opts.address || '')
+  const leftBox = `<div class="print-date">${
+    isReport && !hearingsRoll && opts.recipientLine
+      ? `<div class="recipient">${escapeHtml(opts.recipientLine)}</div>`
+      : ''
+  }<div>${escapeHtml(opts.printedAt || '')}</div></div>`
+  const officeMeta = `<div class="muted">${phones}</div>${
+    address ? `<div class="muted">${address}</div>` : ''
+  }<div class="gold">${escapeHtml(opts.title)}</div>`
   return stripPrintCodes(`<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -45,9 +52,10 @@ export function buildPrintHtml(opts: {
 <style>
   ${opts.fontFace || ''}
   * { box-sizing: border-box; }
-  @page { size: ${isTicket ? '72mm auto' : 'A4 portrait'}; margin: ${pageMargin}; }
+  @page { size: ${isTicket ? '72mm auto' : landscape ? 'A4 landscape' : 'A4 portrait'}; margin: ${pageMargin}; }
   html, body { margin: 0; padding: 0; }
   body { font-family: 'IBM Plex Sans Arabic', Tahoma, sans-serif; direction: rtl; text-align: right; width: ${width}; max-width: 100%; padding: ${bodyPad}; color: #122f4d; font-size: ${fontSize}; unicode-bidi: isolate; }
+  [dir="ltr"] { unicode-bidi: isolate; direction: ltr; }
   h1 { font-size: ${isA4 ? '18px' : isReport ? '14px' : '16px'}; margin: 0 0 2px; }
   h2 { font-size: ${isA4 ? '16px' : '13px'}; margin: 10px 0 4px; font-weight: 800; }
   h3.print-sub, .print-sub, h3.hr-group { font-size: ${isA4 ? '14px' : '12px'}; margin: 0 0 6px; color: #122f4d; font-weight: 800; }
@@ -58,17 +66,19 @@ export function buildPrintHtml(opts: {
   td { font-size: ${tableFont}; font-weight: 400; }
   th { background: #122f4d; color: #fff; font-weight: 800; font-size: ${thFont}; }
   thead th { font-weight: 800; }
-  .head { position: relative; min-height: ${isA4 ? '96px' : '56px'}; border-bottom: 3px solid #c9a227; padding: 2px 0 8px; margin-bottom: 8px; }
-  .print-date { position: absolute; top: 0; left: 0; color: #5b6b7c; font-size: 10px; text-align: left; line-height: 1.35; }
+  .head { position: relative; display: flex; flex-direction: row; justify-content: space-between; align-items: flex-start; gap: 12px; min-height: ${isA4 ? '96px' : '56px'}; border-bottom: 3px solid #c9a227; padding: 2px 0 8px; margin-bottom: 8px; }
+  .print-date { color: #5b6b7c; font-size: 10px; text-align: left; line-height: 1.35; flex: 1 1 0; min-width: 0; padding-inline-end: ${isA4 ? '84px' : '56px'}; }
   .print-date .recipient { color: #122f4d; font-weight: 800; font-size: 11px; }
-  .head-logo { position: absolute; top: 0; left: 50%; transform: translateX(-50%); }
-  .head img.logo, .logo { height: ${isA4 ? '96px' : '52px'}; width: auto; max-width: ${isA4 ? '96px' : '52px'}; object-fit: contain; display: block; margin: 0; border-radius: 50%; }
-  .head-office { text-align: right; padding-left: 110px; }
+  .head-logo { position: absolute; left: 50%; top: 2px; transform: translateX(-50%); z-index: 2; }
+  .head img.logo, .logo { height: ${isA4 ? '72px' : '48px'}; width: auto; max-width: ${isA4 ? '72px' : '48px'}; object-fit: contain; display: block; margin: 0; border-radius: 50%; }
+  .head-office { text-align: right; padding-inline-end: ${isA4 ? '84px' : '56px'}; flex: 1 1 0; min-width: 0; }
   .gold { color: #c9a227; font-weight: 800; margin-top: 2px; }
+  .court-number { unicode-bidi: isolate; }
   .total { font-weight: 800; font-size: 16px; margin-top: 12px; }
   .kv { margin: 0 0 5px; line-height: 1.45; }
   .block-title { font-weight: 800; border-bottom: 1px solid #c9a227; margin: 10px 0 6px; padding-bottom: 2px; font-size: ${isA4 ? '16px' : '13px'}; }
-  .program-code { font-size: ${isA4 ? '26px' : '18px'}; font-weight: 800; text-align: center; color: #b91c1c; margin: 0 0 10px; letter-spacing: 0.03em; }
+  .program-code { font-size: ${isA4 ? '26px' : '18px'}; font-weight: 800; text-align: center; color: #122f4d; margin: 0 0 10px; letter-spacing: 0.03em; }
+  .program-code.manual, .program-code-manual { color: #b91c1c; }
   .print-card-block {
     border-bottom: 2px dashed #bbb;
     margin-bottom: 20px;
@@ -107,17 +117,16 @@ export function buildPrintHtml(opts: {
     padding-bottom: 4px;
   }
   body.hearings-roll-page .head.hr-head .head-office {
-    padding-left: 0;
+    padding-inline-end: 56px;
     flex: 1 1 0;
     min-width: 0;
     text-align: right;
   }
-  body.hearings-roll-page .head.hr-head .muted,
-  body.hearings-roll-page .head.hr-head .gold { display: none; }
   body.hearings-roll-page .head.hr-head .head-logo {
-    position: static;
-    transform: none;
-    flex: 0 0 auto;
+    position: absolute;
+    left: 50%;
+    top: 0;
+    transform: translateX(-50%);
   }
   body.hearings-roll-page .head.hr-head img.logo {
     height: 42px;
@@ -126,11 +135,11 @@ export function buildPrintHtml(opts: {
   }
   body.hearings-roll-page .head.hr-head .print-date {
     position: static;
-    flex: 1 1 0;
+    flex: 0 0 auto;
     min-width: 0;
-    color: #122f4d;
-    font-size: 12px;
-    font-weight: 800;
+    color: #5b6b7c;
+    font-size: 10px;
+    font-weight: 400;
     text-align: left;
   }
   .hr-lawyer { font-weight: 700; margin-bottom: 10px; }
@@ -181,8 +190,7 @@ export function buildPrintHtml(opts: {
   <div class="head${hearingsRoll ? ' hr-head' : ''}">
     <div class="head-office">
       <h1>${escapeHtml(opts.office)}</h1>
-      ${hearingsRoll ? '' : `<div class="muted">${escapeHtml(opts.address || '')}${opts.address && opts.phone ? ' — ' : ''}${escapeHtml(opts.phone || '')}</div>
-      <div class="gold">${escapeHtml(opts.title)}</div>`}
+      ${officeMeta}
     </div>
     <div class="head-logo">${opts.logo || ''}</div>
     ${leftBox}

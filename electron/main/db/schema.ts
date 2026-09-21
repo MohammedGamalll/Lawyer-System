@@ -405,6 +405,29 @@ CREATE TABLE IF NOT EXISTS hearings (
 CREATE INDEX IF NOT EXISTS idx_hearings_date ON hearings(hearing_date);
 CREATE INDEX IF NOT EXISTS idx_hearings_case ON hearings(case_id);
 
+CREATE TABLE IF NOT EXISTS expert_hearings (
+  id TEXT PRIMARY KEY,
+  case_id TEXT NOT NULL REFERENCES cases(id),
+  hearing_date TEXT NOT NULL,
+  hearing_time TEXT,
+  expert_office TEXT,
+  expert_name TEXT,
+  floor TEXT,
+  hall TEXT,
+  previous_action TEXT,
+  current_action TEXT,
+  notes TEXT,
+  lawyer_id TEXT REFERENCES lawyers(id),
+  status TEXT NOT NULL DEFAULT 'upcoming',
+  source_hearing_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_expert_hearings_date ON expert_hearings(hearing_date);
+CREATE INDEX IF NOT EXISTS idx_expert_hearings_case ON expert_hearings(case_id);
+
 CREATE TABLE IF NOT EXISTS appointments (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
@@ -447,6 +470,9 @@ CREATE TABLE IF NOT EXISTS tasks (
   execution_officer TEXT,
   judgment_date TEXT,
   judgment_text TEXT,
+  notes TEXT,
+  opponent_address TEXT,
+  opponent_phone TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   deleted_at TEXT
@@ -834,6 +860,7 @@ CREATE TABLE IF NOT EXISTS lookup_values (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL,
   value TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   deleted_at TEXT,
@@ -872,6 +899,7 @@ export const SYNC_TABLES = [
   'case_opponents',
   'case_clients',
   'hearings',
+  'expert_hearings',
   'appointments',
   'tasks',
   'reminders',

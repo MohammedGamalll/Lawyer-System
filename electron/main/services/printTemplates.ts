@@ -1,5 +1,7 @@
 import { getDb } from '../db/database'
-import { nowIso } from '../utils/time'
+import { nowIso, todayIso } from '../utils/time'
+import { cairoDateTimeStamp } from '@shared/cairoDate'
+import { formattedCourtNumber, printLookupLabel, stripProgramPrefix } from '@shared/printLabels'
 import { audit } from './audit'
 import { newId, notDeleted } from '../db/ids'
 import { recordLocalChange, softDelete } from '../sync/queue'
@@ -112,7 +114,7 @@ function listLines(rows: string[], max = 14) {
   return clip(rows.filter(Boolean).slice(0, max).join('\n'))
 }
 
-export function buildPrintContext(opts: { caseId?: string; clientId?: string }): Record<PrintFieldKey, string> {
+export function buildPrintContext(opts: { caseId?: string; clientId?: string; actor?: AuthedUser | null }): Record<PrintFieldKey, string> {
   const empty = Object.fromEntries(PRINT_FIELD_KEYS.map((k) => [k, ''])) as Record<PrintFieldKey, string>
   empty['office.name'] = getSetting('office_name', '')
   empty['office.address'] = getSetting('office_address', '')
@@ -120,12 +122,19 @@ export function buildPrintContext(opts: { caseId?: string; clientId?: string }):
     .filter(Boolean)
     .join(' — ')
   empty['office.logo'] = ''
-  empty.today = nowIso().slice(0, 10)
+  empty.today = todayIso()
   let clientId = opts.clientId || ''
   if (opts.caseId) {
-    const packed = getCase(opts.caseId) as Record<string, unknown>
+    const packed = getCase(opts.caseId, opts.actor) as Record<string, unknown>
     const fees = (packed.fees as Record<string, unknown> | undefined) || {}
-    const opponents = (packed.opponents as { full_name?: string; lawyer_name?: string }[] | undefined) || []
+    const opponents = (packed.opponents as {
+      full_name?: string
+      lawyer_name?: string
+      phone?: string
+      capacity_first?: string
+      capacity_appeal?: string
+      capacity_cassation?: string
+    }[] | undefined) || []
     const hearings = (packed.hearings as {
       hearing_date?: string
       hearing_type?: string
@@ -134,12 +143,13 @@ export function buildPrintContext(opts: { caseId?: string; clientId?: string }):
       venue?: string
     }[]) || []
     const tasks = (packed.tasks as { title?: string; due_date?: string; status?: string; venue?: string }[]) || []
-    empty['case.case_number'] = String(packed.case_number || '')
-    empty['case.office_case_number'] = String(packed.office_case_number || '')
+    empty['case.case_number'] = stripProgramPrefix(packed.case_number) || stripProgramPrefix(packed.internal_file_number)
+    empty['case.office_case_number'] = formattedCourtNumber(packed) || String(packed.office_case_number || '')
+    empty['case.court_number'] = empty['case.office_case_number']
     empty['case.case_year'] = String(packed.case_year || '')
     empty['case.title'] = String(packed.title || '')
     empty['case.court'] = String(packed.court || '')
-    empty['case.status'] = String(packed.status || '')
+    empty['case.status'] = printLookupLabel(packed.status)
     empty['case.category'] = String(packed.category || '')
     empty['case.circuit'] = String(packed.circuit || '')
     empty['case.type'] = String(packed.case_type_name || '')
@@ -152,10 +162,19 @@ export function buildPrintContext(opts: { caseId?: string; clientId?: string }):
     empty['case.description'] = clip(String(packed.description || ''))
     empty['case.litigation_degree'] = String(packed.litigation_degree || '')
     empty['case.session_place'] = String(packed.session_place || '')
+    empty['case.capacity_first'] = String(packed.capacity_first || '')
+    empty['case.capacity_appeal'] = String(packed.capacity_appeal || '')
+    empty['case.capacity_cassation'] = String(packed.capacity_cassation || '')
     empty['client.capacity'] = String(packed.capacity_first || '')
     empty['opponent.full_name'] = opponents.map((o) => o.full_name).filter(Boolean).join('، ') || String(packed.opponent_name || '')
     empty['opponent.lawyer'] =
       opponents.map((o) => o.lawyer_name).filter(Boolean).join('، ') || String(packed.opponent_lawyer || '')
+    empty['opponent.capacity_first'] = String(packed.opponent_capacity_first || opponents[0]?.capacity_first || '')
+    empty['opponent.capacity_appeal'] = String(packed.opponent_capacity_appeal || opponents[0]?.capacity_appeal || '')
+    empty['opponent.capacity_cassation'] = String(
+      packed.opponent_capacity_cassation || opponents[0]?.capacity_cassation || ''
+    )
+    empty['opponent.phone'] = String(opponents[0]?.phone || packed.opponent_phone || '')
     empty['fees.total'] = money(fees.total_fees)
     empty['fees.paid'] = money(fees.paid)
     empty['fees.remaining'] = money(fees.remaining)
@@ -170,15 +189,52 @@ export function buildPrintContext(opts: { caseId?: string; clientId?: string }):
       : ''
     empty['hearings.list'] = listLines(
       hearings.map((h) =>
-        [String(h.hearing_date || '').slice(0, 10), h.hearing_type, h.venue, h.status, h.court_decision].filter(Boolean).join(' — ')
+        [
+          String(h.hearing_date || '').slice(0, 10),
+          h.hearing_type,
+          h.venue,
+          printLookupLabel(h.status),
+          h.court_decision
+        ]
+          .filter(Boolean)
+          .join(' — ')
       )
     )
     const upcomingTasks = tasks.filter((tk) => !tk.due_date || String(tk.due_date).slice(0, 10) >= today)
     empty['tasks.list'] = listLines(
-      tasks.map((tk) => [tk.title, tk.due_date ? String(tk.due_date).slice(0, 10) : '', tk.status, tk.venue].filter(Boolean).join(' — '))
+      tasks.map((tk) =>
+        [tk.title, tk.due_date ? String(tk.due_date).slice(0, 10) : '', printLookupLabel(tk.status), tk.venue]
+          .filter(Boolean)
+          .join(' — ')
+      )
     )
     empty['tasks.upcoming'] = listLines(
       upcomingTasks.map((tk) => [tk.title, tk.due_date ? String(tk.due_date).slice(0, 10) : '', tk.venue].filter(Boolean).join(' — '))
+    )
+    const experts = (packed.expertHearings as {
+      expert_name?: string
+      expert_office?: string
+      floor?: string
+      hall?: string
+      hearing_date?: string
+      hearing_time?: string
+      previous_action?: string
+      current_action?: string
+    }[]) || []
+    const latestExpert = experts[0]
+    empty['expert.name'] = String(latestExpert?.expert_name || '')
+    empty['expert.office'] = String(latestExpert?.expert_office || '')
+    empty['expert.floor'] = String(latestExpert?.floor || '')
+    empty['expert.hall'] = String(latestExpert?.hall || '')
+    empty['expert.datetime'] = [latestExpert?.hearing_date, latestExpert?.hearing_time].filter(Boolean).join(' ')
+    empty['expert.previous_action'] = String(latestExpert?.previous_action || '')
+    empty['expert.current_action'] = String(latestExpert?.current_action || '')
+    empty['experts.list'] = listLines(
+      experts.map((ex) =>
+        [ex.hearing_date, ex.hearing_time, ex.expert_office, ex.expert_name, ex.floor, ex.hall, ex.current_action]
+          .filter(Boolean)
+          .join(' — ')
+      )
     )
     clientId = clientId || String(packed.client_id || '')
   }
@@ -198,15 +254,15 @@ export function buildPrintContext(opts: { caseId?: string; clientId?: string }):
   return empty
 }
 
-export function renderTemplateHtml(id: string, opts: { caseId?: string; clientId?: string }) {
+export function renderTemplateHtml(id: string, opts: { caseId?: string; clientId?: string; actor?: AuthedUser | null }) {
   const tpl = getPrintTemplate(id)
   const values = buildPrintContext(opts)
-  return renderLayoutHtml(tpl.layout, values, officeLogoDataUrl() || undefined, appFontFace(), nowIso())
+  return renderLayoutHtml(tpl.layout, values, officeLogoDataUrl() || undefined, appFontFace(), cairoDateTimeStamp())
 }
 
 export async function printTemplate(
   id: string,
-  opts: { caseId?: string; clientId?: string },
+  opts: { caseId?: string; clientId?: string; actor?: AuthedUser | null },
   parent?: BrowserWindow | null
 ) {
   const html = renderTemplateHtml(id, opts)
@@ -215,10 +271,10 @@ export async function printTemplate(
 
 export async function printLayout(
   layout: unknown,
-  opts: { caseId?: string; clientId?: string },
+  opts: { caseId?: string; clientId?: string; actor?: AuthedUser | null },
   parent?: BrowserWindow | null
 ) {
   const values = buildPrintContext(opts)
-  const html = renderLayoutHtml(sanitizeLayout(layout), values, officeLogoDataUrl() || undefined, appFontFace(), nowIso())
+  const html = renderLayoutHtml(sanitizeLayout(layout), values, officeLogoDataUrl() || undefined, appFontFace(), cairoDateTimeStamp())
   await printHtml(html, 'a4', parent)
 }

@@ -1,5 +1,5 @@
 import { getDb, nextNumber } from '../db/database'
-import { nowIso } from '../utils/time'
+import { nowIso, todayIso } from '../utils/time'
 import { audit } from './audit'
 import { newId, asId, asIdOrNull, notDeleted } from '../db/ids'
 import { recordLocalChange, softDelete } from '../sync/queue'
@@ -8,6 +8,7 @@ import type { ListQuery } from '@shared/types'
 import { caseSchema, parseSchema } from '@shared/schemas'
 import { rememberLookup } from './lookups'
 import { maskClientContactFields } from './clients'
+import { maskOpponentContactFields } from './people'
 import { clampPageSize, pageKind, pickSort, sqlDir, includeIds } from '../db/queryLimits'
 import { ftsQuery } from '../db/fts'
 import { arabicLike, foldedLikeTerm } from '@shared/arabic'
@@ -110,6 +111,26 @@ export function listCases(query: ListQuery = {}, archived = 0) {
   const parties = parsePartyFilters(String(f.client_name ?? ''), String(f.opponent_name ?? ''))
   where = applyNameAnd(where, params, parties.client, 'client')
   where = applyNameAnd(where, params, parties.opponent, 'opponent')
+  if (f.status_in) {
+    const parts = String(f.status_in)
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    if (parts.length) {
+      where += ` AND c.status IN (${parts.map(() => '?').join(',')})`
+      params.push(...parts)
+    }
+  }
+  if (f.status_not_in) {
+    const parts = String(f.status_not_in)
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    if (parts.length) {
+      where += ` AND c.status NOT IN (${parts.map(() => '?').join(',')})`
+      params.push(...parts)
+    }
+  }
   if (f.status) {
     where += ' AND c.status = ?'
     params.push(f.status)
@@ -127,7 +148,8 @@ export function listCases(query: ListQuery = {}, archived = 0) {
     params.push(f.client_id)
   }
   if (f.upcoming) {
-    where += ` AND EXISTS (SELECT 1 FROM hearings h WHERE h.case_id = c.id AND ${notDeleted('h')} AND date(h.hearing_date) >= date('now'))`
+    where += ` AND EXISTS (SELECT 1 FROM hearings h WHERE h.case_id = c.id AND ${notDeleted('h')} AND date(h.hearing_date) >= date(?))`
+    params.push(todayIso())
   }
   if (f.title) {
     where += ` AND ${arabicLike('c.title')}`
@@ -251,6 +273,18 @@ export function getCase(id: string, actor?: AuthedUser | null) {
        FROM hearings WHERE case_id = ? AND ${notDeleted()} ORDER BY hearing_date DESC LIMIT 80`
     )
     .all(id)
+  let expertHearings: unknown[] = []
+  try {
+    expertHearings = db
+      .prepare(
+        `SELECT id, hearing_date, hearing_time, expert_office, expert_name, floor, hall,
+                previous_action, current_action, notes, status
+         FROM expert_hearings WHERE case_id = ? AND ${notDeleted()} ORDER BY hearing_date DESC, hearing_time DESC LIMIT 80`
+      )
+      .all(id)
+  } catch {
+    expertHearings = []
+  }
   const rawCaseClients = db
     .prepare(
       `SELECT cc.*, cl.client_number, cl.full_name, cl.nickname, cl.trade_name, cl.national_id, cl.phone, cl.phone2,
@@ -300,9 +334,10 @@ export function getCase(id: string, actor?: AuthedUser | null) {
     capacity_appeal: primaryParty?.capacity_appeal,
     capacity_cassation: primaryParty?.capacity_cassation,
     links,
-    opponents,
+    opponents: maskOpponentContactFields(opponents as unknown[], actor),
     fees,
     hearings,
+    expertHearings,
     hearingsTotal,
     payments,
     documents,
@@ -360,6 +395,7 @@ function upsertCaseFees(
 }
 
 export function createCase(actor: AuthedUser, data: Record<string, unknown>) {
+  if (!data.numbering_mode && data.__numbering_mode) data.numbering_mode = data.__numbering_mode
   data = parseSchema(caseSchema, data) as Record<string, unknown>
   const clientId = asId(data.client_id)
   if (!clientId) throw new Error('لا يمكن إنشاء قضية بدون عميل')
@@ -462,6 +498,7 @@ export function createCase(actor: AuthedUser, data: Record<string, unknown>) {
 }
 
 export function updateCase(actor: AuthedUser, id: string, data: Record<string, unknown>) {
+  if (!data.numbering_mode && data.__numbering_mode) data.numbering_mode = data.__numbering_mode
   data = parseSchema(caseSchema, data) as Record<string, unknown>
   const db = getDb()
   const old = db.prepare(`SELECT * FROM cases WHERE id = ? AND ${notDeleted()}`).get(id) as
@@ -604,16 +641,42 @@ export function archiveCase(actor: AuthedUser, id: string, archive = true) {
 }
 
 export function listCaseTypes() {
-  return getDb().prepare(`SELECT * FROM case_types WHERE ${notDeleted()} ORDER BY sort_order, created_at`).all()
+  return getDb().prepare(`SELECT * FROM case_types WHERE ${notDeleted()} ORDER BY IFNULL(sort_order, 0), created_at`).all()
+}
+
+export function reorderCaseType(id: string, dirRaw: unknown) {
+  const dir = String(dirRaw ?? '') === 'down' ? 'down' : 'up'
+  const db = getDb()
+  const rows = db
+    .prepare(`SELECT id FROM case_types WHERE ${notDeleted()} ORDER BY IFNULL(sort_order, 0), created_at`)
+    .all() as { id: string }[]
+  const i = rows.findIndex((r) => r.id === id)
+  const j = dir === 'up' ? i - 1 : i + 1
+  if (i < 0 || j < 0 || j >= rows.length) return
+  const swapped = [...rows]
+  const tmp = swapped[i]
+  swapped[i] = swapped[j]
+  swapped[j] = tmp
+  const ts = nowIso()
+  const upd = db.prepare('UPDATE case_types SET sort_order = ?, updated_at = ? WHERE id = ?')
+  db.transaction(() => {
+    swapped.forEach((r, idx) => {
+      upd.run(idx, ts, r.id)
+      recordLocalChange('case_types', r.id, 'UPDATE')
+    })
+  })()
 }
 
 export function createCaseType(actor: AuthedUser, nameAr: string, nameEn?: string) {
   if (!nameAr.trim()) throw new Error('اسم النوع مطلوب')
   const id = newId()
   const ts = nowIso()
+  const max = getDb()
+    .prepare(`SELECT COALESCE(MAX(sort_order), -1) as m FROM case_types WHERE ${notDeleted()}`)
+    .get() as { m: number }
   getDb()
-    .prepare('INSERT INTO case_types (id, name_ar, name_en, is_active, sort_order, created_at, updated_at) VALUES (?, ?, ?, 1, 99, ?, ?)')
-    .run(id, nameAr.trim(), nameEn ?? nameAr.trim(), ts, ts)
+    .prepare('INSERT INTO case_types (id, name_ar, name_en, is_active, sort_order, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?)')
+    .run(id, nameAr.trim(), nameEn ?? nameAr.trim(), Number(max?.m ?? -1) + 1, ts, ts)
   recordLocalChange('case_types', id, 'INSERT')
   audit(actor, 'create', 'case_types', id, `تمت إضافة نوع قضية: ${nameAr}`)
   return { id }
@@ -653,7 +716,42 @@ function rememberCaseLookups(data: Record<string, unknown>) {
   rememberLookup('case_status', data.status)
 }
 
-function allocateCaseNumber(
+const DUPLICATE_CASE_CODE = 'هذا الكود مستخدم من قبل، يرجى إدخال كود غير مكرر'
+
+export function programCodeKey(value: string) {
+  let key = String(value || '')
+    .trim()
+    .replace(/^(CS|CL)-/i, '')
+    .toLowerCase()
+  if (/^\d+$/.test(key)) key = String(Number(key))
+  return key
+}
+
+function bumpCaseSequenceIfNeeded(db: ReturnType<typeof getDb>, code: string) {
+  const seq = db.prepare(`SELECT prefix, current_value, padding FROM number_sequences WHERE name = 'case'`).get() as
+    | { prefix: string; current_value: number; padding: number }
+    | undefined
+  if (!seq) return
+  const escaped = seq.prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const m = code.match(new RegExp(`^(?:${escaped})?(\\d+)$`, 'i'))
+  if (!m) return
+  const n = Number(m[1])
+  if (!Number.isFinite(n) || n <= seq.current_value) return
+  db.prepare(`UPDATE number_sequences SET current_value = ?, updated_at = ? WHERE name = 'case'`).run(n, nowIso())
+}
+
+function assertUniqueProgramCode(db: ReturnType<typeof getDb>, code: string, excludeId?: string) {
+  const key = programCodeKey(code)
+  if (!key) throw new Error('أدخل كود القضية')
+  const rows = (
+    excludeId
+      ? db.prepare(`SELECT id, case_number FROM cases WHERE ${notDeleted()} AND id != ?`).all(excludeId)
+      : db.prepare(`SELECT id, case_number FROM cases WHERE ${notDeleted()}`).all()
+  ) as { id: string; case_number: string }[]
+  if (rows.some((r) => programCodeKey(r.case_number) === key)) throw new Error(DUPLICATE_CASE_CODE)
+}
+
+export function allocateCaseNumber(
   db: ReturnType<typeof getDb>,
   data: Record<string, unknown>,
   excludeId?: string
@@ -661,15 +759,30 @@ function allocateCaseNumber(
   const year = String(data.case_year ?? '').trim()
   let office = String(data.office_case_number ?? '').trim()
   if (year && office.endsWith(`/${year}`)) office = office.slice(0, -(year.length + 1)).trim()
-  if (/^CS-/i.test(office)) {
-    throw new Error('رقم المكتب القديم مستقل عن كود البرنامج (CS-). اترك كود CS للعداد التلقائي.')
-  }
-  let number: string
-  if (excludeId) {
+  const mode = String(data.numbering_mode ?? '').trim() === 'manual' ? 'manual' : 'auto'
+  const typed = String(data.case_number ?? '').trim()
+  let number = ''
+  if (mode === 'manual') {
+    if (!typed) throw new Error('أدخل كود القضية')
+    assertUniqueProgramCode(db, typed, excludeId)
+    bumpCaseSequenceIfNeeded(db, typed)
+    number = typed
+  } else if (excludeId) {
     const old = db.prepare(`SELECT case_number FROM cases WHERE id = ?`).get(excludeId) as { case_number: string }
     number = old.case_number
   } else {
-    number = nextNumber(db, 'case')
+    let next = nextNumber(db, 'case')
+    for (let i = 0; i < 50; i++) {
+      try {
+        assertUniqueProgramCode(db, next, excludeId)
+        number = next
+        break
+      } catch (err) {
+        if (!(err instanceof Error) || err.message !== DUPLICATE_CASE_CODE) throw err
+        next = nextNumber(db, 'case')
+      }
+    }
+    if (!number) throw new Error(DUPLICATE_CASE_CODE)
   }
   if (office) {
     const found = excludeId
