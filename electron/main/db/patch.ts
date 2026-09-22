@@ -88,6 +88,7 @@ export function patchSchema(db: Db): void {
   addColumn(db, 'hearings', 'hall', 'TEXT')
   addColumn(db, 'hearings', 'floor', 'TEXT')
   addColumn(db, 'hearings', 'venue', 'TEXT')
+  addColumn(db, 'expert_hearings', 'venue', 'TEXT')
   addColumn(db, 'cases', 'first_instance_number', 'TEXT')
   addColumn(db, 'cases', 'first_instance_year', 'TEXT')
   addColumn(db, 'cases', 'appeal_number', 'TEXT')
@@ -113,7 +114,11 @@ export function patchSchema(db: Db): void {
   addColumn(db, 'case_opponents', 'sort_order', 'INTEGER NOT NULL DEFAULT 0')
   ensureCaseSequenceFrom(db, 7000)
   db.exec(`UPDATE cases SET case_year = substr(created_at, 1, 4) WHERE case_year IS NULL OR trim(case_year) = ''`)
-  extractCourtNumbers(db)
+  try {
+    extractCourtNumbers(db)
+  } catch (err) {
+    console.error('extractCourtNumbers', err)
+  }
   try {
     mergeDuplicateClientsByNationalId(db)
   } catch (err) {
@@ -240,6 +245,7 @@ function migrateExpertHearings(db: Db) {
       hearing_time TEXT,
       expert_office TEXT,
       expert_name TEXT,
+      venue TEXT,
       floor TEXT,
       hall TEXT,
       previous_action TEXT,
@@ -256,6 +262,7 @@ function migrateExpertHearings(db: Db) {
     CREATE INDEX IF NOT EXISTS idx_expert_hearings_case ON expert_hearings(case_id);
   `)
   addColumn(db, 'expert_hearings', 'source_hearing_id', 'TEXT')
+  addColumn(db, 'expert_hearings', 'venue', 'TEXT')
   const flag = db.prepare(`SELECT value FROM settings WHERE key = 'expert_hearings_migrated'`).get() as
     | { value: string }
     | undefined
@@ -277,9 +284,9 @@ function migrateExpertHearings(db: Db) {
     )
     const insert = db.prepare(
       `INSERT INTO expert_hearings (
-          id, case_id, hearing_date, hearing_time, expert_office, expert_name, floor, hall,
+          id, case_id, hearing_date, hearing_time, expert_office, expert_name, venue, floor, hall,
           previous_action, current_action, notes, lawyer_id, status, source_hearing_id, created_at, updated_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     )
     db.transaction(() => {
       for (const r of rows) {
@@ -292,6 +299,7 @@ function migrateExpertHearings(db: Db) {
           r.hearing_time ?? null,
           r.expert_office ?? null,
           r.expert_name ?? null,
+          r.venue ?? null,
           r.floor ?? null,
           r.hall ?? null,
           r.previous_decision ?? null,

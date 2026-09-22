@@ -1,6 +1,6 @@
 {
   "name": "law-office-management",
-  "version": "1.0.17",
+  "version": "1.0.18",
   "description": "Law Office Management System",
   "main": "./out/main/index.js",
   "author": "Law Office Management",
@@ -20,6 +20,8 @@
     "dist:publish": "npm run build && electron-builder --win nsis --publish always",
     "test": "vitest run",
     "test:watch": "vitest",
+    "schema:verify": "npx tsx scripts/verify-supabase-schema.ts",
+    "db:clean": "python scripts/clean-test-data.py",
     "import:saljas": "python scripts/import_saljas.py",
     "archive:build": "python scripts/build-archive-db.py",
     "upload:saljas": "esbuild scripts/bulk-upload-saljas.ts --bundle --platform=node --format=cjs --external:better-sqlite3 --external:@supabase/supabase-js --outfile=scripts/bulk-upload-saljas.cjs"

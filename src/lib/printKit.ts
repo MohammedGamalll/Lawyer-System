@@ -278,7 +278,13 @@ export function stripPlacePrefix(s: unknown): string {
 }
 
 function isExpertHearing(r: Record<string, unknown>) {
-  return /خبير|expert/i.test(String(r.hearing_type || ''))
+  return r.__rollKind === 'expert' || /خبير|expert|جلسة خبراء/i.test(String(r.hearing_type || ''))
+}
+
+function expertTypeLabel(r: Record<string, unknown>) {
+  const type = nz(r.hearing_type)
+  if (type.includes('جلسة خبراء')) return type
+  return type ? `[جلسة خبراء] ${type}` : '[جلسة خبراء]'
 }
 
 function slashDate(value: unknown): string {
@@ -302,6 +308,7 @@ function hearingPlace(r: Record<string, unknown>): string {
   return (
     stripPlacePrefix(r.court_name || r.court) ||
     stripPlacePrefix(r.venue) ||
+    stripPlacePrefix(r.expert_office) ||
     stripPlacePrefix(r.session_place) ||
     stripPlacePrefix(r.police_station)
   )
@@ -389,6 +396,7 @@ function rollTypeCell(r: Record<string, unknown>, extraDates: unknown[] = []): s
     : [hrLine(slashDate(r.previous_hearing_date), true), hrLine(slashDate(r.hearing_date), true)]
   return hrStack(
     [
+      hrLine(isExpertHearing(r) ? expertTypeLabel(r) : r.hearing_type),
       hrLine(r.case_type || r.case_type_name || r.category),
       hrLine(r.case_subject || r.case_title),
       ...dateLines
@@ -617,10 +625,11 @@ export function expertRollTableHtml(
             ],
             1
           )
+          const typeLine = hrLine(expertTypeLabel(r))
           return `<tr>
           ${court}
           <td>${rollCaseNumberLines(r, t)}</td>
-          <td>${hrStack([hrLine(r.case_type || r.case_type_name), hrLine(r.case_subject || r.case_title), hrLine(r.hearing_time)], 2)}</td>
+          <td>${hrStack([typeLine, hrLine(r.case_type || r.case_type_name), hrLine(r.case_subject || r.case_title), hrLine(r.hearing_time)], 2)}</td>
           <td>${rollClientCell(r)}</td>
           <td>${rollOpponentCell(r, t)}</td>
           <td>${decision}</td>
@@ -864,7 +873,7 @@ export async function sendPrint(
   kind: 'report' | 'a4',
   title: string,
   body: string,
-  layout?: 'hearingsRoll'
+  layout?: 'hearingsRoll' | 'landscape'
 ) {
   await invoke('print:print', kind, title, body, layout)
 }

@@ -20,10 +20,19 @@ function parseEnvFile(file: string): void {
   }
 }
 
-export function loadDotEnv(): void {
-  const cwd = process.cwd()
-  parseEnvFile(join(cwd, '.env'))
-  parseEnvFile(join(cwd, '.env.local'))
+export function loadDotEnv(extraDirs: string[] = []): void {
+  const dirs = [process.cwd(), ...extraDirs.filter(Boolean)]
+  try {
+    dirs.push(join(__dirname, '..'))
+    dirs.push(join(__dirname, '../..'))
+    dirs.push(join(__dirname, '../../..'))
+  } catch {
+    /* bundled path */
+  }
+  for (const dir of dirs) {
+    parseEnvFile(join(dir, '.env'))
+    parseEnvFile(join(dir, '.env.local'))
+  }
   if (!process.env.SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_URL) {
     process.env.SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
   }

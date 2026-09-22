@@ -1,13 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { invoke } from '../lib/api'
 import { useApp } from '../store'
-import { Button, Card, Field, Modal, PageHeader, Textarea } from '../components/ui'
+import { Button, Card, Field, Modal, PageHeader, Select, Textarea } from '../components/ui'
 import { formatCell, formatDateTime } from '../lib/datetime'
+import { formatProgramCode, courtParts } from '../lib/courtNumber'
 import { CourtNumberText } from '../components/CourtNumberText'
 import { onDataChanged } from '../lib/bus'
 import { cairoAddDays, cairoTodayIso } from '@shared/cairoDate'
 import { stripBidiMarks } from '@shared/rtlBidi'
+import { compactTableHtml, courtNumberPrint, escPrint, sendPrint } from '../lib/printKit'
+import { DatePicker } from '../components/DateTimePicker'
 
 type Note = {
   id: string
@@ -18,6 +21,17 @@ type Note = {
   related_id?: string | null
   is_read: number
   created_at: string
+  client_name?: string | null
+  opponent_name?: string | null
+  case_number?: string | null
+  office_case_number?: string | null
+  case_year?: string | null
+  first_instance_number?: string | null
+  first_instance_year?: string | null
+  appeal_number?: string | null
+  appeal_year?: string | null
+  cassation_number?: string | null
+  cassation_year?: string | null
 }
 
 type TaskRow = Record<string, unknown>
@@ -37,8 +51,18 @@ function openRelated(n: Note, setPage: (p: string, m?: Record<string, unknown>) 
   else if (kind === 'reminder') setPage('reminders')
 }
 
-function partiesLine(row: TaskRow) {
+function partiesLine(row: TaskRow | Note) {
   return [row.client_name, row.opponent_name].map((v) => String(v || '').trim()).filter(Boolean).join(' / ')
+}
+
+function alertKind(n: Note) {
+  return String(n.related_type || n.type || '')
+}
+
+function alertKindLabel(n: Note, t: (key: string, opts?: { defaultValue?: string }) => string) {
+  const k = alertKind(n)
+  if (!k) return ''
+  return t(`types.${k}`, { defaultValue: k })
 }
 
 function AlertBodyText({ text }: { text: string }) {
@@ -105,6 +129,10 @@ export function AlertsPage() {
   const [task, setTask] = useState<TaskRow | null>(null)
   const [statement, setStatement] = useState('')
   const [busy, setBusy] = useState(false)
+  const [picked, setPicked] = useState<Record<string, boolean>>({})
+  const [typeFilter, setTypeFilter] = useState('')
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
 
   const load = () =>
     invoke<Note[]>('notifications:list')
@@ -116,13 +144,57 @@ export function AlertsPage() {
   }, [])
   useEffect(() => onDataChanged(() => load(), ['notifications', 'tasks']), [])
 
-  const visible = hideDone ? rows.filter((n) => !n.is_read) : rows
+  const visible = useMemo(() => {
+    return rows.filter((n) => {
+      if (hideDone && n.is_read) return false
+      if (typeFilter && alertKind(n) !== typeFilter && String(n.type || '') !== typeFilter) return false
+      const day = String(n.created_at || '').slice(0, 10)
+      if (from && day && day < from) return false
+      if (to && day && day > to) return false
+      return true
+    })
+  }, [rows, hideDone, typeFilter, from, to])
 
-  const toggle = async (n: Note, done: boolean) => {
+  const types = useMemo(() => {
+    const set = new Set<string>()
+    for (const n of rows) {
+      const k = alertKind(n)
+      if (k) set.add(k)
+    }
+    return [...set]
+  }, [rows])
+
+  const togglePick = (id: string, on: boolean) => setPicked((p) => ({ ...p, [id]: on }))
+
+  const printPicked = async () => {
+    const selected = visible.filter((n) => picked[n.id])
+    const chosen = selected.length ? selected : visible
+    if (!chosen.length) return
+    const html = compactTableHtml({
+      columns: [
+        { label: t('alerts.colTitle') },
+        { label: t('fields.program_code') },
+        { label: t('fields.client_id') },
+        { label: t('fields.opponent_name') },
+        { label: t('fields.court_number') },
+        { label: t('alerts.colType') },
+        { label: t('alerts.colDate') }
+      ],
+      rows: chosen.map((n) => [
+        escPrint(n.title),
+        escPrint(formatProgramCode(n)),
+        escPrint(n.client_name || ''),
+        escPrint(n.opponent_name || ''),
+        courtNumberPrint(n),
+        escPrint(alertKindLabel(n, t)),
+        escPrint(formatDateTime(n.created_at, i18n.language))
+      ]),
+      notesLabel: t('fields.notes'),
+      emptyLabel: t('noData'),
+      subtitle: selected.length ? t('alerts.printSelected') : t('printSelected')
+    })
     try {
-      if (done) await invoke('notifications:read', n.id, true)
-      else await invoke('notifications:read', n.id, false)
-      setRows((prev) => prev.map((x) => (x.id === n.id ? { ...x, is_read: done ? 1 : 0 } : x)))
+      await sendPrint('report', t('nav.alerts'), html, 'landscape')
     } catch (e) {
       toast((e as Error).message, 'err')
     }
@@ -218,10 +290,37 @@ export function AlertsPage() {
             >
               {t('alerts.markAll')}
             </Button>
+            <Button
+              variant="outline"
+              disabled={!visible.length}
+              onClick={() => void printPicked()}
+            >
+              {t('alerts.printSelected')}
+            </Button>
           </span>
         }
       />
       <Card>
+        <div className="mb-3 flex flex-wrap items-end gap-2">
+          <div className="w-44">
+            <Field label={t('alerts.filterType')}>
+              <Select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+                <option value="">{t('alerts.allTypes')}</option>
+                {types.map((k) => (
+                  <option key={k} value={k}>
+                    {t(`types.${k}`, { defaultValue: k })}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+          <Field label={t('alerts.dateFrom')}>
+            <DatePicker value={from} onChange={setFrom} />
+          </Field>
+          <Field label={t('alerts.dateTo')}>
+            <DatePicker value={to} onChange={setTo} />
+          </Field>
+        </div>
         <ul className="divide-y divide-navy-100 dark:divide-navy-800">
           {visible.map((n) => (
             <li
@@ -231,10 +330,10 @@ export function AlertsPage() {
               <label className="mt-1 flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
-                  checked={Boolean(n.is_read)}
-                  onChange={(e) => void toggle(n, e.target.checked)}
+                  checked={Boolean(picked[n.id])}
+                  onChange={(e) => togglePick(n.id, e.target.checked)}
                 />
-                <span className="sr-only">{t('alerts.done')}</span>
+                <span className="sr-only">{t('alerts.selectRow')}</span>
               </label>
               <button
                 type="button"
@@ -242,6 +341,17 @@ export function AlertsPage() {
                 onClick={() => (isTaskNote(n) ? void openTask(n) : openRelated(n, setPage))}
               >
                 <div className="font-semibold">{n.title}</div>
+                <div className="text-sm font-bold">
+                  <span dir="ltr" style={{ unicodeBidi: 'isolate' }}>
+                    {formatProgramCode(n) || '—'}
+                  </span>
+                </div>
+                {partiesLine(n) ? <div className="text-sm">{partiesLine(n)}</div> : null}
+                {courtParts(n).office ? (
+                  <div className="text-sm">
+                    <CourtNumberText row={n} />
+                  </div>
+                ) : null}
                 {n.body ? <AlertBodyText text={n.body} /> : null}
                 <div className="text-xs text-navy-400">{formatDateTime(n.created_at, i18n.language)}</div>
               </button>
@@ -270,8 +380,10 @@ export function AlertsPage() {
         {task ? (
           <div className="space-y-3 text-sm">
             <div>
-              <strong>{t('fields.case_number')}:</strong>{' '}
-              {String(task.case_number || '').replace(/^(CS|CL)-/i, '') || '—'}
+              <strong>{t('fields.program_code')}:</strong>{' '}
+              <span dir="ltr" style={{ unicodeBidi: 'isolate' }}>
+                {formatProgramCode(task) || '—'}
+              </span>
               {' — '}
               <CourtNumberText row={task} />
             </div>

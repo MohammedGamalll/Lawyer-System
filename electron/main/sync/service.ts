@@ -1,18 +1,29 @@
 import type { BrowserWindow } from 'electron'
 import log from 'electron-log'
-import { pendingCount } from './queue'
+import { pendingCount, setAfterLocalChange } from './queue'
 import { isCorruptError } from '../db/repair'
 import { repairCorruptDatabase } from '../db/database'
 import { isSyncConfigured } from './client'
-import { isOnline } from './network'
 import { pushQueue } from './push'
 import { pullChanges } from './pull'
 import { startRealtime, stopRealtime } from './realtime'
 import { emitSyncStatus, getSyncSnapshot, onSyncStatus } from './status'
 
+const POLL_MS = 120_000
+const SAVE_DEBOUNCE_MS = 2_000
+
 let timer: NodeJS.Timeout | null = null
+let saveTimer: NodeJS.Timeout | null = null
 let cycle: Promise<void> | null = null
 let getWin: () => BrowserWindow | null = () => null
+
+export function scheduleSyncSoon(): void {
+  if (saveTimer) clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => {
+    saveTimer = null
+    void runSyncCycle()
+  }, SAVE_DEBOUNCE_MS)
+}
 
 export function getSyncState() {
   let pending = 0
@@ -22,18 +33,19 @@ export function getSyncState() {
     pending = getSyncSnapshot().pendingCount
   }
   const snap = getSyncSnapshot()
-  if (!isSyncConfigured() || !isOnline()) return { ...snap, status: 'offline' as const, pendingCount: pending }
-  if (pending > 0) return { ...snap, pendingCount: pending, status: 'syncing' as const }
+  if (!isSyncConfigured()) return { ...snap, status: 'offline' as const, pendingCount: pending }
+  if (cycle || pending > 0) return { ...snap, pendingCount: pending, status: 'syncing' as const }
   return { ...snap, pendingCount: pending, status: 'synced' as const }
 }
 
 export async function runSyncCycle(): Promise<void> {
   if (cycle) return cycle
-  if (!isSyncConfigured() || !isOnline()) {
+  if (!isSyncConfigured()) {
     emitSyncStatus('offline')
     stopRealtime()
     return
   }
+  emitSyncStatus('syncing')
   cycle = (async () => {
     try {
       const pushError = await pushQueue()
@@ -52,7 +64,13 @@ export async function runSyncCycle(): Promise<void> {
           log.warn('sync sqlite repair failed', repairErr)
         }
       }
-      emitSyncStatus('offline', String((err as Error).message || err))
+      const message = String((err as Error).message || err)
+      try {
+        if (pendingCount() > 0) emitSyncStatus('syncing', message)
+        else emitSyncStatus('offline', message)
+      } catch {
+        emitSyncStatus('offline', message)
+      }
     }
   })().finally(() => {
     cycle = null
@@ -62,6 +80,7 @@ export async function runSyncCycle(): Promise<void> {
 
 export function startSyncService(winGetter: () => BrowserWindow | null): void {
   getWin = winGetter
+  setAfterLocalChange(scheduleSyncSoon)
   onSyncStatus((snap) => {
     getWin()?.webContents.send('sync:status', snap)
   })
@@ -69,7 +88,7 @@ export function startSyncService(winGetter: () => BrowserWindow | null): void {
   if (timer) clearInterval(timer)
   timer = setInterval(() => {
     void runSyncCycle()
-  }, 20_000)
+  }, POLL_MS)
 }
 
 export { onSyncStatus, getSyncSnapshot }

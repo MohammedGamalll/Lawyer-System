@@ -1,5 +1,10 @@
 import { stripInternalPrefix } from './courtNumber'
 
+export const DATE_PICKER_MIN_YEAR = 1940
+export const DATE_PICKER_MAX_YEAR = 2050
+export const DATE_INPUT_MAX = '2050-12-31'
+export const DATE_INPUT_MIN = '1940-01-01'
+
 const DATE_KEYS = new Set([
   'date',
   'birth_date',

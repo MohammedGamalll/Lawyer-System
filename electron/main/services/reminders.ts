@@ -111,29 +111,50 @@ export function generateDailyNotifications(): void {
   const today = todayIso()
   const tomorrow = addDays(today, 1).slice(0, 10)
 
-  const todayHearings = db
-    .prepare(
-      `SELECT h.id, cs.title, cs.case_number FROM hearings h JOIN cases cs ON cs.id = h.case_id
+  const hearingSelect = `SELECT h.id, cs.title, cs.case_number, cs.office_case_number, cs.case_year,
+              cs.first_instance_number, cs.first_instance_year, cs.appeal_number, cs.appeal_year,
+              cs.cassation_number, cs.cassation_year, cs.opponent_name, cl.full_name as client_name
+       FROM hearings h
+       JOIN cases cs ON cs.id = h.case_id
+       LEFT JOIN clients cl ON cl.id = cs.client_id AND ${notDeleted('cl')}
        WHERE h.hearing_date = ? AND h.status = 'upcoming' AND ${notDeleted('h')} AND ${notDeleted('cs')}`
-    )
-    .all(today) as { id: string; title: string; case_number: string }[]
-  for (const h of todayHearings) {
-    notifyUser(null, 'جلسة اليوم', `جلسة القضية ${h.case_number} — ${h.title}`, 'hearing', 'hearing', h.id)
+  type HearingAlert = {
+    id: string
+    title: string
+    case_number: string
+    office_case_number?: string
+    case_year?: string
+    first_instance_number?: string
+    first_instance_year?: string
+    appeal_number?: string
+    appeal_year?: string
+    cassation_number?: string
+    cassation_year?: string
+    opponent_name?: string
+    client_name?: string
+  }
+  const hearingBody = (h: HearingAlert) => {
+    const court = formattedCourtNumber(h)
+    const parties = [h.client_name, h.opponent_name].filter(Boolean).join(' / ')
+    const code = h.case_number ? `\u200E${String(h.case_number).replace(/^(CS|CL)-/i, '')}\u200E` : ''
+    return [code, court, parties, h.title].filter(Boolean).join(' — ')
   }
 
-  const tomorrowHearings = db
-    .prepare(
-      `SELECT h.id, cs.title, cs.case_number FROM hearings h JOIN cases cs ON cs.id = h.case_id
-       WHERE h.hearing_date = ? AND h.status = 'upcoming' AND ${notDeleted('h')} AND ${notDeleted('cs')}`
-    )
-    .all(tomorrow) as { id: string; title: string; case_number: string }[]
+  const todayHearings = db.prepare(hearingSelect).all(today) as HearingAlert[]
+  for (const h of todayHearings) {
+    notifyUser(null, 'جلسة اليوم', hearingBody(h), 'hearing', 'hearing', h.id)
+  }
+
+  const tomorrowHearings = db.prepare(hearingSelect).all(tomorrow) as HearingAlert[]
   for (const h of tomorrowHearings) {
-    notifyUser(null, 'جلسة الغد', `جلسة القضية ${h.case_number} — ${h.title}`, 'hearing', 'hearing', h.id)
+    notifyUser(null, 'جلسة الغد', hearingBody(h), 'hearing', 'hearing', h.id)
   }
 
   const overdue = db
     .prepare(
-      `SELECT t.id, t.title, t.description, cs.case_number, cs.office_case_number, cs.case_year, cs.court, cs.opponent_name,
+      `SELECT t.id, t.title, t.description, cs.case_number, cs.office_case_number, cs.case_year,
+              cs.first_instance_number, cs.first_instance_year, cs.appeal_number, cs.appeal_year,
+              cs.cassation_number, cs.cassation_year, cs.court, cs.opponent_name,
               cl.full_name as client_name
        FROM tasks t
        LEFT JOIN cases cs ON cs.id = t.case_id AND ${notDeleted('cs')}

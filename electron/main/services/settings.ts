@@ -3,6 +3,7 @@ import { audit } from './audit'
 import { nowIso } from '../utils/time'
 import type { AuthedUser } from '../ipc/helpers'
 import { recordLocalChange } from '../sync/queue'
+import { getSupabaseCredentials } from '../sync/credentials'
 
 const SKIP_SETTINGS = new Set([
   'supabase_url',
@@ -17,18 +18,9 @@ export function getSettings(): Record<string, string> {
   const rows = getDb().prepare('SELECT key, value FROM settings WHERE deleted_at IS NULL').all() as { key: string; value: string }[]
   const out: Record<string, string> = {}
   for (const r of rows) out[r.key] = r.value
-  const syncOff = out.sync_disabled === '1' || out.sync_disabled === 'true'
-  if (!syncOff) {
-    if (!out.supabase_url) out.supabase_url = String(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '')
-    if (!out.supabase_anon_key) {
-      out.supabase_anon_key = String(
-        process.env.SUPABASE_ANON_KEY ||
-          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-          process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-          ''
-      )
-    }
-  }
+  const creds = getSupabaseCredentials()
+  if (!out.supabase_url) out.supabase_url = creds.url
+  if (!out.supabase_anon_key || out.supabase_anon_key === '********') out.supabase_anon_key = creds.key
   return out
 }
 
@@ -103,15 +95,16 @@ export function setSettingSilent(key: string, value: string): void {
 }
 
 export function persistSyncSettingsFromEnv(): void {
-  const off = getSetting('sync_disabled')
-  if (off === '1' || off === 'true') return
-  const url = String(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim()
-  const key = String(
-    process.env.SUPABASE_ANON_KEY ||
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-      ''
-  ).trim()
-  if (url && !getSetting('supabase_url')) setSettingSilent('supabase_url', url)
-  if (key && !getSetting('supabase_anon_key')) setSettingSilent('supabase_anon_key', key)
+  const creds = getSupabaseCredentials()
+  const url = creds.url || getSetting('supabase_url').trim()
+  const key = (() => {
+    const existing = getSetting('supabase_anon_key').trim()
+    if (existing && existing !== '********') return creds.key || existing
+    return creds.key
+  })()
+  if (url) setSettingSilent('supabase_url', url)
+  if (key) setSettingSilent('supabase_anon_key', key)
+  if (url && key) {
+    getDb().prepare(`DELETE FROM settings WHERE key = 'sync_disabled'`).run()
+  }
 }

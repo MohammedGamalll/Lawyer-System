@@ -19,6 +19,7 @@ import { HearingsPage, TasksPage, ExpertsPage } from './WorkPages'
 import { PrintTemplatePicker } from '../components/PrintTemplatePicker'
 import { sendPrint } from '../lib/printKit'
 import { LookupCombo } from '../components/LookupCombo'
+import { DatePicker } from '../components/DateTimePicker'
 
 type CaseTab = 'hearings' | 'experts' | 'admin' | 'execution' | 'finance'
 
@@ -519,11 +520,7 @@ export function CaseProfilePage() {
             </div>
           ) : null}
           <Field label={t('fields.payment_date')}>
-            <Input
-              type="date"
-              value={pay.payment_date}
-              onChange={(e) => setPay({ ...pay, payment_date: e.target.value })}
-            />
+            <DatePicker value={pay.payment_date} onChange={(d) => setPay({ ...pay, payment_date: d })} />
           </Field>
           <Field label={t('fields.payment_type')}>
             <LookupCombo kind="payment_type" value={pay.payment_type} onChange={(v) => setPay({ ...pay, payment_type: v })} />

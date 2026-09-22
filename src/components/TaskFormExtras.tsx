@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button, Field, Textarea } from './ui'
 import { LookupCombo } from './LookupCombo'
+import { DatePicker } from './DateTimePicker'
 import { invoke } from '../lib/api'
 import { formatPoliceStation } from '../lib/courtNumber'
 
@@ -161,12 +162,7 @@ export function TaskFormExtras({
         </div>
         <div className="w-[12rem]">
           <Field label={t('fields.judgment_date')}>
-            <input
-              className="h-9 w-full rounded border px-2 text-sm dark:bg-navy-900"
-              type="date"
-              value={String(form.judgment_date || '')}
-              onChange={(e) => setField('judgment_date', e.target.value)}
-            />
+            <DatePicker value={String(form.judgment_date || '')} onChange={(iso) => setField('judgment_date', iso)} />
           </Field>
         </div>
       </div>

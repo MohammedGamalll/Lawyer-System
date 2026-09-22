@@ -192,31 +192,30 @@ export function HearingsPage({ embeddedCaseId }: { embeddedCaseId?: string } = {
         f(t, 'notes', { type: 'textarea' })
       ]}
       listFilters={Object.keys(listFilters).length ? listFilters : undefined}
-      extraActions={
-        <>
-          {fromCase && !embeddedCaseId ? (
-            <Button variant="outline" onClick={() => goBack()}>
-              {t('back')}
-            </Button>
-          ) : null}
-          {!fromCase ? (
-            <div className="flex flex-wrap items-end gap-2">
-              {(['all', 'mine', 'overdue', 'today', 'tomorrow', 'week', 'upcoming', 'range'] as const).map((v) => (
-                <Button key={v} variant={view === v ? 'primary' : 'outline'} onClick={() => setView(v)}>
-                  {t(`hearingsViews.${v}`)}
-                </Button>
-              ))}
-              {view === 'range' ? (
-                <>
-                  <DatePicker value={rangeFrom} onChange={setRangeFrom} />
-                  <DatePicker value={rangeTo} onChange={setRangeTo} />
-                </>
-              ) : null}
-            </div>
-          ) : null}
-          <VenuePrintBar toast={toast} />
-        </>
-      }
+          extraActions={
+            !fromCase ? (
+              <div className="flex w-full flex-wrap items-end gap-2">
+                {(['all', 'mine', 'overdue', 'today', 'tomorrow', 'week', 'upcoming', 'range'] as const).map((v) => (
+                  <Button key={v} variant={view === v ? 'primary' : 'outline'} onClick={() => setView(v)}>
+                    {t(`hearingsViews.${v}`)}
+                  </Button>
+                ))}
+                {view === 'range' ? (
+                  <>
+                    <DatePicker value={rangeFrom} onChange={setRangeFrom} />
+                    <DatePicker value={rangeTo} onChange={setRangeTo} />
+                  </>
+                ) : null}
+                <div className="ms-auto">
+                  <VenuePrintBar toast={toast} />
+                </div>
+              </div>
+            ) : fromCase && !embeddedCaseId ? (
+              <Button variant="outline" onClick={() => goBack()}>
+                {t('back')}
+              </Button>
+            ) : undefined
+          }
       onPrint={async (ctx) => {
         const res = await invoke<{ rows: Record<string, unknown>[]; total: number }>('hearings:list', {
           page: 1,
@@ -612,6 +611,7 @@ export function ExpertsPage({ embeddedCaseId }: { embeddedCaseId?: string } = {}
         { key: 'status', label: t('fields.status'), status: true },
         { key: 'hearing_date', label: t('fields.hearing_date') },
         { key: 'hearing_time', label: t('fields.hearing_time') },
+        { key: 'venue', label: t('fields.venue') },
         { key: 'expert_office', label: t('fields.expert_office') },
         { key: 'expert_name', label: t('fields.expert_name') },
         { key: 'floor', label: t('fields.floor') },
@@ -629,11 +629,14 @@ export function ExpertsPage({ embeddedCaseId }: { embeddedCaseId?: string } = {}
       ]}
       listFilters={Object.keys(listFilters).length ? listFilters : undefined}
       extraActions={
-        fromCase && !embeddedCaseId ? (
-          <Button variant="outline" onClick={() => goBack()}>
-            {t('back')}
-          </Button>
-        ) : undefined
+        <>
+          {fromCase && !embeddedCaseId ? (
+            <Button variant="outline" onClick={() => goBack()}>
+              {t('back')}
+            </Button>
+          ) : null}
+          {!fromCase ? <VenuePrintBar toast={toast} /> : null}
+        </>
       }
       onPrint={async (ctx) => {
         const res = await invoke<{ rows: Record<string, unknown>[]; total: number }>('experts:list', {

@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Field } from './ui'
+import { LookupCombo } from './LookupCombo'
 import { DatePicker, TimePicker } from './DateTimePicker'
 import type { SetField } from './CrudPage'
 import { invoke } from '../lib/api'
@@ -23,6 +24,7 @@ export function ExpertFormExtras({
         setField('client_name', String(row.client_name || ''))
         setField('opponent_name', String(row.opponent_name || opps[0]?.full_name || ''))
         setField('hearing_court', String(row.court || ''))
+        if (!String(form.venue || '') && row.court) setField('venue', String(row.court))
       })
       .catch(() => undefined)
   }, [form.case_id])
@@ -44,6 +46,11 @@ export function ExpertFormExtras({
         <div className="w-[7rem]">
           <Field label={t('fields.hearing_time')}>
             <TimePicker value={String(form.hearing_time || '')} onChange={(hhmm) => setField('hearing_time', hhmm)} />
+          </Field>
+        </div>
+        <div className="w-[8rem]">
+          <Field label={t('fields.venue')}>
+            <LookupCombo kind="venue" value={String(form.venue || '')} onChange={(v) => setField('venue', v)} />
           </Field>
         </div>
         <div className="w-[12rem]">

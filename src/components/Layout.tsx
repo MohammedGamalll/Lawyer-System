@@ -49,8 +49,7 @@ export function Layout({ children }: { children: ReactNode }) {
   useEffect(() => {
     void useSyncStore.getState().refresh()
     const tmr = setInterval(() => {
-      const s = useSyncStore.getState()
-      if (s.status === 'syncing' || s.pendingCount > 0) void s.refresh()
+      void useSyncStore.getState().refresh()
     }, 5000)
     return () => clearInterval(tmr)
   }, [])
@@ -58,7 +57,13 @@ export function Layout({ children }: { children: ReactNode }) {
   const unread = notes.filter((n) => !n.is_read).length
   const rtl = i18n.language === 'ar'
   const syncKind =
-    sync.status === 'synced' ? 'synced' : sync.status === 'syncing' ? 'syncing' : sync.error ? 'error' : 'offline'
+    sync.status === 'syncing' || (sync.status !== 'offline' && sync.pendingCount > 0)
+      ? 'syncing'
+      : sync.status === 'synced'
+        ? 'synced'
+        : sync.error
+          ? 'error'
+          : 'offline'
   const syncLabel =
     syncKind === 'synced'
       ? t('sync.labelSynced')
@@ -66,7 +71,9 @@ export function Layout({ children }: { children: ReactNode }) {
         ? `${t('sync.labelSyncing')} · ${t('sync.remaining', { count: sync.pendingCount })}`
         : syncKind === 'error'
           ? t('sync.labelError')
-          : t('sync.labelOffline')
+          : sync.pendingCount > 0
+            ? `${t('sync.labelOffline')} · ${t('sync.remaining', { count: sync.pendingCount })}`
+            : t('sync.labelOffline')
   const syncTitle =
     syncKind === 'synced'
       ? t('sync.synced', { time: sync.lastSyncedAt ? new Date(sync.lastSyncedAt).toLocaleString() : '—' })

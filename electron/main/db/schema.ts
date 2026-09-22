@@ -412,6 +412,7 @@ CREATE TABLE IF NOT EXISTS expert_hearings (
   hearing_time TEXT,
   expert_office TEXT,
   expert_name TEXT,
+  venue TEXT,
   floor TEXT,
   hall TEXT,
   previous_action TEXT,

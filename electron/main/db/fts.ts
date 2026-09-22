@@ -55,9 +55,15 @@ function forceDropFtsTable(db: Database.Database, name: string): void {
   dropFtsTriggers(db)
   try {
     db.exec(`DROP TABLE IF EXISTS ${name}`)
-    return
   } catch (err) {
     log.warn('drop fts table failed', name, err)
+  }
+  for (const suffix of ['_data', '_idx', '_docsize', '_config', '_content']) {
+    try {
+      db.exec(`DROP TABLE IF EXISTS ${name}${suffix}`)
+    } catch {
+      /* leftover shadow table */
+    }
   }
   try {
     db.pragma('writable_schema = ON')
@@ -65,6 +71,11 @@ function forceDropFtsTable(db: Database.Database, name: string): void {
     db.pragma('writable_schema = OFF')
   } catch (err) {
     log.warn('force drop fts schema failed', name, err)
+    try {
+      db.pragma('writable_schema = OFF')
+    } catch {
+      /* ignore */
+    }
   }
 }
 

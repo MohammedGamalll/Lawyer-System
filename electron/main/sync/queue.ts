@@ -6,6 +6,12 @@ import { nowIso } from '../utils/time'
 
 const SYNC_SET = new Set<string>(SYNC_TABLES)
 
+let afterLocalChange: (() => void) | null = null
+
+export function setAfterLocalChange(fn: (() => void) | null): void {
+  afterLocalChange = fn
+}
+
 export type SyncOp = 'INSERT' | 'UPDATE' | 'DELETE'
 
 export function pkColumn(tableName: string): string {
@@ -33,6 +39,7 @@ export function recordLocalChange(tableName: string, recordId: string, operation
   const pk = pkColumn(tableName)
   const row = db.prepare(`SELECT * FROM ${tableName} WHERE ${pk} = ?`).get(recordId)
   enqueue(tableName, recordId, operation, row || { [pk]: recordId, deleted_at: nowIso() })
+  afterLocalChange?.()
 }
 
 export const touchAndQueue = recordLocalChange
@@ -85,7 +92,8 @@ const PARENT_TABLES = [
   'number_sequences',
   'case_types',
   'cashboxes',
-  'expense_categories'
+  'expense_categories',
+  'lookup_values'
 ] as const
 
 let parentsBootstrapped = false

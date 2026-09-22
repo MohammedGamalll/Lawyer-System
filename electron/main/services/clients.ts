@@ -1,4 +1,4 @@
-import { getDb, nextNumber } from '../db/database'
+import { getDb, nextNumber, runWithFtsRepair } from '../db/database'
 import { nowIso } from '../utils/time'
 import { audit } from './audit'
 import { newId, notDeleted } from '../db/ids'
@@ -203,6 +203,10 @@ export function clientProfile(id: string, actor?: AuthedUser | null) {
 }
 
 export function createClient(actor: AuthedUser, data: Record<string, unknown>) {
+  return runWithFtsRepair(() => createClientOnce(actor, data))
+}
+
+function createClientOnce(actor: AuthedUser, data: Record<string, unknown>) {
   const forceSimilar = Boolean(data.force_similar)
   data = parseSchema(clientSchema, data) as Record<string, unknown>
   const fullName = String(data.full_name ?? '').trim()

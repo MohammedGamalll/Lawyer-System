@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { daysInMonth, parseDateParts, parseTimeParts, toIsoDate, toIsoTime } from '../lib/datetime'
+import {
+  DATE_PICKER_MAX_YEAR,
+  DATE_PICKER_MIN_YEAR,
+  daysInMonth,
+  parseDateParts,
+  parseTimeParts,
+  toIsoDate,
+  toIsoTime
+} from '../lib/datetime'
 import { Button, Select } from './ui'
 
 const MONTHS_AR = [
@@ -59,9 +67,10 @@ export function DatePicker({
   const day = Math.min(d, dim)
   const years = useMemo(() => {
     const out: number[] = []
-    for (let i = now.getFullYear() + 5; i >= 1940; i--) out.push(i)
+    const top = Math.max(DATE_PICKER_MAX_YEAR, parsed?.y || 0, now.getFullYear())
+    for (let i = top; i >= DATE_PICKER_MIN_YEAR; i--) out.push(i)
     return out
-  }, [now.getFullYear()])
+  }, [now.getFullYear(), parsed?.y])
 
   const set = (ny: number, nm: number, nd: number) => {
     const max = daysInMonth(ny, nm)

@@ -6,6 +6,7 @@ import { recordLocalChange, softDelete } from '../sync/queue'
 import type { AuthedUser } from '../ipc/helpers'
 import type { ListQuery } from '@shared/types'
 import { expertHearingSchema, parseSchema } from '@shared/schemas'
+import { rememberLookup } from './lookups'
 import { clampPageSize, pageKind, pickSort, sqlDir } from '../db/queryLimits'
 import { casePrintJoinSql, casePrintSelectSql, enrichPrintRow, enrichPrintRows } from './printCaseFields'
 
@@ -17,8 +18,8 @@ export function listExpertHearings(query: ListQuery = {}) {
   let where = `WHERE ${notDeleted('e')}`
   if (query.search) {
     const s = `%${query.search}%`
-    where += ` AND (cs.title LIKE ? OR cs.case_number LIKE ? OR cl.full_name LIKE ? OR e.expert_name LIKE ? OR e.expert_office LIKE ?)`
-    params.push(s, s, s, s, s)
+    where += ` AND (cs.title LIKE ? OR cs.case_number LIKE ? OR cl.full_name LIKE ? OR e.expert_name LIKE ? OR e.expert_office LIKE ? OR IFNULL(e.venue,'') LIKE ?)`
+    params.push(s, s, s, s, s, s)
   }
   const f = query.filters ?? {}
   if (f.case_id) {
@@ -37,6 +38,21 @@ export function listExpertHearings(query: ListQuery = {}) {
     where += ' AND e.status = ?'
     params.push(f.status)
   }
+  if (f.venue) {
+    const s = `%${String(f.venue).trim()}%`
+    where += ` AND (
+      IFNULL(e.venue,'') LIKE ?
+      OR IFNULL(e.expert_office,'') LIKE ?
+      OR IFNULL(e.expert_name,'') LIKE ?
+      OR IFNULL(cs.court,'') LIKE ?
+      OR IFNULL(cs.session_place,'') LIKE ?
+      OR EXISTS (
+        SELECT 1 FROM hearings hx
+        WHERE hx.case_id = e.case_id AND ${notDeleted('hx')} AND IFNULL(hx.venue,'') LIKE ?
+      )
+    )`
+    params.push(s, s, s, s, s, s)
+  }
   const total = (
     db
       .prepare(
@@ -53,6 +69,7 @@ export function listExpertHearings(query: ListQuery = {}) {
       hearing_date: 'e.hearing_date',
       expert_name: 'e.expert_name',
       expert_office: 'e.expert_office',
+      venue: 'e.venue',
       case_number: 'cs.case_number',
       status: 'e.status'
     },
@@ -61,7 +78,7 @@ export function listExpertHearings(query: ListQuery = {}) {
   const dir = query.sortBy ? ` ${sqlDir(query.sortDir)}` : ''
   const rows = db
     .prepare(
-      `SELECT e.id, e.case_id, e.hearing_date, e.hearing_time, e.expert_office, e.expert_name, e.floor, e.hall,
+      `SELECT e.id, e.case_id, e.hearing_date, e.hearing_time, e.venue, e.expert_office, e.expert_name, e.floor, e.hall,
               e.previous_action, e.current_action, e.notes, e.lawyer_id, e.status,
               ${casePrintSelectSql('cs')},
               cl.full_name as client_name,
@@ -104,14 +121,15 @@ export function createExpertHearing(actor: AuthedUser, data: Record<string, unkn
   const id = newId()
   db.prepare(
     `INSERT INTO expert_hearings (
-        id, case_id, hearing_date, hearing_time, expert_office, expert_name, floor, hall,
+        id, case_id, hearing_date, hearing_time, venue, expert_office, expert_name, floor, hall,
         previous_action, current_action, notes, lawyer_id, status, created_at, updated_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).run(
     id,
     caseId,
     data.hearing_date,
     data.hearing_time ?? null,
+    data.venue ?? null,
     data.expert_office ?? null,
     data.expert_name ?? null,
     data.floor ?? null,
@@ -125,6 +143,7 @@ export function createExpertHearing(actor: AuthedUser, data: Record<string, unkn
     ts
   )
   recordLocalChange('expert_hearings', id, 'INSERT')
+  rememberLookup('venue', data.venue)
   audit(actor, 'create', 'expert_hearings', id, `تم إنشاء جلسة خبير بتاريخ ${data.hearing_date}`)
   return { id }
 }
@@ -135,12 +154,13 @@ export function updateExpertHearing(actor: AuthedUser, id: string, data: Record<
   const old = db.prepare(`SELECT id FROM expert_hearings WHERE id = ? AND ${notDeleted()}`).get(id)
   if (!old) throw new Error('جلسة الخبير غير موجودة')
   db.prepare(
-    `UPDATE expert_hearings SET case_id=?, hearing_date=?, hearing_time=?, expert_office=?, expert_name=?, floor=?, hall=?,
+    `UPDATE expert_hearings SET case_id=?, hearing_date=?, hearing_time=?, venue=?, expert_office=?, expert_name=?, floor=?, hall=?,
       previous_action=?, current_action=?, notes=?, lawyer_id=?, status=?, updated_at=? WHERE id=?`
   ).run(
     asId(data.case_id),
     data.hearing_date,
     data.hearing_time ?? null,
+    data.venue ?? null,
     data.expert_office ?? null,
     data.expert_name ?? null,
     data.floor ?? null,
@@ -154,6 +174,7 @@ export function updateExpertHearing(actor: AuthedUser, id: string, data: Record<
     id
   )
   recordLocalChange('expert_hearings', id, 'UPDATE')
+  rememberLookup('venue', data.venue)
   audit(actor, 'update', 'expert_hearings', id, `تم تعديل جلسة خبير رقم ${id}`)
   return { id }
 }

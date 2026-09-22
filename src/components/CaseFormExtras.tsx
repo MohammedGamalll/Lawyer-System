@@ -277,15 +277,6 @@ export function CaseFormExtras({
           </>
         )}
         <div className="flex flex-wrap items-end gap-2 pt-2">
-          <Field label={t('fields.court_number')}>
-            <Input
-              className="w-32"
-              dir="ltr"
-              value={String(form.office_case_number || '')}
-              onChange={(e) => setField('office_case_number', e.target.value)}
-              placeholder="6720"
-            />
-          </Field>
           <Field label={t('fields.case_year')}>
             <Input
               className="w-24"

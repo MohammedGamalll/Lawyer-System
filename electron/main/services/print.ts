@@ -98,7 +98,7 @@ export function wrapHtml(title: string, body: string, kind: PrintKind, layout?: 
     printedAt: cairoDateTimeStamp(),
     recipientLine: kind === 'report' && layout !== 'hearingsRoll' ? recipientLine : undefined,
     layout,
-    landscape: kind !== 'receipt' && kind !== 'voucher' && a4Landscape()
+    landscape: kind !== 'receipt' && kind !== 'voucher' && (layout === 'landscape' || a4Landscape())
   })
 }
 
@@ -178,7 +178,13 @@ function isCancel(error?: string) {
   return !error || s.includes('cancel') || s.includes('abort') || s.includes('cancel')
 }
 
-export async function printHtml(html: string, kind: PrintKind, parent?: BrowserWindow | null, silent?: boolean): Promise<void> {
+export async function printHtml(
+  html: string,
+  kind: PrintKind,
+  parent?: BrowserWindow | null,
+  silent?: boolean,
+  forceLandscape = false
+): Promise<void> {
   const preferred =
     kind === 'receipt' || kind === 'voucher'
       ? getSetting('print_thermal_printer', '')
@@ -197,7 +203,7 @@ export async function printHtml(html: string, kind: PrintKind, parent?: BrowserW
           printBackground: true,
           ...(kind === 'receipt' || kind === 'voucher'
             ? {}
-            : { pageSize: 'A4' as const, landscape: a4Landscape() }),
+            : { pageSize: 'A4' as const, landscape: forceLandscape || a4Landscape() }),
           margins: {
             marginType: kind === 'receipt' || kind === 'voucher' ? 'printableArea' : 'none'
           }
@@ -275,4 +281,23 @@ export async function saveManualPdf(parent?: BrowserWindow | null) {
   if (!src) throw new Error('ملف دليل الاستخدام غير موجود')
   const html = fs.readFileSync(src, 'utf8')
   return savePdf(html, 'a4', 'دليل-استخدام-نظام-إدارة-مكتب-المحاماة.pdf', parent)
+}
+
+export function backupGuideHtmlPath(): string {
+  const candidates = [
+    path.join(process.resourcesPath || '', 'docs', 'backup-restore-guide-ar.html'),
+    path.join(app.getAppPath(), 'resources/docs/backup-restore-guide-ar.html'),
+    path.join(process.cwd(), 'resources/docs/backup-restore-guide-ar.html'),
+    path.join(process.cwd(), 'docs/backup-restore-guide-ar.html'),
+    path.join(process.resourcesPath || '', 'docs', 'دليل-النسخ-الاحتياطي-والاستعادة.html'),
+    path.join(process.cwd(), 'docs/دليل-النسخ-الاحتياطي-والاستعادة.html')
+  ]
+  return candidates.find((p) => fs.existsSync(p)) || ''
+}
+
+export async function saveBackupGuidePdf(parent?: BrowserWindow | null) {
+  const src = backupGuideHtmlPath()
+  if (!src) throw new Error('ملف دليل النسخ الاحتياطي غير موجود')
+  const html = fs.readFileSync(src, 'utf8')
+  return savePdf(html, 'a4', 'دليل-النسخ-الاحتياطي-والاستعادة.pdf', parent)
 }

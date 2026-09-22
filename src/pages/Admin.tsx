@@ -39,7 +39,7 @@ import {
   serializeSourceOrder,
   type AttachSource,
 } from "../lib/attachSources";
-import type { SyncSnapshot } from "../store/sync";
+import { useSyncStore, type SyncSnapshot } from "../store/sync";
 import { ReorderList } from "../components/ReorderList";
 import {
   DASHBOARD_SECTION_IDS,
@@ -944,7 +944,10 @@ export function SettingsPage() {
                       onClick={async () => {
                         await invoke("settings:set", s);
                         const snap = await invoke<SyncSnapshot>("sync:now");
+                        useSyncStore.getState().setSnapshot(snap);
                         if (snap.status === "synced") toast(t("sync.doneOk"));
+                        else if (snap.status === "offline")
+                          toast(snap.error || t("sync.offline"), "err");
                         else if (snap.error) toast(snap.error, "err");
                         else
                           toast(
@@ -1737,6 +1740,16 @@ function BackupRestore() {
         }}
       >
         {t("settings.importBackup")}
+      </Button>
+      <Button
+        className="mb-3 ms-2"
+        variant="gold"
+        onClick={async () => {
+          const r = await invoke<{ canceled?: boolean }>("print:backupGuide");
+          if (!r?.canceled) toast(t("savedOk"));
+        }}
+      >
+        {t("settings.downloadBackupGuide")}
       </Button>
       {list.map((b) => (
         <div

@@ -537,11 +537,13 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
     return ok(await print.savePdf(html, kind as print.PrintKind, String(name || 'doc.pdf'), getWin()))
   })
   handle(ipc, IPC.print.print, {}, async (_e, _u, kind, title, body, layout) => {
-    const html = wrapHtml(String(title), String(body), kind as print.PrintKind, layout ? String(layout) : undefined)
-    await print.printHtml(html, kind as print.PrintKind, getWin())
+    const layoutName = layout ? String(layout) : undefined
+    const html = wrapHtml(String(title), String(body), kind as print.PrintKind, layoutName)
+    await print.printHtml(html, kind as print.PrintKind, getWin(), undefined, layoutName === 'landscape')
     return ok(true)
   })
   handle(ipc, IPC.print.manual, {}, async () => ok(await print.saveManualPdf(getWin())))
+  handle(ipc, IPC.print.backupGuide, {}, async () => ok(await print.saveBackupGuidePdf(getWin())))
   handle(ipc, IPC.print.preview, { permission: 'invoices.view' }, (_e, _u, invoiceId) => {
     const data = getInvoice(String(invoiceId))
     const inv = data.invoice as { invoice_number: string; client_name: string; total: number; invoice_date: string }
@@ -613,8 +615,7 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
     if (String(mode || '') === 'trial') {
       wipe.wipeBusinessData(user!)
       demo.seedDemoData()
-      demo.disableLocalSync()
-      return ok({ ok: true, sync: 'disabled' })
+      return ok({ ok: true, sync: 'enabled' })
     }
     return ok(demo.seedDemoData())
   })

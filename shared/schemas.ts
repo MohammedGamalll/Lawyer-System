@@ -234,6 +234,7 @@ export const expertHearingSchema = z.object({
   hearing_time: optStr,
   expert_office: optStr,
   expert_name: optStr,
+  venue: optStr,
   floor: optStr,
   hall: optStr,
   previous_action: optStr,

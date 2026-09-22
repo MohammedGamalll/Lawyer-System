@@ -5,7 +5,6 @@ import { getDocumentsDir } from '../paths'
 import { newId, notDeleted } from '../db/ids'
 import { recordLocalChange } from '../sync/queue'
 import { runWithoutLocalQueue } from '../sync/origin'
-import { setSettingSilent } from './settings'
 import fs from 'fs'
 import path from 'path'
 export { wipeBusinessData } from './wipe'
@@ -31,8 +30,7 @@ export function seedDemoData(): { ok: true } {
 }
 
 export function disableLocalSync(): void {
-  setSettingSilent('sync_disabled', '1')
-  getDb().exec('DELETE FROM local_sync_queue')
+  /* Sync stays enabled for local and packaged apps. */
 }
 
 function seedDemoDataInner(): { ok: true } {

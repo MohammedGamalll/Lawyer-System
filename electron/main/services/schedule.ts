@@ -544,7 +544,37 @@ export function moveCalendarEvent(kind: string, id: string, date: string, time?:
 export function listNotifications(userId: string) {
   return getDb()
     .prepare(
-      `SELECT * FROM notifications WHERE (${notDeleted()}) AND (user_id IS NULL OR user_id = ?) ORDER BY created_at DESC LIMIT 100`
+      `SELECT n.id, n.title, n.body, n.type, n.related_type, n.related_id, n.is_read, n.created_at,
+              COALESCE(cl_t.full_name, cl_h.full_name, cl_c.full_name, cl_r.full_name, cl_p.full_name, cl_k.full_name) AS client_name,
+              COALESCE(cs_t.opponent_name, cs_h.opponent_name, cs_c.opponent_name, cs_r.opponent_name) AS opponent_name,
+              COALESCE(cs_t.case_number, cs_h.case_number, cs_c.case_number, cs_r.case_number) AS case_number,
+              COALESCE(cs_t.office_case_number, cs_h.office_case_number, cs_c.office_case_number, cs_r.office_case_number) AS office_case_number,
+              COALESCE(cs_t.case_year, cs_h.case_year, cs_c.case_year, cs_r.case_year) AS case_year,
+              COALESCE(cs_t.first_instance_number, cs_h.first_instance_number, cs_c.first_instance_number, cs_r.first_instance_number) AS first_instance_number,
+              COALESCE(cs_t.first_instance_year, cs_h.first_instance_year, cs_c.first_instance_year, cs_r.first_instance_year) AS first_instance_year,
+              COALESCE(cs_t.appeal_number, cs_h.appeal_number, cs_c.appeal_number, cs_r.appeal_number) AS appeal_number,
+              COALESCE(cs_t.appeal_year, cs_h.appeal_year, cs_c.appeal_year, cs_r.appeal_year) AS appeal_year,
+              COALESCE(cs_t.cassation_number, cs_h.cassation_number, cs_c.cassation_number, cs_r.cassation_number) AS cassation_number,
+              COALESCE(cs_t.cassation_year, cs_h.cassation_year, cs_c.cassation_year, cs_r.cassation_year) AS cassation_year
+       FROM notifications n
+       LEFT JOIN tasks t ON n.related_type = 'task' AND t.id = n.related_id AND ${notDeleted('t')}
+       LEFT JOIN cases cs_t ON cs_t.id = t.case_id AND ${notDeleted('cs_t')}
+       LEFT JOIN clients cl_t ON cl_t.id = COALESCE(t.client_id, cs_t.client_id) AND ${notDeleted('cl_t')}
+       LEFT JOIN hearings h ON n.related_type = 'hearing' AND h.id = n.related_id AND ${notDeleted('h')}
+       LEFT JOIN cases cs_h ON cs_h.id = h.case_id AND ${notDeleted('cs_h')}
+       LEFT JOIN clients cl_h ON cl_h.id = cs_h.client_id AND ${notDeleted('cl_h')}
+       LEFT JOIN cases cs_c ON n.related_type = 'case' AND cs_c.id = n.related_id AND ${notDeleted('cs_c')}
+       LEFT JOIN clients cl_c ON cl_c.id = cs_c.client_id AND ${notDeleted('cl_c')}
+       LEFT JOIN reminders r ON n.related_type = 'reminder' AND r.id = n.related_id AND ${notDeleted('r')}
+       LEFT JOIN cases cs_r ON cs_r.id = r.case_id AND ${notDeleted('cs_r')}
+       LEFT JOIN clients cl_r ON cl_r.id = COALESCE(r.client_id, cs_r.client_id) AND ${notDeleted('cl_r')}
+       LEFT JOIN power_of_attorney p ON n.related_type = 'poa' AND p.id = n.related_id AND ${notDeleted('p')}
+       LEFT JOIN clients cl_p ON cl_p.id = p.client_id AND ${notDeleted('cl_p')}
+       LEFT JOIN contracts k ON n.related_type = 'contract' AND k.id = n.related_id AND ${notDeleted('k')}
+       LEFT JOIN clients cl_k ON cl_k.id = k.client_id AND ${notDeleted('cl_k')}
+       WHERE ${notDeleted('n')} AND (n.user_id IS NULL OR n.user_id = ?)
+       ORDER BY n.created_at DESC
+       LIMIT 500`
     )
     .all(userId)
 }

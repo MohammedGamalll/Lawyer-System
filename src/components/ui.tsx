@@ -6,7 +6,7 @@ import * as TabsPrimitive from '@radix-ui/react-tabs'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { MoreVertical } from 'lucide-react'
 import { cn } from '../lib/utils'
-import { formatCell } from '../lib/datetime'
+import { DATE_INPUT_MAX, DATE_INPUT_MIN, formatCell } from '../lib/datetime'
 
 const buttonVariants = cva(
   'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-400 disabled:pointer-events-none disabled:opacity-50',
@@ -45,9 +45,14 @@ export function Button({
 
 export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
   function Input(props, ref) {
+    const dateBounds =
+      props.type === 'date'
+        ? { min: props.min ?? DATE_INPUT_MIN, max: props.max ?? DATE_INPUT_MAX }
+        : {}
     return (
       <input
         {...props}
+        {...dateBounds}
         ref={ref}
         className={cn(
           'flex h-9 w-full rounded-md border border-navy-200 bg-white px-3 py-1 text-sm text-navy-900 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-gold-400 dark:bg-navy-900 dark:border-navy-700 dark:text-navy-50',
@@ -238,7 +243,7 @@ export function PageHeader({ title, actions }: { title: string; actions?: React.
   return (
     <div className="mb-4 flex flex-wrap items-center justify-between gap-3 text-start">
       <h1 className="text-2xl font-extrabold text-navy-900 dark:text-white">{title}</h1>
-      <div className="flex flex-wrap gap-2">{actions}</div>
+      {actions ? <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">{actions}</div> : null}
     </div>
   )
 }

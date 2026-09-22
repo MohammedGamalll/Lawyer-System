@@ -42,8 +42,14 @@ export function listHearings(query: ListQuery = {}, userId?: string) {
     params.push(f.case_id)
   }
   if (f.venue) {
-    where += ' AND h.venue LIKE ?'
-    params.push(`%${String(f.venue).trim()}%`)
+    const s = `%${String(f.venue).trim()}%`
+    if (f.hearing_kind === 'expert') {
+      where += ` AND (IFNULL(h.venue,'') LIKE ? OR IFNULL(h.expert_name,'') LIKE ? OR IFNULL(cs.court,'') LIKE ? OR IFNULL(cs.session_place,'') LIKE ?)`
+      params.push(s, s, s, s)
+    } else {
+      where += ' AND h.venue LIKE ?'
+      params.push(s)
+    }
   }
   if (f.hearing_kind === 'expert') {
     where += ` AND (h.hearing_type LIKE '%خبير%' OR h.hearing_type LIKE '%expert%')`

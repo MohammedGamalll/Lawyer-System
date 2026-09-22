@@ -1,4 +1,4 @@
-import { getDb, nextNumber } from '../db/database'
+import { getDb, nextNumber, runWithFtsRepair } from '../db/database'
 import { nowIso, todayIso } from '../utils/time'
 import { audit } from './audit'
 import { newId, asId, asIdOrNull, notDeleted } from '../db/ids'
@@ -395,6 +395,10 @@ function upsertCaseFees(
 }
 
 export function createCase(actor: AuthedUser, data: Record<string, unknown>) {
+  return runWithFtsRepair(() => createCaseOnce(actor, data))
+}
+
+function createCaseOnce(actor: AuthedUser, data: Record<string, unknown>) {
   if (!data.numbering_mode && data.__numbering_mode) data.numbering_mode = data.__numbering_mode
   data = parseSchema(caseSchema, data) as Record<string, unknown>
   const clientId = asId(data.client_id)

@@ -17,9 +17,28 @@ function isYearToken(v: string) {
   return /^(19|20)\d{2}$/.test(v)
 }
 
+function stageCourt(row: Record<string, unknown>) {
+  const year = stripBidiMarks(row.case_year)
+  const stages: [unknown, unknown][] = [
+    [row.first_instance_number ?? row.first_degree_number, row.first_instance_year],
+    [row.appeal_number, row.appeal_year],
+    [row.cassation_number, row.cassation_year]
+  ]
+  for (const [num, stageYear] of stages) {
+    const office = stripBidiMarks(num)
+    if (office) return { office, year: year || stripBidiMarks(stageYear) }
+  }
+  return { office: '', year }
+}
+
 export function courtParts(row: Record<string, unknown>) {
   let office = stripBidiMarks(row.office_case_number)
   let year = stripBidiMarks(row.case_year)
+  if (!office) {
+    const stage = stageCourt(row)
+    office = stage.office
+    year = year || stage.year
+  }
   const combined = office.match(/^(\d+)\s*\/\s*(\d{2,4})$/)
   if (combined) {
     const left = combined[1]

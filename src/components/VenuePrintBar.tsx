@@ -19,7 +19,23 @@ import {
   printVal
 } from '../lib/printKit'
 
-type PreviewRow = { id: string; kind: 'hearing' | 'admin' | 'exec'; label: string; row: Record<string, unknown> }
+type PreviewRow = { id: string; kind: 'hearing' | 'expert' | 'admin' | 'exec'; label: string; row: Record<string, unknown> }
+
+const EXPERT_MARK = '[جلسة خبراء]'
+
+function asExpertRollRow(r: Record<string, unknown>): Record<string, unknown> {
+  const type = String(r.hearing_type || '').trim()
+  return {
+    ...r,
+    __rollKind: 'expert',
+    hearing_type: type.includes('جلسة خبراء') ? type : type ? `${EXPERT_MARK} ${type}` : EXPERT_MARK,
+    previous_decision: r.previous_decision || r.previous_action,
+    court_decision: r.court_decision || r.current_action,
+    venue: r.venue || r.expert_office,
+    court: r.court || r.expert_office,
+    court_name: r.court_name || r.court || r.expert_office
+  }
+}
 
 export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'err') => void }) {
   const { t, i18n } = useTranslation()
@@ -29,20 +45,51 @@ export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'e
   const [busy, setBusy] = useState(false)
   const [preview, setPreview] = useState<PreviewRow[] | null>(null)
   const [hidden, setHidden] = useState<Record<string, boolean>>({})
+  const [includeHearings, setIncludeHearings] = useState(true)
+  const [includeExperts, setIncludeExperts] = useState(true)
 
   const loadRows = async () => {
     const v = venue.trim()
-    if (!v) return { v, hRows: [] as Record<string, unknown>[], admin: [] as Record<string, unknown>[], exec: [] as Record<string, unknown>[] }
+    if (!v) return { v, hRows: [] as Record<string, unknown>[], expertRows: [] as Record<string, unknown>[], admin: [] as Record<string, unknown>[], exec: [] as Record<string, unknown>[] }
     const filters: Record<string, string> = { venue: v }
     if (from) filters.date_from = from
     if (to) filters.date_to = to
-    const [hearings, tasks] = await Promise.all([
-      invoke<{ rows: Record<string, unknown>[] }>('hearings:list', {
-        page: 1,
-        pageSize: 1000,
-        print: true,
-        filters
-      }),
+    const dateFilters: Record<string, string> = {}
+    if (from) dateFilters.date_from = from
+    if (to) dateFilters.date_to = to
+    const [hearings, expertHearings, experts, expertsOpen, tasks] = await Promise.all([
+      includeHearings
+        ? invoke<{ rows: Record<string, unknown>[] }>('hearings:list', {
+            page: 1,
+            pageSize: 1000,
+            print: true,
+            filters
+          })
+        : Promise.resolve({ rows: [] as Record<string, unknown>[] }),
+      includeExperts
+        ? invoke<{ rows: Record<string, unknown>[] }>('hearings:list', {
+            page: 1,
+            pageSize: 1000,
+            print: true,
+            filters: { ...filters, hearing_kind: 'expert' }
+          })
+        : Promise.resolve({ rows: [] as Record<string, unknown>[] }),
+      includeExperts
+        ? invoke<{ rows: Record<string, unknown>[] }>('experts:list', {
+            page: 1,
+            pageSize: 1000,
+            print: true,
+            filters
+          })
+        : Promise.resolve({ rows: [] as Record<string, unknown>[] }),
+      includeExperts
+        ? invoke<{ rows: Record<string, unknown>[] }>('experts:list', {
+            page: 1,
+            pageSize: 1000,
+            print: true,
+            filters: dateFilters
+          })
+        : Promise.resolve({ rows: [] as Record<string, unknown>[] }),
       invoke<{ rows: Record<string, unknown>[] }>('tasks:list', {
         page: 1,
         pageSize: 1000,
@@ -50,35 +97,72 @@ export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'e
         filters
       })
     ])
-    const hRows = (hearings.rows || []).filter((r) => String(r.status) !== 'done' && String(r.status) !== 'cancelled')
+    const open = (r: Record<string, unknown>) =>
+      String(r.status) !== 'done' && String(r.status) !== 'cancelled' && String(r.status) !== 'completed'
+    const hRows = (hearings.rows || []).filter(open)
+    const seen = new Set<string>()
+    const venueNeedle = v.toLowerCase()
+    const matchesVenue = (r: Record<string, unknown>) => {
+      const blob = [r.venue, r.expert_office, r.court, r.court_name, r.session_place]
+        .map((x) => String(x || '').toLowerCase())
+        .join(' ')
+      if (blob.includes(venueNeedle)) return true
+      return !String(r.venue || '').trim()
+    }
+    const expertRows = [...(experts.rows || []), ...(expertsOpen.rows || []).filter(matchesVenue), ...(expertHearings.rows || [])].filter(
+      (r) => {
+        if (!open(r)) return false
+        const id = String(r.id || '')
+        if (id && seen.has(id)) return false
+        if (id) seen.add(id)
+        return true
+      }
+    )
     const tRows = (tasks.rows || []).filter(
       (r) => String(r.status) !== 'completed' && String(r.status) !== 'cancelled'
     )
     const exec = tRows.filter((r) => String(r.work_kind || 'admin') === 'execution')
     const admin = tRows.filter((r) => String(r.work_kind || 'admin') !== 'execution')
-    return { v, hRows, admin, exec }
+    return { v, hRows, expertRows, admin, exec }
   }
 
   const printRows = async (
     v: string,
     hRows: Record<string, unknown>[],
+    expertRows: Record<string, unknown>[],
     admin: Record<string, unknown>[],
     exec: Record<string, unknown>[]
   ) => {
     const range = [from, to].filter(Boolean).join(' — ')
     const subtitle = `${t('fields.venue')}: ${v}${range ? ` (${range})` : ''}`
-    const roll = hearingRollTableHtml(hRows, t, i18n.language, { emptyLabel: t('noData') })
+    const hearingRoll = includeHearings
+      ? hearingRollTableHtml(hRows, t, i18n.language, { emptyLabel: t('noData') })
+      : null
+    const fromTable = includeExperts
+      ? expertRows.filter((r) => 'current_action' in r || 'previous_action' in r || r.expert_office != null)
+      : []
+    const fromHearings = includeExperts
+      ? expertRows.filter((r) => !fromTable.includes(r)).map(asExpertRollRow)
+      : []
+    const expertBits = includeExperts
+      ? [
+          fromHearings.length
+            ? hearingRollTableHtml(fromHearings, t, i18n.language, { emptyLabel: t('noData') }).html
+            : '',
+          expertRollTableHtml(fromTable, t, i18n.language, { emptyLabel: t('noData') }).html
+        ].join('')
+      : ''
     const adminRoll = taskRollTableHtml(admin, t, i18n.language, { emptyLabel: t('noData') })
     const execRoll = executionTasksRollTableHtml(exec, t, i18n.language, { emptyLabel: t('noData') })
     const body = `
         <h3 class="print-sub">${escPrint(subtitle)}</h3>
-        <h2>${escPrint(t('nav.hearings'))}</h2>
-        ${roll.html}
+        ${hearingRoll ? `<h2>${escPrint(t('printVenue.hearings'))}</h2>${hearingRoll.html}` : ''}
+        ${includeExperts ? `<h2>${escPrint(t('printVenue.experts'))}</h2>${expertBits}` : ''}
         <h2>${escPrint(t('nav.tasks'))}</h2>
         ${adminRoll.html}
         <h2>${escPrint(t('nav.execution'))}</h2>
         ${execRoll.html}`
-    await sendPrint('report', `${t('printVenueSheet')} ${v}`, body)
+    await sendPrint('report', `${t('printVenueSheet')} ${v}`, body, 'hearingsRoll')
   }
 
   const openPreview = async () => {
@@ -92,6 +176,12 @@ export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'e
           id: `h-${row.id}`,
           kind: 'hearing' as const,
           label: `${formatProgramCode(row)} — ${row.client_name || ''} / ${row.opponent_name || ''}`,
+          row
+        })),
+        ...data.expertRows.map((row) => ({
+          id: `x-${row.id}`,
+          kind: 'expert' as const,
+          label: `${EXPERT_MARK} ${row.expert_name || row.hearing_type || ''} — ${formatProgramCode(row)} — ${row.client_name || ''}`,
           row
         })),
         ...data.admin.map((row) => ({
@@ -125,6 +215,7 @@ export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'e
       await printRows(
         v,
         vis.filter((p) => p.kind === 'hearing').map((p) => p.row),
+        vis.filter((p) => p.kind === 'expert').map((p) => p.row),
         vis.filter((p) => p.kind === 'admin').map((p) => p.row),
         vis.filter((p) => p.kind === 'exec').map((p) => p.row)
       )
@@ -142,7 +233,7 @@ export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'e
     setBusy(true)
     try {
       const data = await loadRows()
-      await printRows(data.v, data.hRows, data.admin, data.exec)
+      await printRows(data.v, data.hRows, data.expertRows, data.admin, data.exec)
     } catch (e) {
       toast((e as Error).message, 'err')
     } finally {
@@ -157,6 +248,14 @@ export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'e
       </div>
       <DatePicker value={from} onChange={setFrom} />
       <DatePicker value={to} onChange={setTo} />
+      <label className="flex items-center gap-1 text-sm">
+        <input type="checkbox" checked={includeHearings} onChange={(e) => setIncludeHearings(e.target.checked)} />
+        {t('printVenue.hearings')}
+      </label>
+      <label className="flex items-center gap-1 text-sm">
+        <input type="checkbox" checked={includeExperts} onChange={(e) => setIncludeExperts(e.target.checked)} />
+        {t('printVenue.experts')}
+      </label>
       <Button type="button" variant="outline" disabled={busy || !venue.trim()} onClick={() => void openPreview()}>
         {t('printVenuePreview')}
       </Button>
@@ -174,7 +273,13 @@ export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'e
               />
               <span>
                 <span className="ms-1 text-xs text-navy-400">
-                  {p.kind === 'hearing' ? t('nav.hearings') : p.kind === 'exec' ? t('nav.execution') : t('nav.tasks')}
+                  {p.kind === 'hearing'
+                    ? t('printVenue.hearings')
+                    : p.kind === 'expert'
+                      ? t('printVenue.experts')
+                      : p.kind === 'exec'
+                        ? t('nav.execution')
+                        : t('nav.tasks')}
                 </span>{' '}
                 {p.label}
               </span>

@@ -52,6 +52,20 @@ function isYearToken(v: string) {
 export function formattedCourtNumber(row: Record<string, unknown>): string {
   let office = stripBidiMarks(row.office_case_number)
   let year = stripBidiMarks(row.case_year)
+  if (!office) {
+    const stages: [unknown, unknown][] = [
+      [row.first_instance_number ?? row.first_degree_number, row.first_instance_year],
+      [row.appeal_number, row.appeal_year],
+      [row.cassation_number, row.cassation_year]
+    ]
+    for (const [num, stageYear] of stages) {
+      const picked = stripBidiMarks(num)
+      if (!picked) continue
+      office = picked
+      year = year || stripBidiMarks(stageYear)
+      break
+    }
+  }
   if (isYearToken(office) && year && !isYearToken(year)) {
     const swapped = office
     office = year

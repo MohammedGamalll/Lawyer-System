@@ -651,8 +651,7 @@ export function CrudPage({
   return (
     <div>
       {embedded ? (
-        <div className="mb-3 flex flex-wrap justify-end gap-2">
-          {extraActions}
+        <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
           <Button type="button" variant="outline" disabled={printing} onClick={() => (onPrint ? onPrint({ colFilters }) : printList())}>
             {t('print')}
           </Button>
@@ -667,7 +666,6 @@ export function CrudPage({
           title={title}
           actions={
             <>
-              {extraActions}
               <Button type="button" variant="outline" disabled={printing} onClick={() => (onPrint ? onPrint({ colFilters }) : printList())}>
                 {t('print')}
               </Button>
@@ -680,6 +678,11 @@ export function CrudPage({
           }
         />
       )}
+      {extraActions ? (
+        <div className="mb-3 flex flex-wrap items-end gap-x-3 gap-y-2 rounded-lg border border-navy-100 bg-navy-50/60 px-3 py-2 dark:border-navy-800 dark:bg-navy-900/50">
+          {extraActions}
+        </div>
+      ) : null}
       <div className="mb-3 flex flex-wrap gap-2">
         {!hideQuickSearch ? (
           <Input placeholder={t('search')} value={q} onChange={(e) => { setPage(1); setQ(e.target.value) }} className="max-w-sm" />

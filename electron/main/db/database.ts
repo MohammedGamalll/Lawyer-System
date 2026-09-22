@@ -28,6 +28,22 @@ export function getDb(): BetterSqlite3.Database {
   return db
 }
 
+export function isFtsError(err: unknown): boolean {
+  const msg = String((err as Error)?.message || err).toLowerCase()
+  return msg.includes('fts5') || msg.includes('fts_') || msg.includes('clients_fts') || msg.includes('cases_fts')
+}
+
+export function runWithFtsRepair<T>(fn: () => T): T {
+  try {
+    return fn()
+  } catch (err) {
+    if (!isFtsError(err)) throw err
+    log.warn('fts write failed, rebuilding', err)
+    ensureFts(getDb(), { forceRebuild: true })
+    return fn()
+  }
+}
+
 function configureSqlite(database: BetterSqlite3.Database): void {
   database.pragma('journal_mode = WAL')
   database.pragma('synchronous = FULL')

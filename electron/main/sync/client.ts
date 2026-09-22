@@ -1,26 +1,21 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { getSettings } from '../services/settings'
+import { getSupabaseCredentials } from './credentials'
 
 let client: SupabaseClient | null = null
 let lastKey = ''
 
+export function resetSupabaseClient(): void {
+  client = null
+  lastKey = ''
+}
+
 export function getSupabase(): SupabaseClient | null {
   const s = getSettings()
-  const disabled = s.sync_disabled === '1' || s.sync_disabled === 'true'
-  if (disabled) {
-    client = null
-    lastKey = ''
-    return null
-  }
-  const url = String(s.supabase_url || process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim()
-  const key = String(
-    s.supabase_anon_key ||
-      process.env.SUPABASE_ANON_KEY ||
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-      ''
-  ).trim()
-  if (!url || !key) {
+  const creds = getSupabaseCredentials()
+  const url = String(s.supabase_url || creds.url || '').trim()
+  const key = String(s.supabase_anon_key || creds.key || '').trim()
+  if (!url || !key || key === '********') {
     client = null
     lastKey = ''
     return null

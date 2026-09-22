@@ -170,6 +170,7 @@ app.whenReady().then(() => {
   if (!allowStart) return;
   app.setAppUserModelId("com.lawoffice.management");
   try {
+    loadDotEnv([app.getAppPath(), process.resourcesPath || "", app.getPath("userData")]);
     initDatabase();
     persistSyncSettingsFromEnv();
   } catch (err) {
@@ -178,6 +179,7 @@ app.whenReady().then(() => {
   }
   try {
     ensureAdminOnlyReset();
+    persistSyncSettingsFromEnv();
   } catch (err) {
     log.warn(err);
   }
