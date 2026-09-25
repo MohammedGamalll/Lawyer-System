@@ -678,6 +678,7 @@ export function SettingsPage() {
   const [editTypeVal, setEditTypeVal] = useState("");
   const [delTypeId, setDelTypeId] = useState<string | null>(null);
   const [wipeAsk, setWipeAsk] = useState(false);
+  const [syncBusy, setSyncBusy] = useState(false);
 
   useEffect(() => {
     invoke<Record<string, string>>("settings:get").then(setS);
@@ -941,23 +942,28 @@ export function SettingsPage() {
                     <Button
                       variant="outline"
                       type="button"
+                      disabled={syncBusy}
                       onClick={async () => {
-                        await invoke("settings:set", s);
-                        const snap = await invoke<SyncSnapshot>("sync:now");
-                        useSyncStore.getState().setSnapshot(snap);
-                        if (snap.status === "synced") toast(t("sync.doneOk"));
-                        else if (snap.status === "offline")
-                          toast(snap.error || t("sync.offline"), "err");
-                        else if (snap.error) toast(snap.error, "err");
-                        else
-                          toast(
-                            t("sync.stillPending", {
-                              count: snap.pendingCount,
-                            }),
-                          );
+                        setSyncBusy(true);
+                        try {
+                          const snap = await invoke<SyncSnapshot>("sync:now");
+                          useSyncStore.getState().setSnapshot(snap);
+                          if (snap.status === "synced") toast(t("sync.doneOk"));
+                          else if (snap.status === "offline")
+                            toast(snap.error || t("sync.offline"), "err");
+                          else if (snap.error) toast(snap.error, "err");
+                          else
+                            toast(
+                              t("sync.stillPending", {
+                                count: snap.pendingCount,
+                              }),
+                            );
+                        } finally {
+                          setSyncBusy(false);
+                        }
                       }}
                     >
-                      {t("sync.now")}
+                      {syncBusy ? t("loading") : t("sync.now")}
                     </Button>
                   </div>
                 </Card>

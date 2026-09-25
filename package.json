@@ -1,6 +1,6 @@
 {
   "name": "law-office-management",
-  "version": "1.0.18",
+  "version": "1.0.19",
   "description": "Law Office Management System",
   "main": "./out/main/index.js",
   "author": "Law Office Management",
@@ -21,6 +21,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "schema:verify": "npx tsx scripts/verify-supabase-schema.ts",
+    "sync:probe": "node scripts/probe-supabase-key.mjs",
     "db:clean": "python scripts/clean-test-data.py",
     "import:saljas": "python scripts/import_saljas.py",
     "archive:build": "python scripts/build-archive-db.py",

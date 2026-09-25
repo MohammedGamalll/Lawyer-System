@@ -888,7 +888,13 @@ const en = {
     labelOffline: 'Offline',
     labelError: 'Sync error',
     doneOk: 'Sync completed',
-    stillPending: 'Still syncing — {{count}} records left'
+    stillPending: 'Still syncing — {{count}} records left',
+    invalidKey: 'Sync key is invalid. Contact support.',
+    reverifyTitle: 'Confirm password',
+    reverifyBody: 'The password was changed on another device. Enter the new password to resume syncing.',
+    reverifySubmit: 'Confirm and resume sync',
+    reverifyOk: 'Password confirmed and sync resumed',
+    banned: 'Your account was deactivated by an administrator.'
   },
   users: {
     perms: 'User permissions',

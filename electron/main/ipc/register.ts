@@ -30,6 +30,7 @@ import * as printTemplates from '../services/printTemplates'
 import * as lookups from '../services/lookups'
 import * as scan from '../services/scan'
 import { getSyncState, runSyncCycle } from '../sync/service'
+import { confirmRemotePassword } from '../sync/authGuard'
 import * as legacyArchive from '../services/archive'
 
 export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): void {
@@ -63,13 +64,18 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
     if (!user) return fail('غير مسجل')
     return ok(toPublicSession(user))
   })
-  handle(ipc, IPC.auth.changePassword, { write: true }, (_e, user, current, next) => {
-    auth.changePassword(user!, String(current), String(next))
+  handle(ipc, IPC.auth.changePassword, { write: true }, (event, user, current, next) => {
+    auth.changePassword(user!, String(current), String(next), event.sender.id)
     return ok(true)
   })
-  handle(ipc, IPC.auth.resetPassword, { permission: 'users.manage', write: true }, (_e, user, userId, next) => {
-    auth.resetPassword(user!, String(userId), String(next))
+  handle(ipc, IPC.auth.resetPassword, { permission: 'users.manage', write: true }, (event, user, userId, next) => {
+    auth.resetPassword(user!, String(userId), String(next), event.sender.id)
     return ok(true)
+  })
+  handle(ipc, IPC.auth.confirmRemotePassword, { write: true }, async (_e, user, password) => {
+    confirmRemotePassword(user!.id, String(password))
+    await runSyncCycle()
+    return ok(getSyncState())
   })
 
   handle(ipc, IPC.users.list, { permission: ['users.manage', 'employees.manage', 'tasks.view'] }, (_e, user, q) =>
@@ -516,7 +522,7 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
   handle(ipc, IPC.files.pick, {}, async () => {
     const win = getWin()
     const res = win
-      ? await dialog.showOpenDialog(win, { properties: ['openFile'], modal: true })
+      ? await dialog.showOpenDialog(win, { properties: ['openFile'] })
       : await dialog.showOpenDialog({ properties: ['openFile'] })
     if (res.canceled || !res.filePaths[0]) return fail('تم الإلغاء')
     const p = res.filePaths[0]

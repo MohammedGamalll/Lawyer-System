@@ -179,31 +179,43 @@ export function Modal({
   title,
   onClose,
   children,
-  wide
+  wide,
+  locked
 }: {
   open: boolean
   title: string
   onClose: () => void
   children: React.ReactNode
   wide?: boolean
+  locked?: boolean
 }) {
   const { i18n } = useTranslation()
   const dir = i18n.language === 'en' ? 'ltr' : 'rtl'
   return (
-    <Dialog.Root open={open} onOpenChange={(v) => !v && onClose()}>
+    <Dialog.Root
+      open={open}
+      onOpenChange={(v) => {
+        if (!v && !locked) onClose()
+      }}
+    >
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-navy-950/50" />
         <Dialog.Content
           dir={dir}
           onPointerDownOutside={(e) => {
+            if (locked) e.preventDefault()
             const t = e.target as HTMLElement | null
             if (t?.closest?.('[data-floating-menu]')) e.preventDefault()
+          }}
+          onEscapeKeyDown={(e) => {
+            if (locked) e.preventDefault()
           }}
           onFocusOutside={(e) => {
             const t = e.target as HTMLElement | null
             if (t?.closest?.('[data-floating-menu]')) e.preventDefault()
           }}
           onInteractOutside={(e) => {
+            if (locked) e.preventDefault()
             const t = e.target as HTMLElement | null
             if (t?.closest?.('[data-floating-menu]')) e.preventDefault()
           }}
@@ -214,7 +226,7 @@ export function Modal({
         >
           <div className="mb-4 flex shrink-0 items-center justify-between">
             <Dialog.Title className="text-lg font-bold text-navy-900 dark:text-white">{title}</Dialog.Title>
-            <Dialog.Close className="text-navy-400 hover:text-navy-800">✕</Dialog.Close>
+            {locked ? null : <Dialog.Close className="text-navy-400 hover:text-navy-800">✕</Dialog.Close>}
           </div>
           <div className="min-h-0 flex-1 overflow-auto">{children}</div>
         </Dialog.Content>

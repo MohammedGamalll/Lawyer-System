@@ -16,8 +16,14 @@ function metaGet(name: string): string {
 }
 
 function usableSecret(value: string): string {
-  const v = value.trim()
+  const v = value.trim().replace(/^\uFEFF/, '').replace(/[\r\n]+/g, '').trim()
   if (!v || v === '********' || /^\*+$/.test(v)) return ''
+  if (
+    (v.startsWith('"') && v.endsWith('"')) ||
+    (v.startsWith("'") && v.endsWith("'"))
+  ) {
+    return usableSecret(v.slice(1, -1))
+  }
   return v
 }
 

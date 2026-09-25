@@ -97,11 +97,8 @@ export function setSettingSilent(key: string, value: string): void {
 export function persistSyncSettingsFromEnv(): void {
   const creds = getSupabaseCredentials()
   const url = creds.url || getSetting('supabase_url').trim()
-  const key = (() => {
-    const existing = getSetting('supabase_anon_key').trim()
-    if (existing && existing !== '********') return creds.key || existing
-    return creds.key
-  })()
+  const existing = getSetting('supabase_anon_key').trim()
+  const key = creds.key || (existing && existing !== '********' ? existing : '')
   if (url) setSettingSilent('supabase_url', url)
   if (key) setSettingSilent('supabase_anon_key', key)
   if (url && key) {

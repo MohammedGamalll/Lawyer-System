@@ -4,6 +4,7 @@ import { audit } from './audit'
 import { newId, asId, asIdOrNull, notDeleted } from '../db/ids'
 import { clampPageSize, pageKind, includeIds } from '../db/queryLimits'
 import { recordLocalChange, softDelete } from '../sync/queue'
+import { destroySessionsForUser } from '../ipc/session'
 import { rememberLookup } from './lookups'
 import type { AuthedUser } from '../ipc/helpers'
 import type { ListQuery } from '@shared/types'
@@ -326,6 +327,9 @@ export function saveStaff(actor: AuthedUser, data: Record<string, unknown>) {
         userId
       )
       recordLocalChange('users', userId, 'UPDATE')
+      if (actor.id !== userId && (hash !== old.password_hash || Number(data.is_active) === 0)) {
+        destroySessionsForUser(userId)
+      }
     } else {
       if (!username) throw new Error('اسم المستخدم مطلوب')
       if (!data.password || String(data.password).length < 6) throw new Error('كلمة المرور يجب ألا تقل عن 6 أحرف')

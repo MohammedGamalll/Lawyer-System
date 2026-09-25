@@ -70,6 +70,24 @@ export function pendingCount(): number {
   return (getDb().prepare('SELECT COUNT(*) as c FROM local_sync_queue').get() as { c: number }).c
 }
 
+export function clearQueue(): void {
+  getDb().exec('DELETE FROM local_sync_queue')
+}
+
+/** Drop queued rows for the given tables. If keepRecordId is set, that record stays. */
+export function dropQueueExcept(tableNames: string[], keepRecordId: string | null): void {
+  if (!tableNames.length) return
+  const db = getDb()
+  const placeholders = tableNames.map(() => '?').join(',')
+  if (keepRecordId) {
+    db.prepare(
+      `DELETE FROM local_sync_queue WHERE table_name IN (${placeholders}) AND record_id != ?`
+    ).run(...tableNames, keepRecordId)
+  } else {
+    db.prepare(`DELETE FROM local_sync_queue WHERE table_name IN (${placeholders})`).run(...tableNames)
+  }
+}
+
 export function isQueued(tableName: string, recordId: string): boolean {
   const row = getDb()
     .prepare('SELECT 1 as x FROM local_sync_queue WHERE table_name = ? AND record_id = ?')

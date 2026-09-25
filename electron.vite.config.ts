@@ -7,6 +7,10 @@ import { loadDotEnv } from './electron/main/env'
 
 loadDotEnv()
 
+function bakeEnv(value: string | undefined): string {
+  return JSON.stringify(String(value || '').trim().replace(/[\r\n]+/g, ''))
+}
+
 const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabaseKey =
   process.env.SUPABASE_ANON_KEY ||
@@ -15,15 +19,15 @@ const supabaseKey =
   ''
 
 const supabaseDefine = {
-  'import.meta.env.SUPABASE_URL': JSON.stringify(supabaseUrl),
-  'import.meta.env.NEXT_PUBLIC_SUPABASE_URL': JSON.stringify(
+  'import.meta.env.SUPABASE_URL': bakeEnv(supabaseUrl),
+  'import.meta.env.NEXT_PUBLIC_SUPABASE_URL': bakeEnv(
     process.env.NEXT_PUBLIC_SUPABASE_URL || supabaseUrl
   ),
-  'import.meta.env.SUPABASE_ANON_KEY': JSON.stringify(supabaseKey),
-  'import.meta.env.NEXT_PUBLIC_SUPABASE_ANON_KEY': JSON.stringify(
+  'import.meta.env.SUPABASE_ANON_KEY': bakeEnv(supabaseKey),
+  'import.meta.env.NEXT_PUBLIC_SUPABASE_ANON_KEY': bakeEnv(
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || supabaseKey
   ),
-  'import.meta.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY': JSON.stringify(
+  'import.meta.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY': bakeEnv(
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || supabaseKey
   )
 }

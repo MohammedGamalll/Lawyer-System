@@ -3,6 +3,7 @@ import { NUMBERED_TABLES } from '../db/schema'
 import { getDb } from '../db/database'
 import { nowIso } from '../utils/time'
 import { getSupabase } from './client'
+import { mapSyncError } from './errors'
 import { listQueue, pendingCount, removeQueueItem, enqueueIfAbsent, enqueueParentSnapshot } from './queue'
 import { emitSyncStatus } from './status'
 
@@ -125,7 +126,7 @@ export async function pushQueue(): Promise<string> {
         pushed += 1
         if (pushed % 5 === 0) emitSyncStatus('syncing')
       } catch (err) {
-        lastError = String((err as Error).message || err)
+        lastError = mapSyncError(String((err as Error).message || err))
         let queuedParent = false
         try {
           const payload = JSON.parse(item.payload) as Record<string, unknown>

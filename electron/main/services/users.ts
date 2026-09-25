@@ -4,7 +4,7 @@ import { nowIso } from '../utils/time'
 import { audit } from './audit'
 import { newId, asId, notDeleted } from '../db/ids'
 import { recordLocalChange, softDelete } from '../sync/queue'
-import { loadPermissions, hasAnyPermission } from '../ipc/session'
+import { destroySessionsForUser, loadPermissions, hasAnyPermission } from '../ipc/session'
 import type { AuthedUser } from '../ipc/helpers'
 import type { ListQuery } from '@shared/types'
 import { PERMISSIONS, ROLE_PERMISSIONS } from '@shared/permissions'
@@ -129,6 +129,9 @@ export function updateUser(actor: AuthedUser, id: string, data: Record<string, u
     id
   )
   recordLocalChange('users', id, 'UPDATE')
+  if (actor.id !== id && (hash !== old.password_hash || Number(data.is_active) === 0)) {
+    destroySessionsForUser(id)
+  }
   audit(actor, 'update', 'users', id, `تم تعديل المستخدم ${username}`, old, { ...data, password: password ? '***' : undefined })
   return { id }
 }

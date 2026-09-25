@@ -4,7 +4,7 @@ import { nowIso } from '../utils/time'
 import { audit } from './audit'
 import { newId, notDeleted } from '../db/ids'
 import { recordLocalChange } from '../sync/queue'
-import { createSession, destroySession, loadPermissions, toPublicSession } from '../ipc/session'
+import { createSession, destroySession, destroySessionsForUser, loadPermissions, sessionIdForSender, toPublicSession } from '../ipc/session'
 import type { AuthedUser } from '../ipc/helpers'
 import type { UserSession } from '@shared/types'
 import { loginSchema, passwordChangeSchema, parseSchema } from '@shared/schemas'
@@ -101,7 +101,7 @@ export function logout(user: AuthedUser | null, senderId: number): void {
   destroySession(senderId)
 }
 
-export function changePassword(user: AuthedUser, current: string, next: string): void {
+export function changePassword(user: AuthedUser, current: string, next: string, senderId?: number): void {
   parseSchema(passwordChangeSchema, { current, next })
   if (!next || next.length < 6) throw new Error('كلمة المرور الجديدة يجب ألا تقل عن 6 أحرف')
   const db = getDb()
@@ -113,10 +113,12 @@ export function changePassword(user: AuthedUser, current: string, next: string):
     user.id
   )
   recordLocalChange('users', user.id, 'UPDATE')
+  const keep = senderId != null ? sessionIdForSender(senderId) : null
+  destroySessionsForUser(user.id, keep)
   audit(user, 'change_password', 'users', user.id, `قام المستخدم ${user.username} بتغيير كلمة المرور`)
 }
 
-export function resetPassword(admin: AuthedUser, userId: string, next: string): void {
+export function resetPassword(admin: AuthedUser, userId: string, next: string, senderId?: number): void {
   if (!next || next.length < 6) throw new Error('كلمة المرور الجديدة يجب ألا تقل عن 6 أحرف')
   const db = getDb()
   const target = db.prepare(`SELECT username FROM users WHERE id = ? AND ${notDeleted()}`).get(userId) as
@@ -127,5 +129,7 @@ export function resetPassword(admin: AuthedUser, userId: string, next: string): 
     'UPDATE users SET password_hash = ?, failed_login_attempts = 0, locked_until = NULL, updated_at = ? WHERE id = ?'
   ).run(bcrypt.hashSync(next, 10), nowIso(), userId)
   recordLocalChange('users', userId, 'UPDATE')
+  const keep = admin.id === userId && senderId != null ? sessionIdForSender(senderId) : null
+  destroySessionsForUser(userId, keep)
   audit(admin, 'reset_password', 'users', userId, `قام المدير بإعادة تعيين كلمة مرور ${target.username}`)
 }

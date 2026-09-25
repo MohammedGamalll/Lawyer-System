@@ -1,13 +1,15 @@
 import { getDb } from '../db/database'
 import { SYNC_TABLES } from '../db/schema'
+import { onRemoteUserApplied } from './authGuard'
 import { isRemoteNewer } from './conflicts'
 import { runAsRemote } from './origin'
 import { pkColumn } from './queue'
 
 const SYNC_SET = new Set<string>(SYNC_TABLES)
 
-export function applyRemoteWrite(table: string, row: Record<string, unknown> | null, event: 'INSERT' | 'UPDATE' | 'DELETE'): void {
-  if (!SYNC_SET.has(table) || !row) return
+export function applyRemoteWrite(table: string, incoming: Record<string, unknown> | null, event: 'INSERT' | 'UPDATE' | 'DELETE'): void {
+  if (!SYNC_SET.has(table) || !incoming) return
+  let row: Record<string, unknown> = incoming
   const pk = pkColumn(table)
   const id = row[pk]
   if (id == null || id === '') return
@@ -27,6 +29,16 @@ export function applyRemoteWrite(table: string, row: Record<string, unknown> | n
       if (!Number.isNaN(localLogin) && (Number.isNaN(remoteLogin) || localLogin > remoteLogin)) {
         row = { ...row, last_login_at: local.last_login_at, last_login_device: local.last_login_device }
       }
+      const keep = onRemoteUserApplied(
+        {
+          id: String(local.id),
+          password_hash: String(local.password_hash || ''),
+          is_active: Number(local.is_active),
+          role_id: String(local.role_id || '')
+        },
+        row
+      )
+      if (keep.password_hash) row = { ...row, password_hash: keep.password_hash }
     }
     upsertRow(db, table, pk, row)
   })

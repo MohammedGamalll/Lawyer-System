@@ -1,9 +1,10 @@
-import { lazy, Suspense, useEffect, type ComponentType, type LazyExoticComponent } from 'react'
+import { lazy, Suspense, useEffect, useState, type ComponentType, type LazyExoticComponent } from 'react'
 import { Toaster } from 'sonner'
 import { useApp } from './store'
 import { canAccessPage } from '@shared/permissions'
 import { Layout } from './components/Layout'
 import { LoginPage } from './pages/Login'
+import { AuthLockModal } from './components/AuthLockModal'
 import i18n from './i18n'
 import { applyFontSize } from './lib/uiPrefs'
 import { invoke } from './lib/api'
@@ -89,6 +90,7 @@ const PAGE: Record<string, LazyExoticComponent<ComponentType>> = {
 export default function App() {
   const { user, page, toast, setUpdateReady } = useApp()
   const allowed = user ? canAccessPage(page, user.roleCode, user.permissions) : false
+  const [reverifyOpen, setReverifyOpen] = useState(false)
 
   useEffect(() => {
     if (!window.api?.on) return
@@ -117,6 +119,18 @@ export default function App() {
     const off4 = window.api.on('sync:status', (snap: unknown) => {
       useSyncStore.getState().setSnapshot(snap as SyncSnapshot)
     })
+    const offBanned = window.api.on('auth:banned', (payload: unknown) => {
+      setReverifyOpen(false)
+      useApp.getState().setUser(null)
+      const msg = String((payload as { message?: string })?.message || i18n.t('sync.banned'))
+      toast(msg, 'err')
+    })
+    const offReverify = window.api.on('auth:reverify', () => {
+      setReverifyOpen(true)
+    })
+    const offRole = window.api.on('auth:roleChanged', () => {
+      void useApp.getState().refreshMe()
+    })
     void useSyncStore.getState().refresh()
     return () => {
       off1?.()
@@ -127,6 +141,9 @@ export default function App() {
       offErr?.()
       off3?.()
       off4?.()
+      offBanned?.()
+      offReverify?.()
+      offRole?.()
     }
   }, [setUpdateReady, toast])
 
@@ -158,6 +175,7 @@ export default function App() {
     <>
       <Toaster richColors position="bottom-left" />
       <UpdateBanner />
+      <AuthLockModal open={reverifyOpen} onVerified={() => setReverifyOpen(false)} />
       <Layout>
         {!allowed ? (
           <div className="p-10 text-lg text-navy-700 dark:text-white">{i18n.t('forbidden')}</div>

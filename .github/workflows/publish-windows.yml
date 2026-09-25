@@ -6,7 +6,7 @@ on:
       tag:
         description: Git tag to build and attach the installer to
         required: true
-        default: v1.0.18
+        default: v1.0.19
 
 permissions:
   contents: write
@@ -28,6 +28,12 @@ jobs:
         run: |
           npm ci
           npm run rebuild
+
+      - name: Verify Supabase API key
+        run: node scripts/probe-supabase-key.mjs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
 
       - name: Build NSIS installer
         run: npm run dist

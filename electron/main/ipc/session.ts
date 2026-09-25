@@ -12,11 +12,18 @@ export function setSenderSession(senderId: number, sessionId: string): void {
   SESSION_HEADER.set(senderId, sessionId)
 }
 
-export function getSession(event: IpcMainInvokeEvent): AuthedUser | null {
-  const sessionId = SESSION_HEADER.get(event.sender.id)
-  if (!sessionId) return null
-  const db = getDb()
-  const row = db
+type SessionUserRow = {
+  id: string
+  expires_at: string
+  user_id: string
+  username: string
+  full_name: string
+  is_active: number
+  role_code: string
+}
+
+function loadSessionRow(sessionId: string): SessionUserRow | undefined {
+  return getDb()
     .prepare(
       `SELECT s.id, s.expires_at, u.id as user_id, u.username, u.full_name, u.is_active,
               r.code as role_code
@@ -25,20 +32,13 @@ export function getSession(event: IpcMainInvokeEvent): AuthedUser | null {
        JOIN roles r ON r.id = u.role_id
        WHERE s.id = ?`
     )
-    .get(sessionId) as
-    | {
-        id: string
-        expires_at: string
-        user_id: string
-        username: string
-        full_name: string
-        is_active: number
-        role_code: string
-      }
-    | undefined
-  if (!row || row.is_active !== 1) return null
+    .get(sessionId) as SessionUserRow | undefined
+}
+
+function toAuthed(row: SessionUserRow): AuthedUser | null {
+  if (row.is_active !== 1) return null
   if (new Date(row.expires_at).getTime() < Date.now()) {
-    db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId)
+    getDb().prepare('DELETE FROM sessions WHERE id = ?').run(row.id)
     return null
   }
   return {
@@ -48,6 +48,50 @@ export function getSession(event: IpcMainInvokeEvent): AuthedUser | null {
     roleCode: row.role_code,
     permissions: loadPermissions(row.user_id, row.role_code)
   }
+}
+
+export function getSession(event: IpcMainInvokeEvent): AuthedUser | null {
+  const sessionId = SESSION_HEADER.get(event.sender.id)
+  if (!sessionId) return null
+  const row = loadSessionRow(sessionId)
+  if (!row) return null
+  return toAuthed(row)
+}
+
+export function sessionIdForSender(senderId: number): string | undefined {
+  return SESSION_HEADER.get(senderId)
+}
+
+export function listActiveSessionUsers(): AuthedUser[] {
+  const seen = new Set<string>()
+  const out: AuthedUser[] = []
+  for (const sessionId of SESSION_HEADER.values()) {
+    const row = loadSessionRow(sessionId)
+    if (!row) continue
+    const user = toAuthed(row)
+    if (!user || seen.has(user.id)) continue
+    seen.add(user.id)
+    out.push(user)
+  }
+  return out
+}
+
+export function pruneSessionMap(): void {
+  const db = getDb()
+  for (const [senderId, sid] of [...SESSION_HEADER.entries()]) {
+    const row = db.prepare('SELECT id FROM sessions WHERE id = ?').get(sid) as { id: string } | undefined
+    if (!row) SESSION_HEADER.delete(senderId)
+  }
+}
+
+export function destroySessionsForUser(userId: string, keepSessionId?: string | null): void {
+  const db = getDb()
+  if (keepSessionId) {
+    db.prepare('DELETE FROM sessions WHERE user_id = ? AND id != ?').run(userId, keepSessionId)
+  } else {
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId)
+  }
+  pruneSessionMap()
 }
 
 export function createSession(userId: string, senderId: number, deviceInfo?: string): string {
