@@ -889,6 +889,7 @@ const en = {
     labelError: 'Sync error',
     doneOk: 'Sync completed',
     stillPending: 'Still syncing — {{count}} records left',
+    stuckTables: 'Stuck: {{tables}}',
     timeout: 'The sync server timed out. Check the internet and try again.',
     invalidKey: 'Sync key is invalid. Contact support.',
     reverifyTitle: 'Confirm password',

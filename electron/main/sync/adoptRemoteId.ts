@@ -8,7 +8,22 @@ export const NATURAL_KEY: Record<string, string[]> = {
   users: ['username'],
   lookup_values: ['kind', 'value'],
   role_permissions: ['role_id', 'permission_id'],
-  user_permissions: ['user_id', 'permission_id']
+  user_permissions: ['user_id', 'permission_id'],
+  case_types: ['name_ar'],
+  expense_categories: ['name_ar'],
+  cashboxes: ['name'],
+  case_clients: ['case_id', 'client_id'],
+  case_opponents: ['case_id', 'opponent_id'],
+  clients: ['client_number'],
+  cases: ['case_number'],
+  invoices: ['invoice_number'],
+  receipts: ['receipt_number'],
+  vouchers: ['voucher_number'],
+  payments: ['payment_number'],
+  expenses: ['expense_number'],
+  power_of_attorney: ['poa_number'],
+  contracts: ['contract_number'],
+  correspondence: ['correspondence_number']
 }
 
 const USER_ID_COLUMNS = new Set(['user_id', 'created_by', 'assignee_id', 'responsible_user_id'])

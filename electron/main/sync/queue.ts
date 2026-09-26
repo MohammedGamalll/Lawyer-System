@@ -85,6 +85,14 @@ export function pendingCount(): number {
   return (getDb().prepare('SELECT COUNT(*) as c FROM local_sync_queue').get() as { c: number }).c
 }
 
+export function queueTableSummary(): string {
+  const rows = getDb()
+    .prepare(`SELECT table_name as tableName, COUNT(*) as c FROM local_sync_queue GROUP BY table_name ORDER BY c DESC`)
+    .all() as { tableName: string; c: number }[]
+  if (!rows.length) return ''
+  return rows.map((r) => `${r.tableName} (${r.c})`).join('، ')
+}
+
 export function clearQueue(): void {
   getDb().exec('DELETE FROM local_sync_queue')
 }

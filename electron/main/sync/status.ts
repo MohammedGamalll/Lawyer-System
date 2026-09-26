@@ -1,4 +1,4 @@
-import { pendingCount as queuePendingCount } from './queue'
+import { pendingCount as queuePendingCount, queueTableSummary } from './queue'
 
 export type SyncUiStatus = 'offline' | 'syncing' | 'synced'
 
@@ -7,6 +7,7 @@ export type SyncSnapshot = {
   lastSyncedAt: string
   pendingCount: number
   error?: string
+  stuckTables?: string
 }
 
 let lastStatus: SyncUiStatus = 'offline'
@@ -40,11 +41,18 @@ export function onSyncStatus(fn: (s: SyncSnapshot) => void): () => void {
 }
 
 export function getSyncSnapshot(): SyncSnapshot {
+  let stuckTables = ''
+  try {
+    stuckTables = lastPending > 0 ? queueTableSummary() : ''
+  } catch {
+    stuckTables = ''
+  }
   return {
     status: lastStatus,
     lastSyncedAt,
     pendingCount: lastPending,
-    error: lastError
+    error: lastError,
+    stuckTables
   }
 }
 

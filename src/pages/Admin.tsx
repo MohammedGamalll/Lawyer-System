@@ -986,6 +986,11 @@ export function SettingsPage() {
                     {syncSnap.error ? (
                       <p className="mt-2 text-sm text-red-600">{syncSnap.error}</p>
                     ) : null}
+                    {syncSnap.pendingCount > 0 && syncSnap.stuckTables ? (
+                      <p className="mt-1 text-sm text-navy-600">
+                        {t("sync.stuckTables", { tables: syncSnap.stuckTables })}
+                      </p>
+                    ) : null}
                   </div>
                 </Card>
                 <Card>

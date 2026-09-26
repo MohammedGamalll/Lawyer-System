@@ -8,6 +8,7 @@ export type SyncSnapshot = {
   lastSyncedAt: string
   pendingCount: number
   error?: string
+  stuckTables?: string
 }
 
 type SyncState = SyncSnapshot & {
