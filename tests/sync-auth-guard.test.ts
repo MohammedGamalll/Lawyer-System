@@ -168,4 +168,12 @@ describe.skipIf(!sqliteAvailable())('sessions and privileged queue', () => {
     }[]
     expect(left).toEqual([{ table_name: 'users', record_id: admin.id }])
   })
+
+  it('does not queue the users row after a failed local password check', async () => {
+    const { login } = await import('../electron/main/services/auth')
+    const { pendingCount } = await import('../electron/main/sync/queue')
+    const before = pendingCount()
+    await expect(login('admin', 'WrongPass@1', 1, 'test')).rejects.toThrow('غير صحيحة')
+    expect(pendingCount()).toBe(before)
+  })
 })

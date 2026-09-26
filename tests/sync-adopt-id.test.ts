@@ -127,4 +127,36 @@ describe.skipIf(!sqliteAvailable())('adopt remote role id', () => {
     expect(db.prepare(`SELECT id FROM roles WHERE code = 'lawyer'`).get()).toEqual({ id: remoteId })
     expect(db.prepare(`SELECT COUNT(*) as c FROM roles WHERE id = ?`).get(local.id)).toEqual({ c: 0 })
   })
+
+  it('applies the cloud password even when local updated_at is newer', async () => {
+    const { getDb } = await import('../electron/main/db/database')
+    const { applyRemoteWrite } = await import('../electron/main/sync/applyRemote')
+    const bcrypt = (await import('bcryptjs')).default
+    const db = getDb()
+    const user = db.prepare(`SELECT id, password_hash FROM users WHERE username = 'admin'`).get() as {
+      id: string
+      password_hash: string
+    }
+    const newer = new Date(Date.now() + 60_000).toISOString()
+    db.prepare(`UPDATE users SET updated_at = ? WHERE id = ?`).run(newer, user.id)
+    const cloudHash = bcrypt.hashSync('CloudNew@123', 10)
+    const role = db.prepare(`SELECT role_id FROM users WHERE id = ?`).get(user.id) as { role_id: string }
+    applyRemoteWrite(
+      'users',
+      {
+        id: user.id,
+        username: 'admin',
+        password_hash: cloudHash,
+        full_name: 'مدير النظام',
+        role_id: role.role_id,
+        is_active: 1,
+        created_at: newer,
+        updated_at: new Date(Date.now() - 60_000).toISOString(),
+        deleted_at: null
+      },
+      'UPDATE'
+    )
+    const after = db.prepare(`SELECT password_hash FROM users WHERE id = ?`).get(user.id) as { password_hash: string }
+    expect(after.password_hash).toBe(cloudHash)
+  })
 })

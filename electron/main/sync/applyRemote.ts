@@ -4,7 +4,7 @@ import { adoptRemoteId, findLocalIdByNaturalKey, isUniqueConflict } from './adop
 import { onRemoteUserApplied } from './authGuard'
 import { isRemoteNewer } from './conflicts'
 import { runAsRemote } from './origin'
-import { pkColumn } from './queue'
+import { isQueued, pkColumn } from './queue'
 
 const SYNC_SET = new Set<string>(SYNC_TABLES)
 
@@ -25,23 +25,37 @@ export function applyRemoteWrite(table: string, incoming: Record<string, unknown
       }
       return
     }
-    if (local && !isRemoteNewer(String(row.updated_at || ''), String(local.updated_at || ''))) return
     if (table === 'users' && local) {
       const localLogin = Date.parse(String(local.last_login_at || ''))
       const remoteLogin = Date.parse(String(row.last_login_at || ''))
       if (!Number.isNaN(localLogin) && (Number.isNaN(remoteLogin) || localLogin > remoteLogin)) {
         row = { ...row, last_login_at: local.last_login_at, last_login_device: local.last_login_device }
       }
-      const keep = onRemoteUserApplied(
-        {
-          id: String(local.id),
-          password_hash: String(local.password_hash || ''),
-          is_active: Number(local.is_active),
-          role_id: String(local.role_id || '')
-        },
-        row
-      )
-      if (keep.password_hash) row = { ...row, password_hash: keep.password_hash }
+      if (isQueued('users', String(id))) {
+        row = { ...row, password_hash: local.password_hash }
+      } else {
+        const keep = onRemoteUserApplied(
+          {
+            id: String(local.id),
+            password_hash: String(local.password_hash || ''),
+            is_active: Number(local.is_active),
+            role_id: String(local.role_id || '')
+          },
+          row
+        )
+        if (keep.password_hash) row = { ...row, password_hash: keep.password_hash }
+      }
+    }
+    if (local && !isRemoteNewer(String(row.updated_at || ''), String(local.updated_at || ''))) {
+      if (
+        table === 'users' &&
+        row.password_hash &&
+        String(row.password_hash) !== String(local.password_hash) &&
+        !isQueued('users', String(id))
+      ) {
+        db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(row.password_hash, id)
+      }
+      return
     }
     try {
       upsertRow(db, table, pk, row)

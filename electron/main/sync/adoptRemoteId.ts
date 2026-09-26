@@ -1,4 +1,6 @@
 import { getDb } from '../db/database'
+import { isRemoteNewer } from './conflicts'
+import { isQueued } from './queue'
 
 export const NATURAL_KEY: Record<string, string[]> = {
   roles: ['code'],
@@ -135,6 +137,26 @@ function rewriteQueueIds(table: string, localId: string, remoteId: string): void
   }
 }
 
+function mergeLocalOntoRemote(table: string, localId: string, remoteId: string): void {
+  if (table !== 'users') return
+  const db = getDb()
+  const localRow = db.prepare(`SELECT * FROM users WHERE id = ?`).get(localId) as
+    | { password_hash: string; updated_at?: string }
+    | undefined
+  const remoteRow = db.prepare(`SELECT * FROM users WHERE id = ?`).get(remoteId) as
+    | { password_hash: string; updated_at?: string }
+    | undefined
+  if (!localRow || !remoteRow) return
+  const queued = isQueued('users', localId) || isQueued('users', remoteId)
+  const localNewer = !isRemoteNewer(String(remoteRow.updated_at || ''), String(localRow.updated_at || ''))
+  if (!queued && !localNewer) return
+  db.prepare(`UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`).run(
+    localRow.password_hash,
+    localRow.updated_at || remoteRow.updated_at,
+    remoteId
+  )
+}
+
 /** Point local row + FKs + queue at the remote primary key. Never changes the remote id. */
 export function adoptRemoteId(table: string, localId: string, remoteId: string): void {
   if (!table || !localId || !remoteId || localId === remoteId) return
@@ -150,6 +172,7 @@ export function adoptRemoteId(table: string, localId: string, remoteId: string):
       db.prepare(`UPDATE ${ref.table} SET ${ref.column} = ? WHERE ${ref.column} = ?`).run(remoteId, localId)
     }
     if (remoteHere) {
+      mergeLocalOntoRemote(table, localId, remoteId)
       db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(localId)
     } else {
       db.prepare(`UPDATE ${table} SET id = ? WHERE id = ?`).run(remoteId, localId)

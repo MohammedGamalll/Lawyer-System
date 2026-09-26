@@ -123,7 +123,10 @@ export async function runPrePushGuard(): Promise<{ proceed: boolean; error?: str
   restorePauseFromSettings()
   const userId = currentUserId()
   if (!userId) {
-    if (isSyncPaused()) return { proceed: false, error: reverifyErrorMessage() }
+    if (isSyncPaused()) {
+      paused = false
+      clearReverifySettings()
+    }
     return { proceed: true }
   }
 

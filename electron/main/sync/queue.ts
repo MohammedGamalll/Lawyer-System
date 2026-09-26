@@ -32,13 +32,23 @@ export function enqueue(tableName: string, recordId: string, operation: SyncOp, 
 }
 
 /** Local IPC writes only. Remote apply must never call this. */
-export function recordLocalChange(tableName: string, recordId: string, operation: SyncOp): void {
+export function recordLocalChange(
+  tableName: string,
+  recordId: string,
+  operation: SyncOp,
+  omitKeys: string[] = []
+): void {
   if (isRemoteWrite()) return
   if (!SYNC_SET.has(tableName) || !recordId) return
   const db = getDb()
   const pk = pkColumn(tableName)
-  const row = db.prepare(`SELECT * FROM ${tableName} WHERE ${pk} = ?`).get(recordId)
-  enqueue(tableName, recordId, operation, row || { [pk]: recordId, deleted_at: nowIso() })
+  const raw = db.prepare(`SELECT * FROM ${tableName} WHERE ${pk} = ?`).get(recordId) as Record<string, unknown> | undefined
+  let payload: Record<string, unknown> = raw || { [pk]: recordId, deleted_at: nowIso() }
+  if (raw && omitKeys.length) {
+    payload = { ...raw }
+    for (const key of omitKeys) delete payload[key]
+  }
+  enqueue(tableName, recordId, operation, payload)
   afterLocalChange?.()
 }
 

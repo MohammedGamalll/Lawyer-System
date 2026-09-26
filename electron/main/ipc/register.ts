@@ -51,8 +51,8 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
     return { canceled: false as const, file: save.filePath }
   }
 
-  handle(ipc, IPC.auth.login, { auth: false, write: true }, (event, _u, username, password) => {
-    const session = auth.login(String(username), String(password), event.sender.id, 'Windows Desktop')
+  handle(ipc, IPC.auth.login, { auth: false, write: true }, async (event, _u, username, password) => {
+    const session = await auth.login(String(username), String(password), event.sender.id, 'Windows Desktop')
     return ok(session)
   })
   handle(ipc, IPC.auth.logout, { write: true }, (event, user) => {
