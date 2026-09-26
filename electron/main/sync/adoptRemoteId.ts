@@ -13,6 +13,22 @@ export const NATURAL_KEY: Record<string, string[]> = {
 
 const USER_ID_COLUMNS = new Set(['user_id', 'created_by', 'assignee_id', 'responsible_user_id'])
 
+let tableListCache: string[] | null = null
+let columnCache: Map<string, Set<string>> | null = null
+let refCache: Map<string, { table: string; column: string }[]> | null = null
+
+export function beginAdoptCache(): void {
+  tableListCache = null
+  columnCache = new Map()
+  refCache = new Map()
+}
+
+export function endAdoptCache(): void {
+  tableListCache = null
+  columnCache = null
+  refCache = null
+}
+
 export function isUniqueConflict(err: unknown): boolean {
   const rec = err as { message?: string; code?: string } | null
   const msg = String(rec?.message || err || '').toLowerCase()
@@ -31,20 +47,29 @@ export function naturalKeyOf(
 }
 
 function listUserTables(): string[] {
-  return (
+  if (tableListCache) return tableListCache
+  const names = (
     getDb()
       .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`)
       .all() as { name: string }[]
   ).map((r) => r.name)
+  if (columnCache) tableListCache = names
+  return names
 }
 
 function tableColumns(table: string): Set<string> {
-  return new Set(
+  const hit = columnCache?.get(table)
+  if (hit) return hit
+  const set = new Set(
     (getDb().prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name)
   )
+  columnCache?.set(table, set)
+  return set
 }
 
 export function referencesTo(pkTable: string): { table: string; column: string }[] {
+  const cached = refCache?.get(pkTable)
+  if (cached) return cached
   const out: { table: string; column: string }[] = []
   const seen = new Set<string>()
   for (const table of listUserTables()) {
@@ -86,6 +111,7 @@ export function referencesTo(pkTable: string): { table: string; column: string }
       }
     }
   }
+  refCache?.set(pkTable, out)
   return out
 }
 

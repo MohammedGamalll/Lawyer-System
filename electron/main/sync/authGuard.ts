@@ -7,6 +7,7 @@ import { destroySessionsForUser, listActiveSessionUsers, loadPermissions } from 
 import { nowIso } from '../utils/time'
 import { getSupabase } from './client'
 import { mapSyncError } from './errors'
+import { withTimeout } from './timeout'
 import { decideGuard, PRIVILEGED_QUEUE_TABLES, type RemoteUserRow } from './guardDecision'
 import { runAsRemote } from './origin'
 import { clearQueue, dropQueueExcept, isQueued } from './queue'
@@ -65,13 +66,15 @@ function localUser(userId: string): { password_hash: string; is_active: number; 
 async function fetchRemoteUser(userId: string): Promise<{ row: RemoteUserRow | null; error?: string }> {
   const sb = getSupabase()
   if (!sb) return { row: null, error: 'المزامنة غير مفعّلة' }
-  const { data, error } = await sb
-    .from('users')
-    .select('id,password_hash,is_active,role_id,deleted_at,updated_at')
-    .eq('id', userId)
-    .maybeSingle()
-  if (error) return { row: null, error: mapSyncError(error.message) }
-  return { row: (data as RemoteUserRow | null) || null }
+  try {
+    const { data, error } = await withTimeout(
+      sb.from('users').select('id,password_hash,is_active,role_id,deleted_at,updated_at').eq('id', userId).maybeSingle()
+    )
+    if (error) return { row: null, error: mapSyncError(error.message) }
+    return { row: (data as RemoteUserRow | null) || null }
+  } catch (err) {
+    return { row: null, error: mapSyncError(String((err as Error).message || err)) }
+  }
 }
 
 function beginReverify(userId: string, remoteHash: string): void {

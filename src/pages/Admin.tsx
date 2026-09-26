@@ -679,6 +679,7 @@ export function SettingsPage() {
   const [delTypeId, setDelTypeId] = useState<string | null>(null);
   const [wipeAsk, setWipeAsk] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false);
+  const syncSnap = useSyncStore();
 
   useEffect(() => {
     invoke<Record<string, string>>("settings:get").then(setS);
@@ -946,7 +947,15 @@ export function SettingsPage() {
                       onClick={async () => {
                         setSyncBusy(true);
                         try {
-                          const snap = await invoke<SyncSnapshot>("sync:now");
+                          const snap = await Promise.race([
+                            invoke<SyncSnapshot>("sync:now"),
+                            new Promise<never>((_, reject) =>
+                              setTimeout(
+                                () => reject(new Error(t("sync.timeout"))),
+                                95_000,
+                              ),
+                            ),
+                          ]);
                           useSyncStore.getState().setSnapshot(snap);
                           if (snap.status === "synced") toast(t("sync.doneOk"));
                           else if (snap.status === "offline")
@@ -958,13 +967,25 @@ export function SettingsPage() {
                                 count: snap.pendingCount,
                               }),
                             );
+                        } catch (err) {
+                          const msg = (err as Error).message || t("sync.timeout");
+                          useSyncStore.getState().setSnapshot({
+                            status: "offline",
+                            error: msg,
+                          });
+                          toast(msg, "err");
                         } finally {
                           setSyncBusy(false);
                         }
                       }}
                     >
-                      {syncBusy ? t("loading") : t("sync.now")}
+                      {syncBusy
+                        ? syncSnap.error || t("loading")
+                        : t("sync.now")}
                     </Button>
+                    {syncSnap.error ? (
+                      <p className="mt-2 text-sm text-red-600">{syncSnap.error}</p>
+                    ) : null}
                   </div>
                 </Card>
                 <Card>

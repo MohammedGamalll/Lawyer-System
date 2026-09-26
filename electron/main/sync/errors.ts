@@ -5,6 +5,9 @@ export function mapSyncError(message: string): string {
   if (lower.includes('invalid api key') || lower.includes('invalid jwt') || lower.includes('malformed jwt')) {
     return 'مفتاح المزامنة غير صالح. تواصل مع الدعم.'
   }
+  if (lower.includes('timeout') || lower.includes('انتهت مهلة') || lower.includes('timed out') || lower.includes('abort')) {
+    return 'انتهت مهلة الاتصال بخادم المزامنة. تحقق من الإنترنت ثم أعد المحاولة.'
+  }
   if (lower.includes('failed to fetch') || lower.includes('network') || lower.includes('enotfound')) {
     return 'تعذر الاتصال بخادم المزامنة. تحقق من الإنترنت ثم أعد المحاولة.'
   }

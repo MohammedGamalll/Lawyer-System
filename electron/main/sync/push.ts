@@ -7,6 +7,7 @@ import { adoptRemoteId, isUniqueConflict, naturalKeyOf } from './adoptRemoteId'
 import { mapSyncError } from './errors'
 import { listQueue, pendingCount, removeQueueItem, enqueueIfAbsent, enqueueParentSnapshot, pkColumn } from './queue'
 import { emitSyncStatus } from './status'
+import { withTimeout } from './timeout'
 
 const NUMBER_COL: Record<string, string> = {
   clients: 'client_number',
@@ -66,7 +67,7 @@ async function resolveIdentityConflict(
   for (let i = 0; i < key.columns.length; i += 1) {
     query = query.eq(key.columns[i], key.values[i])
   }
-  const { data, error } = await query.maybeSingle()
+  const { data, error } = await withTimeout(query.maybeSingle())
   if (error || !data || data.id == null) return null
   const remoteId = String(data.id)
   adoptRemoteId(table, localId, remoteId)
@@ -107,31 +108,33 @@ export async function pushQueue(): Promise<string> {
             progressed = true
             continue
           }
-          const { error } = await sb.from('settings').upsert(payload, { onConflict: 'key' })
+          const { error } = await withTimeout(sb.from('settings').upsert(payload, { onConflict: 'key' }))
           if (error) throw error
         } else if (item.table_name === 'number_sequences') {
-          const { error } = await sb.from('number_sequences').upsert(payload, { onConflict: 'name' })
+          const { error } = await withTimeout(sb.from('number_sequences').upsert(payload, { onConflict: 'name' }))
           if (error) throw error
         } else {
           const seq = NUMBERED_TABLES[item.table_name]
           const numCol = NUMBER_COL[item.table_name]
           if (seq && numCol && item.operation === 'INSERT') {
-            const { data, error } = await sb.rpc('upsert_with_number', {
-              p_table: item.table_name,
-              p_row: payload,
-              p_seq: seq,
-              p_number_col: numCol
-            })
+            const { data, error } = await withTimeout(
+              sb.rpc('upsert_with_number', {
+                p_table: item.table_name,
+                p_row: payload,
+                p_seq: seq,
+                p_number_col: numCol
+              })
+            )
             if (error) {
-              const { error: e2 } = await sb.from(item.table_name).upsert(payload, { onConflict: 'id' })
+              const { error: e2 } = await withTimeout(sb.from(item.table_name).upsert(payload, { onConflict: 'id' }))
               if (e2?.message?.toLowerCase().includes('unique') || e2?.code === '23505') {
-                const { data: num, error: nerr } = await sb.rpc('allocate_next_number', { seq_name: seq })
+                const { data: num, error: nerr } = await withTimeout(sb.rpc('allocate_next_number', { seq_name: seq }))
                 if (nerr) throw nerr
                 payload = { ...payload, [numCol]: num }
                 getDb()
                   .prepare(`UPDATE ${item.table_name} SET ${numCol}=?, updated_at=? WHERE id=?`)
                   .run(num, nowIso(), item.record_id)
-                const { error: e3 } = await sb.from(item.table_name).upsert(payload, { onConflict: 'id' })
+                const { error: e3 } = await withTimeout(sb.from(item.table_name).upsert(payload, { onConflict: 'id' }))
                 if (e3) throw e3
               } else if (e2) throw e2
             } else if (data && typeof data === 'object' && numCol in (data as object)) {
@@ -139,12 +142,12 @@ export async function pushQueue(): Promise<string> {
               if (n) getDb().prepare(`UPDATE ${item.table_name} SET ${numCol}=? WHERE id=?`).run(n, item.record_id)
             }
           } else {
-            let { error } = await sb.from(item.table_name).upsert(payload, { onConflict: 'id' })
+            let { error } = await withTimeout(sb.from(item.table_name).upsert(payload, { onConflict: 'id' }))
             if (error && isUniqueConflict(error)) {
               const remapped = await resolveIdentityConflict(sb, item.table_name, payload, item.record_id)
               if (!remapped) throw error
               payload = remapped
-              const retry = await sb.from(item.table_name).upsert(payload, { onConflict: 'id' })
+              const retry = await withTimeout(sb.from(item.table_name).upsert(payload, { onConflict: 'id' }))
               error = retry.error
             }
             if (error) throw error
@@ -153,9 +156,13 @@ export async function pushQueue(): Promise<string> {
         removeQueueItem(item.id)
         progressed = true
         pushed += 1
-        if (pushed % 5 === 0) emitSyncStatus('syncing')
+        if (pushed % 5 === 0) emitSyncStatus('syncing', `جاري رفع ${item.table_name} (${pendingCount()} متبقي)`)
       } catch (err) {
         lastError = mapSyncError(String((err as Error).message || err))
+        if (lastError.includes('مهلة')) {
+          emitSyncStatus('syncing', lastError)
+          return lastError
+        }
         let queuedParent = false
         try {
           const payload = JSON.parse(item.payload) as Record<string, unknown>

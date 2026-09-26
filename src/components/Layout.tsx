@@ -78,7 +78,7 @@ export function Layout({ children }: { children: ReactNode }) {
     syncKind === 'synced'
       ? t('sync.synced', { time: sync.lastSyncedAt ? new Date(sync.lastSyncedAt).toLocaleString() : '—' })
       : syncKind === 'syncing'
-        ? t('sync.syncing', { count: sync.pendingCount })
+        ? sync.error || t('sync.syncing', { count: sync.pendingCount })
         : syncKind === 'error'
           ? String(sync.error)
           : t('sync.offline')

@@ -6,6 +6,7 @@ import { newId, notDeleted } from '../db/ids'
 import { adoptRemoteId } from '../sync/adoptRemoteId'
 import { getSupabase } from '../sync/client'
 import { runAsRemote } from '../sync/origin'
+import { withTimeout } from '../sync/timeout'
 import { recordLocalChange } from '../sync/queue'
 import { createSession, destroySession, destroySessionsForUser, loadPermissions, sessionIdForSender, toPublicSession } from '../ipc/session'
 import type { AuthedUser } from '../ipc/helpers'
@@ -41,12 +42,16 @@ function findLoginUser(username: string): LoginUser | undefined {
 export async function acceptCloudPassword(localId: string, username: string, password: string): Promise<boolean> {
   const sb = getSupabase()
   if (!sb || !password) return false
-  const { data, error } = await sb
-    .from('users')
-    .select('id,password_hash,is_active,deleted_at')
-    .eq('username', username.trim())
-    .maybeSingle()
-  if (error || !data?.password_hash) return false
+  let data: { id: string; password_hash: string; is_active: number; deleted_at: string | null } | null = null
+  try {
+    const res = await withTimeout(
+      sb.from('users').select('id,password_hash,is_active,deleted_at').eq('username', username.trim()).maybeSingle()
+    )
+    if (res.error || !res.data?.password_hash) return false
+    data = res.data as { id: string; password_hash: string; is_active: number; deleted_at: string | null }
+  } catch {
+    return false
+  }
   if (data.deleted_at || Number(data.is_active) === 0) return false
   if (!bcrypt.compareSync(password, String(data.password_hash))) return false
   const remoteId = String(data.id)
