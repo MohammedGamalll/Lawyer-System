@@ -76,6 +76,11 @@ export function removeQueueItem(id: string): void {
   getDb().prepare('DELETE FROM local_sync_queue WHERE id = ?').run(id)
 }
 
+/** Send a stuck row to the back of the table so later items can move. */
+export function deferQueueItem(id: string): void {
+  getDb().prepare('UPDATE local_sync_queue SET created_at = ? WHERE id = ?').run(Date.now() + 1, id)
+}
+
 export function pendingCount(): number {
   return (getDb().prepare('SELECT COUNT(*) as c FROM local_sync_queue').get() as { c: number }).c
 }

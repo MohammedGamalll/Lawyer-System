@@ -5,7 +5,8 @@ import { nowIso } from '../utils/time'
 import { getSupabase } from './client'
 import { adoptRemoteId, isUniqueConflict, naturalKeyOf } from './adoptRemoteId'
 import { mapSyncError } from './errors'
-import { listQueue, pendingCount, removeQueueItem, enqueueIfAbsent, enqueueParentSnapshot, pkColumn } from './queue'
+import { omitLocalOnly, stripColumn, unknownColumnFromError } from './payload'
+import { listQueue, pendingCount, removeQueueItem, enqueueIfAbsent, enqueueParentSnapshot, pkColumn, deferQueueItem } from './queue'
 import { emitSyncStatus } from './status'
 import { withTimeout } from './timeout'
 
@@ -73,7 +74,32 @@ async function resolveIdentityConflict(
   adoptRemoteId(table, localId, remoteId)
   const pk = pkColumn(table)
   const row = getDb().prepare(`SELECT * FROM ${table} WHERE ${pk} = ?`).get(remoteId) as Record<string, unknown> | undefined
-  return row || { ...payload, [pk]: remoteId }
+  return omitLocalOnly(row || { ...payload, [pk]: remoteId })
+}
+
+function livePayload(table: string, recordId: string, fallback: Record<string, unknown>): Record<string, unknown> | null {
+  const pk = pkColumn(table)
+  const row = getDb().prepare(`SELECT * FROM ${table} WHERE ${pk} = ?`).get(recordId) as Record<string, unknown> | undefined
+  if (row) return omitLocalOnly(row)
+  if (fallback.deleted_at) return omitLocalOnly(fallback)
+  return null
+}
+
+async function upsertSanitized(
+  sb: NonNullable<ReturnType<typeof getSupabase>>,
+  table: string,
+  payload: Record<string, unknown>,
+  onConflict: string
+): Promise<{ data?: unknown; error: { message?: string; code?: string } | null }> {
+  let current = omitLocalOnly(payload)
+  for (let i = 0; i < 12; i += 1) {
+    const res = await withTimeout(sb.from(table).upsert(current, { onConflict }))
+    if (!res.error) return res
+    const col = unknownColumnFromError(res.error.message || '')
+    if (!col || !(col in current)) return res
+    current = stripColumn(current, col)
+  }
+  return { error: { message: 'تعذر رفع الصف بعد حذف الأعمدة غير المعروفة' } }
 }
 
 function queueMissingParent(payload: Record<string, unknown>, message: string): boolean {
@@ -102,16 +128,23 @@ export async function pushQueue(): Promise<string> {
     for (const item of items) {
       try {
         let payload = JSON.parse(item.payload) as Record<string, unknown>
+        const live = livePayload(item.table_name, item.record_id, payload)
+        if (!live) {
+          removeQueueItem(item.id)
+          progressed = true
+          continue
+        }
+        payload = live
         if (item.table_name === 'settings') {
           if (String(payload.key || item.record_id).startsWith('sync_')) {
             removeQueueItem(item.id)
             progressed = true
             continue
           }
-          const { error } = await withTimeout(sb.from('settings').upsert(payload, { onConflict: 'key' }))
+          const { error } = await upsertSanitized(sb, 'settings', payload, 'key')
           if (error) throw error
         } else if (item.table_name === 'number_sequences') {
-          const { error } = await withTimeout(sb.from('number_sequences').upsert(payload, { onConflict: 'name' }))
+          const { error } = await upsertSanitized(sb, 'number_sequences', payload, 'name')
           if (error) throw error
         } else {
           const seq = NUMBERED_TABLES[item.table_name]
@@ -120,13 +153,13 @@ export async function pushQueue(): Promise<string> {
             const { data, error } = await withTimeout(
               sb.rpc('upsert_with_number', {
                 p_table: item.table_name,
-                p_row: payload,
+                p_row: omitLocalOnly(payload),
                 p_seq: seq,
                 p_number_col: numCol
               })
             )
             if (error) {
-              const { error: e2 } = await withTimeout(sb.from(item.table_name).upsert(payload, { onConflict: 'id' }))
+              const { error: e2 } = await upsertSanitized(sb, item.table_name, payload, 'id')
               if (e2?.message?.toLowerCase().includes('unique') || e2?.code === '23505') {
                 const { data: num, error: nerr } = await withTimeout(sb.rpc('allocate_next_number', { seq_name: seq }))
                 if (nerr) throw nerr
@@ -134,7 +167,7 @@ export async function pushQueue(): Promise<string> {
                 getDb()
                   .prepare(`UPDATE ${item.table_name} SET ${numCol}=?, updated_at=? WHERE id=?`)
                   .run(num, nowIso(), item.record_id)
-                const { error: e3 } = await withTimeout(sb.from(item.table_name).upsert(payload, { onConflict: 'id' }))
+                const { error: e3 } = await upsertSanitized(sb, item.table_name, payload, 'id')
                 if (e3) throw e3
               } else if (e2) throw e2
             } else if (data && typeof data === 'object' && numCol in (data as object)) {
@@ -142,12 +175,12 @@ export async function pushQueue(): Promise<string> {
               if (n) getDb().prepare(`UPDATE ${item.table_name} SET ${numCol}=? WHERE id=?`).run(n, item.record_id)
             }
           } else {
-            let { error } = await withTimeout(sb.from(item.table_name).upsert(payload, { onConflict: 'id' }))
+            let { error } = await upsertSanitized(sb, item.table_name, payload, 'id')
             if (error && isUniqueConflict(error)) {
               const remapped = await resolveIdentityConflict(sb, item.table_name, payload, item.record_id)
               if (!remapped) throw error
               payload = remapped
-              const retry = await withTimeout(sb.from(item.table_name).upsert(payload, { onConflict: 'id' }))
+              const retry = await upsertSanitized(sb, item.table_name, payload, 'id')
               error = retry.error
             }
             if (error) throw error
@@ -171,7 +204,10 @@ export async function pushQueue(): Promise<string> {
           /* ignore */
         }
         if (queuedParent) progressed = true
-        else log.warn('sync push', item.table_name, item.record_id, lastError)
+        else {
+          deferQueueItem(item.id)
+          log.warn('sync push', item.table_name, item.record_id, lastError)
+        }
       }
     }
     if (!progressed) {
