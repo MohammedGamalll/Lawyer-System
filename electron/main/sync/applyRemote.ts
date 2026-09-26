@@ -1,5 +1,6 @@
 import { getDb } from '../db/database'
 import { SYNC_TABLES } from '../db/schema'
+import { adoptRemoteId, findLocalIdByNaturalKey, isUniqueConflict } from './adoptRemoteId'
 import { onRemoteUserApplied } from './authGuard'
 import { isRemoteNewer } from './conflicts'
 import { runAsRemote } from './origin'
@@ -15,6 +16,8 @@ export function applyRemoteWrite(table: string, incoming: Record<string, unknown
   if (id == null || id === '') return
   const db = getDb()
   runAsRemote(() => {
+    const twin = findLocalIdByNaturalKey(table, row)
+    if (twin && String(twin) !== String(id)) adoptRemoteId(table, twin, String(id))
     const local = db.prepare(`SELECT * FROM ${table} WHERE ${pk} = ?`).get(id) as Record<string, unknown> | undefined
     if (event === 'DELETE') {
       if (local && isRemoteNewer(String(row.deleted_at || row.updated_at || ''), String(local.updated_at || ''))) {
@@ -40,7 +43,15 @@ export function applyRemoteWrite(table: string, incoming: Record<string, unknown
       )
       if (keep.password_hash) row = { ...row, password_hash: keep.password_hash }
     }
-    upsertRow(db, table, pk, row)
+    try {
+      upsertRow(db, table, pk, row)
+    } catch (err) {
+      if (!isUniqueConflict(err)) throw err
+      const again = findLocalIdByNaturalKey(table, row)
+      if (!again || String(again) === String(id)) throw err
+      adoptRemoteId(table, again, String(id))
+      upsertRow(db, table, pk, row)
+    }
   })
 }
 

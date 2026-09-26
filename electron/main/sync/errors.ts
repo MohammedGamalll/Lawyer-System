@@ -8,5 +8,8 @@ export function mapSyncError(message: string): string {
   if (lower.includes('failed to fetch') || lower.includes('network') || lower.includes('enotfound')) {
     return 'تعذر الاتصال بخادم المزامنة. تحقق من الإنترنت ثم أعد المحاولة.'
   }
+  if (lower.includes('unique') || lower.includes('duplicate key')) {
+    return 'تعارض في بيانات المزامنة. أعد المحاولة بعد التحديث.'
+  }
   return raw
 }

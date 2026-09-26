@@ -3,8 +3,9 @@ import { NUMBERED_TABLES } from '../db/schema'
 import { getDb } from '../db/database'
 import { nowIso } from '../utils/time'
 import { getSupabase } from './client'
+import { adoptRemoteId, isUniqueConflict, naturalKeyOf } from './adoptRemoteId'
 import { mapSyncError } from './errors'
-import { listQueue, pendingCount, removeQueueItem, enqueueIfAbsent, enqueueParentSnapshot } from './queue'
+import { listQueue, pendingCount, removeQueueItem, enqueueIfAbsent, enqueueParentSnapshot, pkColumn } from './queue'
 import { emitSyncStatus } from './status'
 
 const NUMBER_COL: Record<string, string> = {
@@ -51,6 +52,27 @@ const FK_PARENT: Record<string, { table: string; field: string }> = {
   expenses_category_id_fkey: { table: 'expense_categories', field: 'category_id' },
   expenses_cashbox_id_fkey: { table: 'cashboxes', field: 'cashbox_id' },
   invoices_client_id_fkey: { table: 'clients', field: 'client_id' }
+}
+
+async function resolveIdentityConflict(
+  sb: NonNullable<ReturnType<typeof getSupabase>>,
+  table: string,
+  payload: Record<string, unknown>,
+  localId: string
+): Promise<Record<string, unknown> | null> {
+  const key = naturalKeyOf(table, payload)
+  if (!key) return null
+  let query = sb.from(table).select('id')
+  for (let i = 0; i < key.columns.length; i += 1) {
+    query = query.eq(key.columns[i], key.values[i])
+  }
+  const { data, error } = await query.maybeSingle()
+  if (error || !data || data.id == null) return null
+  const remoteId = String(data.id)
+  adoptRemoteId(table, localId, remoteId)
+  const pk = pkColumn(table)
+  const row = getDb().prepare(`SELECT * FROM ${table} WHERE ${pk} = ?`).get(remoteId) as Record<string, unknown> | undefined
+  return row || { ...payload, [pk]: remoteId }
 }
 
 function queueMissingParent(payload: Record<string, unknown>, message: string): boolean {
@@ -117,7 +139,14 @@ export async function pushQueue(): Promise<string> {
               if (n) getDb().prepare(`UPDATE ${item.table_name} SET ${numCol}=? WHERE id=?`).run(n, item.record_id)
             }
           } else {
-            const { error } = await sb.from(item.table_name).upsert(payload, { onConflict: 'id' })
+            let { error } = await sb.from(item.table_name).upsert(payload, { onConflict: 'id' })
+            if (error && isUniqueConflict(error)) {
+              const remapped = await resolveIdentityConflict(sb, item.table_name, payload, item.record_id)
+              if (!remapped) throw error
+              payload = remapped
+              const retry = await sb.from(item.table_name).upsert(payload, { onConflict: 'id' })
+              error = retry.error
+            }
             if (error) throw error
           }
         }
