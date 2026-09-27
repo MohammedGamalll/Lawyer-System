@@ -3,7 +3,8 @@ const LOCAL_ONLY = new Set([
   'locked_until',
   'last_login_at',
   'last_login_device',
-  'avatar_path'
+  'avatar_path',
+  'password_reveal'
 ])
 
 export function omitLocalOnly(row: Record<string, unknown>): Record<string, unknown> {

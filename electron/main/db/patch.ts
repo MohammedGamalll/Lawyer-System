@@ -82,6 +82,7 @@ const LOOKUP_SEEDS: Record<string, string[]> = {
 }
 
 export function patchSchema(db: Db): void {
+  addColumn(db, 'users', 'password_reveal', 'TEXT')
   addColumn(db, 'clients', 'nickname', 'TEXT')
   addColumn(db, 'opponents', 'nickname', 'TEXT')
   addColumn(db, 'hearings', 'previous_decision', 'TEXT')
@@ -113,7 +114,6 @@ export function patchSchema(db: Db): void {
   addColumn(db, 'case_opponents', 'capacity_cassation', 'TEXT')
   addColumn(db, 'case_opponents', 'sort_order', 'INTEGER NOT NULL DEFAULT 0')
   ensureCaseSequenceFrom(db, 7000)
-  db.exec(`UPDATE cases SET case_year = substr(created_at, 1, 4) WHERE case_year IS NULL OR trim(case_year) = ''`)
   try {
     extractCourtNumbers(db)
   } catch (err) {

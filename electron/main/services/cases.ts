@@ -78,24 +78,26 @@ export function listCases(query: ListQuery = {}, archived = 0) {
     where += ` AND c.rowid IN (SELECT rowid FROM cases_fts WHERE cases_fts MATCH ?)`
     params.push(fts)
   } else if (query.search) {
-    where += ` AND (${arabicLike('c.title')} OR c.case_number LIKE ? OR c.office_case_number LIKE ? OR c.case_year LIKE ? OR c.internal_file_number LIKE ? OR ${arabicLike('cl.full_name')} OR ${arabicLike('c.category')} OR ${arabicLike('c.opponent_name')})`
+    where += ` AND (${arabicLike('c.title')} OR c.case_number LIKE ? OR c.office_case_number LIKE ? OR c.case_year LIKE ? OR c.first_instance_number LIKE ? OR c.first_instance_year LIKE ? OR c.internal_file_number LIKE ? OR ${arabicLike('cl.full_name')} OR ${arabicLike('c.category')} OR ${arabicLike('c.opponent_name')})`
     const s = foldedLikeTerm(query.search)
-    params.push(s, s, s, s, s, s, s, s)
+    params.push(s, s, s, s, s, s, s, s, s, s)
   }
   const f = query.filters ?? {}
   const courtQ = splitCourtQuery(String(f.office_case_number ?? query.search ?? ''))
   if (f.office_case_number) {
     if (courtQ.year) {
-      where += ' AND c.office_case_number LIKE ? AND c.case_year LIKE ?'
-      params.push(`%${courtQ.number}%`, `%${courtQ.year}%`)
+      where +=
+        ' AND ((c.first_instance_number LIKE ? AND c.first_instance_year LIKE ?) OR (c.office_case_number LIKE ? AND c.case_year LIKE ?))'
+      params.push(`%${courtQ.number}%`, `%${courtQ.year}%`, `%${courtQ.number}%`, `%${courtQ.year}%`)
     } else {
-      where += ' AND (c.office_case_number LIKE ? OR c.case_number LIKE ?)'
+      where += ' AND (c.first_instance_number LIKE ? OR c.office_case_number LIKE ? OR c.case_number LIKE ?)'
       const s = `%${courtQ.number}%`
-      params.push(s, s)
+      params.push(s, s, s)
     }
   } else if (query.search && courtQ.year) {
-    where += ' AND c.office_case_number LIKE ? AND c.case_year LIKE ?'
-    params.push(`%${courtQ.number}%`, `%${courtQ.year}%`)
+    where +=
+      ' AND ((c.first_instance_number LIKE ? AND c.first_instance_year LIKE ?) OR (c.office_case_number LIKE ? AND c.case_year LIKE ?))'
+    params.push(`%${courtQ.number}%`, `%${courtQ.year}%`, `%${courtQ.number}%`, `%${courtQ.year}%`)
   }
   if (f.program_code) {
     const raw = String(f.program_code).trim()
@@ -193,7 +195,8 @@ export function listCases(query: ListQuery = {}, archived = 0) {
                 WHERE xo.case_id = c.id AND ${notDeleted('xo')} AND ${notDeleted('ox')}) as opponent_names`
   const rows = db
     .prepare(
-      `SELECT c.id, c.case_number, c.office_case_number, c.case_year, c.title, c.category, c.status, c.court, c.circuit,
+      `SELECT c.id, c.case_number, c.office_case_number, c.case_year, c.first_instance_number, c.first_instance_year,
+              c.title, c.category, c.status, c.court, c.circuit,
               c.session_place, c.filing_date, c.received_date, c.client_id, c.opponent_name, c.primary_lawyer_id, c.case_type_id,
               cl.full_name as client_name, cl.client_number, ct.name_ar as case_type_name, l.full_name as lawyer_name,
               ${extraSelect}
@@ -210,7 +213,8 @@ export function listCases(query: ListQuery = {}, archived = 0) {
     if (missing.length) {
       const extra = db
         .prepare(
-          `SELECT c.id, c.case_number, c.office_case_number, c.case_year, c.title, c.category, c.status, c.court, c.circuit,
+          `SELECT c.id, c.case_number, c.office_case_number, c.case_year, c.first_instance_number, c.first_instance_year,
+                  c.title, c.category, c.status, c.court, c.circuit,
                   c.session_place, c.filing_date, c.received_date, c.client_id, c.opponent_name, c.primary_lawyer_id, c.case_type_id,
                   cl.full_name as client_name, cl.client_number, ct.name_ar as case_type_name, l.full_name as lawyer_name,
                   ${extraSelect}
@@ -760,7 +764,7 @@ export function allocateCaseNumber(
   data: Record<string, unknown>,
   excludeId?: string
 ): { number: string; year: string | null; office: string | null } {
-  const year = String(data.case_year ?? '').trim()
+  const year = String(data.case_year ?? '').trim() || String(data.first_instance_year ?? '').trim()
   let office = String(data.office_case_number ?? '').trim()
   if (year && office.endsWith(`/${year}`)) office = office.slice(0, -(year.length + 1)).trim()
   const mode = String(data.numbering_mode ?? '').trim() === 'manual' ? 'manual' : 'auto'

@@ -276,17 +276,6 @@ export function CaseFormExtras({
             <p className="text-xs text-navy-500">{t('caseForm.numberingManualHint')}</p>
           </>
         )}
-        <div className="flex flex-wrap items-end gap-2 pt-2">
-          <Field label={t('fields.case_year')}>
-            <Input
-              className="w-24"
-              dir="ltr"
-              value={String(form.case_year || '')}
-              onChange={(e) => setField('case_year', e.target.value)}
-              placeholder="2026"
-            />
-          </Field>
-        </div>
       </div>
 
       <div className="space-y-2 rounded-lg border border-navy-100 p-2 dark:border-navy-700">

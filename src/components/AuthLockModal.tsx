@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { invoke } from '../lib/api'
 import { useApp } from '../store'
 import { useSyncStore, type SyncSnapshot } from '../store/sync'
-import { Button, Field, Input, Modal } from './ui'
+import { Button, Field, Modal, PasswordInput } from './ui'
 
 export function AuthLockModal({
   open,
@@ -37,8 +37,7 @@ export function AuthLockModal({
     <Modal open={open} locked title={t('sync.reverifyTitle')} onClose={() => undefined}>
       <p className="mb-4 text-sm text-navy-700 dark:text-navy-100">{t('sync.reverifyBody')}</p>
       <Field label={t('password')} required>
-        <Input
-          type="password"
+        <PasswordInput
           autoComplete="off"
           value={password}
           onChange={(e) => setPassword(e.target.value)}

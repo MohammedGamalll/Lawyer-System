@@ -7,7 +7,7 @@ import { invoke } from '../lib/api'
 import { ApiError } from '../lib/api'
 import { similarFromError } from '../lib/similarError'
 import { useApp } from '../store'
-import { Button, Field, Input, Select, Textarea, Modal, PageHeader, StatusBadge, ConfirmBar, RowMenu } from './ui'
+import { Button, Field, Input, Select, Textarea, Modal, PageHeader, PasswordInput, StatusBadge, ConfirmBar, RowMenu } from './ui'
 import { DatePicker, DateTimePicker, TimePicker } from './DateTimePicker'
 import { EntitySelect } from './EntitySelect'
 import { LookupCombo } from './LookupCombo'
@@ -155,10 +155,20 @@ export function FormFields({
                 <TimePicker value={String(val || '')} onChange={(hhmm) => onChange(f.name, hhmm)} />
               ) : f.type === 'datetime-local' ? (
                 <DateTimePicker value={String(val || '')} onChange={(iso) => onChange(f.name, iso)} />
+              ) : f.type === 'password' ? (
+                <PasswordInput
+                  autoComplete="new-password"
+                  {...reg}
+                  value={String(val)}
+                  onChange={(e) => {
+                    reg.onChange?.(e)
+                    onChange(f.name, e.target.value)
+                  }}
+                />
               ) : (
                 <Input
                   type={f.type || 'text'}
-                  autoComplete={f.type === 'password' ? 'new-password' : 'off'}
+                  autoComplete="off"
                   {...reg}
                   value={String(val)}
                     onChange={(e) => {

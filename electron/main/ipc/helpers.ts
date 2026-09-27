@@ -87,7 +87,7 @@ function isOk(result: unknown): boolean {
 }
 
 function shouldAudit(channel: string): boolean {
-  if (/^(audit:|sync:|auth:login|auth:logout|notifications:read)/.test(channel)) return false
+  if (/^(audit:|sync:|auth:login|auth:logout|auth:usernames|notifications:read)/.test(channel)) return false
   if (/:(create|remove|delete)$/.test(channel)) return false
   return true
 }

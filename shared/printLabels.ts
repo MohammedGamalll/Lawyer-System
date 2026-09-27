@@ -62,9 +62,11 @@ export function formattedCourtNumber(row: Record<string, unknown>): string {
       const picked = stripBidiMarks(num)
       if (!picked) continue
       office = picked
-      year = year || stripBidiMarks(stageYear)
+      year = stripBidiMarks(stageYear) || year
       break
     }
+  } else if (!year) {
+    year = stripBidiMarks(row.first_instance_year)
   }
   if (isYearToken(office) && year && !isYearToken(year)) {
     const swapped = office

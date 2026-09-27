@@ -252,10 +252,10 @@ function seedIfEmpty(database: BetterSqlite3.Database): void {
   if (count('SELECT COUNT(*) as c FROM users WHERE deleted_at IS NULL') === 0 && roleIds.admin) {
     database
       .prepare(
-        `INSERT INTO users (id, username, password_hash, full_name, email, role_id, is_active, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`
+        `INSERT INTO users (id, username, password_hash, password_reveal, full_name, email, role_id, is_active, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
       )
-      .run(newId(), 'admin', bcrypt.hashSync('Admin@123', 10), 'مدير النظام', 'admin@lawoffice.local', roleIds.admin, ts, ts)
+      .run(newId(), 'admin', bcrypt.hashSync('Admin@123', 10), 'Admin@123', 'مدير النظام', 'admin@lawoffice.local', roleIds.admin, ts, ts)
   }
 
   if (count('SELECT COUNT(*) as c FROM case_types WHERE deleted_at IS NULL') === 0) {

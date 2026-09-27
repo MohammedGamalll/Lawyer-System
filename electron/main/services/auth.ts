@@ -146,8 +146,9 @@ export function changePassword(user: AuthedUser, current: string, next: string, 
   const db = getDb()
   const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(user.id) as { password_hash: string }
   if (!bcrypt.compareSync(current, row.password_hash)) throw new Error('كلمة المرور الحالية غير صحيحة')
-  db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').run(
+  db.prepare('UPDATE users SET password_hash = ?, password_reveal = ?, updated_at = ? WHERE id = ?').run(
     bcrypt.hashSync(next, 10),
+    next,
     nowIso(),
     user.id
   )
@@ -165,8 +166,8 @@ export function resetPassword(admin: AuthedUser, userId: string, next: string, s
     | undefined
   if (!target) throw new Error('المستخدم غير موجود')
   db.prepare(
-    'UPDATE users SET password_hash = ?, failed_login_attempts = 0, locked_until = NULL, updated_at = ? WHERE id = ?'
-  ).run(bcrypt.hashSync(next, 10), nowIso(), userId)
+    'UPDATE users SET password_hash = ?, password_reveal = ?, failed_login_attempts = 0, locked_until = NULL, updated_at = ? WHERE id = ?'
+  ).run(bcrypt.hashSync(next, 10), next, nowIso(), userId)
   recordLocalChange('users', userId, 'UPDATE')
   const keep = admin.id === userId && senderId != null ? sessionIdForSender(senderId) : null
   destroySessionsForUser(userId, keep)

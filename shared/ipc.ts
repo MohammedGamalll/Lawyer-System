@@ -5,7 +5,8 @@ export const IPC = {
     me: 'auth:me',
     changePassword: 'auth:changePassword',
     resetPassword: 'auth:resetPassword',
-    confirmRemotePassword: 'auth:confirmRemotePassword'
+    confirmRemotePassword: 'auth:confirmRemotePassword',
+    usernames: 'auth:usernames'
   },
   users: {
     list: 'users:list',

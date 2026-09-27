@@ -10,6 +10,7 @@ import { parseSchema, reminderSchema, taskSchema } from '@shared/schemas'
 import { rememberLookup } from './lookups'
 import { clampPageSize, pageKind, pickSort, sqlDir } from '../db/queryLimits'
 import { casePrintJoinSql, casePrintSelectSql, enrichPrintRows } from './printCaseFields'
+import { notificationIsVisible } from './alertVisibility'
 
 function opponentContactFromCase(caseId: string | null) {
   if (!caseId) return { address: '', phone: '' }
@@ -542,7 +543,8 @@ export function moveCalendarEvent(kind: string, id: string, date: string, time?:
 }
 
 export function listNotifications(userId: string) {
-  return getDb()
+  const today = todayIso()
+  const rows = getDb()
     .prepare(
       `SELECT n.id, n.title, n.body, n.type, n.related_type, n.related_id, n.is_read, n.created_at,
               COALESCE(cl_t.full_name, cl_h.full_name, cl_c.full_name, cl_r.full_name, cl_p.full_name, cl_k.full_name) AS client_name,
@@ -555,7 +557,17 @@ export function listNotifications(userId: string) {
               COALESCE(cs_t.appeal_number, cs_h.appeal_number, cs_c.appeal_number, cs_r.appeal_number) AS appeal_number,
               COALESCE(cs_t.appeal_year, cs_h.appeal_year, cs_c.appeal_year, cs_r.appeal_year) AS appeal_year,
               COALESCE(cs_t.cassation_number, cs_h.cassation_number, cs_c.cassation_number, cs_r.cassation_number) AS cassation_number,
-              COALESCE(cs_t.cassation_year, cs_h.cassation_year, cs_c.cassation_year, cs_r.cassation_year) AS cassation_year
+              COALESCE(cs_t.cassation_year, cs_h.cassation_year, cs_c.cassation_year, cs_r.cassation_year) AS cassation_year,
+              COALESCE(cs_t.status, cs_h.status, cs_c.status, cs_r.status) AS case_status,
+              COALESCE(cs_t.is_archived, cs_h.is_archived, cs_c.is_archived, cs_r.is_archived) AS case_archived,
+              h.hearing_date AS hearing_date,
+              h.next_hearing_date AS next_hearing_date,
+              h.result AS hearing_result,
+              h.court_decision AS hearing_court_decision,
+              h.what_happened AS hearing_what_happened,
+              t.due_date AS task_due_date,
+              t.status AS task_status,
+              r.remind_at AS reminder_at
        FROM notifications n
        LEFT JOIN tasks t ON n.related_type = 'task' AND t.id = n.related_id AND ${notDeleted('t')}
        LEFT JOIN cases cs_t ON cs_t.id = t.case_id AND ${notDeleted('cs_t')}
@@ -576,7 +588,8 @@ export function listNotifications(userId: string) {
        ORDER BY n.created_at DESC
        LIMIT 500`
     )
-    .all(userId)
+    .all(userId) as Record<string, unknown>[]
+  return rows.filter((row) => notificationIsVisible(row, today))
 }
 
 export function markNotificationRead(id: string, isRead = true) {

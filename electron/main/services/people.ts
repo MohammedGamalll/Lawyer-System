@@ -314,10 +314,13 @@ export function saveStaff(actor: AuthedUser, data: Record<string, unknown>) {
       const password = data.password ? String(data.password) : ''
       const hash = password.length >= 6 ? bcrypt.hashSync(password, 10) : old.password_hash
       db.prepare(
-        `UPDATE users SET username=?, password_hash=?, full_name=?, email=?, phone=?, role_id=?, is_active=?, updated_at=? WHERE id=?`
+        `UPDATE users SET username=?, password_hash=?, password_reveal=CASE WHEN ? = 1 THEN ? ELSE password_reveal END,
+          full_name=?, email=?, phone=?, role_id=?, is_active=?, updated_at=? WHERE id=?`
       ).run(
         nextUser,
         hash,
+        password.length >= 6 ? 1 : 0,
+        password.length >= 6 ? password : null,
         fullName,
         data.email ?? null,
         data.phone ?? null,
@@ -337,12 +340,13 @@ export function saveStaff(actor: AuthedUser, data: Record<string, unknown>) {
       if (taken) throw new Error('اسم المستخدم مستخدم بالفعل')
       userId = newId()
       db.prepare(
-        `INSERT INTO users (id, username, password_hash, full_name, email, phone, role_id, is_active, created_at, updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?)`
+        `INSERT INTO users (id, username, password_hash, password_reveal, full_name, email, phone, role_id, is_active, created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)`
       ).run(
         userId,
         username,
         bcrypt.hashSync(String(data.password), 10),
+        String(data.password),
         fullName,
         data.email ?? null,
         data.phone ?? null,
@@ -750,9 +754,9 @@ export function createEmployee(actor: AuthedUser, data: Record<string, unknown>)
       const ts = nowIso()
       userId = newId()
       db.prepare(
-        `INSERT INTO users (id, username, password_hash, full_name, email, phone, role_id, is_active, created_at, updated_at)
-           VALUES (?,?,?,?,?,?,?,1,?,?)`
-      ).run(userId, username, bcrypt.hashSync('Lawyer@123', 10), lw.full_name, lw.email ?? null, lw.phone ?? null, role.id, ts, ts)
+        `INSERT INTO users (id, username, password_hash, password_reveal, full_name, email, phone, role_id, is_active, created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,1,?,?)`
+      ).run(userId, username, bcrypt.hashSync('Lawyer@123', 10), 'Lawyer@123', lw.full_name, lw.email ?? null, lw.phone ?? null, role.id, ts, ts)
       recordLocalChange('users', userId, 'INSERT')
       db.prepare('UPDATE lawyers SET user_id = ?, updated_at = ? WHERE id = ?').run(userId, ts, lawyerId)
       recordLocalChange('lawyers', lawyerId, 'UPDATE')
@@ -1121,15 +1125,7 @@ export function copyClientToOpponent(actor: AuthedUser, clientId: string) {
     const dest = existing
       ? { id: existing.id, existed: true }
       : { ...createOpponent(actor, partyPayload(row)), existed: false }
-    const contacts = db.prepare(`SELECT id FROM client_contacts WHERE client_id = ? AND ${notDeleted()}`).all(clientId) as {
-      id: string
-    }[]
-    for (const c of contacts) softDelete('client_contacts', c.id)
-    db.prepare(
-      `UPDATE documents SET opponent_id = COALESCE(opponent_id, ?), client_id = NULL, updated_at = ? WHERE client_id = ? AND ${notDeleted()}`
-    ).run(dest.id, nowIso(), clientId)
-    softDelete('clients', clientId)
-    audit(actor, 'update', 'clients', clientId, `تم نقل الموكل إلى قائمة الخصوم`)
+    audit(actor, 'update', 'clients', clientId, `تم نسخ الموكل إلى قائمة الخصوم`)
     return dest
   })()
 }
@@ -1145,15 +1141,7 @@ export function copyOpponentToClient(actor: AuthedUser, opponentId: string) {
     const dest = existing
       ? { id: existing.id, existed: true }
       : { ...createClient(actor, partyPayload(row)), existed: false }
-    const links = db.prepare(`SELECT id FROM case_opponents WHERE opponent_id = ? AND ${notDeleted()}`).all(opponentId) as {
-      id: string
-    }[]
-    for (const l of links) softDelete('case_opponents', l.id)
-    db.prepare(
-      `UPDATE documents SET client_id = COALESCE(client_id, ?), opponent_id = NULL, updated_at = ? WHERE opponent_id = ? AND ${notDeleted()}`
-    ).run(dest.id, nowIso(), opponentId)
-    softDelete('opponents', opponentId)
-    audit(actor, 'update', 'opponents', opponentId, `تم نقل الخصم إلى قائمة الموكلين`)
+    audit(actor, 'update', 'opponents', opponentId, `تم نسخ الخصم إلى قائمة الموكلين`)
     return dest
   })()
 }

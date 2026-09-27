@@ -77,6 +77,7 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
     await runSyncCycle()
     return ok(getSyncState())
   })
+  handle(ipc, IPC.auth.usernames, { auth: false }, () => ok(users.listActiveUsernames()))
 
   handle(ipc, IPC.users.list, { permission: ['users.manage', 'employees.manage', 'tasks.view'] }, (_e, user, q) =>
     ok(users.listUsers(q as never, user))

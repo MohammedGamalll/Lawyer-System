@@ -12,6 +12,8 @@ import {
   Select,
   ConfirmBar,
   UiTabs,
+  Modal,
+  PasswordInput,
 } from "../components/ui";
 import { DatePicker } from "../components/DateTimePicker";
 import { LookupCombo, lookupLabel } from "../components/LookupCombo";
@@ -340,9 +342,35 @@ function PermissionGroups({
   );
 }
 
+function PasswordRevealCell({ value }: { value: unknown }) {
+  const { t } = useTranslation();
+  const [show, setShow] = useState(false);
+  const text = String(value || "").trim();
+  if (!text) {
+    return <span className="text-navy-400">{t("users.passwordHidden")}</span>;
+  }
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span dir="ltr">{show ? text : "••••••"}</span>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={(e) => {
+          e.stopPropagation();
+          setShow((v) => !v);
+        }}
+      >
+        {show ? t("users.hidePassword") : t("users.showPassword")}
+      </Button>
+    </span>
+  );
+}
+
 export function UsersPage() {
   const { t } = useTranslation();
-  const { toast, setPage, refreshMe } = useApp();
+  const { toast, setPage, refreshMe, user } = useApp();
+  const isAdmin = user?.roleCode === "admin";
   const [permOpen, setPermOpen] = useState<{
     id: string;
     username: string;
@@ -352,6 +380,11 @@ export function UsersPage() {
     { code: string; name_ar: string; name_en?: string; module?: string }[]
   >([]);
   const [selected, setSelected] = useState<string[]>([]);
+  const [resetUser, setResetUser] = useState<{
+    id: string;
+    username: string;
+  } | null>(null);
+  const [resetPw, setResetPw] = useState("");
 
   const openPerms = async (r: Record<string, unknown>) => {
     const id = String(r.id || "");
@@ -392,6 +425,17 @@ export function UsersPage() {
           { key: "username", label: t("fields.username") },
           { key: "full_name", label: t("fields.full_name") },
           { key: "role_name", label: t("fields.role_name") },
+          ...(isAdmin
+            ? [
+                {
+                  key: "password_reveal",
+                  label: t("users.password"),
+                  render: (row: Record<string, unknown>) => (
+                    <PasswordRevealCell value={row.password_reveal} />
+                  ),
+                },
+              ]
+            : []),
           { key: "is_active", label: t("fields.is_active") },
           { key: "last_login_at", label: t("fields.last_login_at") },
         ]}
@@ -424,11 +468,12 @@ export function UsersPage() {
             </Button>
             <Button
               variant="ghost"
-              onClick={async () => {
-                const next = window.prompt(t("users.newPasswordPrompt"));
-                if (!next) return;
-                await invoke("auth:resetPassword", r.id, next);
-                toast(t("savedOk"));
+              onClick={() => {
+                setResetUser({
+                  id: String(r.id || ""),
+                  username: String(r.username || ""),
+                });
+                setResetPw("");
               }}
             >
               {t("resetPassword")}
@@ -436,6 +481,38 @@ export function UsersPage() {
           </>
         )}
       />
+      <Modal
+        open={Boolean(resetUser)}
+        title={t("resetPassword")}
+        onClose={() => {
+          setResetUser(null);
+          setResetPw("");
+        }}
+      >
+        <p className="mb-3 text-sm text-navy-600">
+          {resetUser?.username} — {t("users.newPasswordPrompt")}
+        </p>
+        <Field label={t("newPassword")} required>
+          <PasswordInput
+            autoComplete="new-password"
+            value={resetPw}
+            onChange={(e) => setResetPw(e.target.value)}
+          />
+        </Field>
+        <Button
+          className="mt-3"
+          disabled={resetPw.trim().length < 6}
+          onClick={async () => {
+            if (!resetUser) return;
+            await invoke("auth:resetPassword", resetUser.id, resetPw);
+            toast(t("savedOk"));
+            setResetUser(null);
+            setResetPw("");
+          }}
+        >
+          {t("save")}
+        </Button>
+      </Modal>
       {permOpen && (
         <Card className="mt-4">
           <h3 className="mb-2 font-bold">
@@ -928,8 +1005,7 @@ export function SettingsPage() {
                       />
                     </Field>
                     <Field label={t("sync.anonKey")}>
-                      <Input
-                        type="password"
+                      <PasswordInput
                         autoComplete="off"
                         value={s.supabase_anon_key || ""}
                         readOnly
@@ -1590,8 +1666,7 @@ export function SettingsPage() {
                 <h3 className="mb-3 font-bold">{t("settings.password")}</h3>
                 <div className="grid max-w-xl gap-3 md:grid-cols-2">
                   <Field label={t("currentPassword")}>
-                    <Input
-                      type="password"
+                    <PasswordInput
                       value={pw.current}
                       onChange={(e) =>
                         setPw({ ...pw, current: e.target.value })
@@ -1599,8 +1674,7 @@ export function SettingsPage() {
                     />
                   </Field>
                   <Field label={t("newPassword")}>
-                    <Input
-                      type="password"
+                    <PasswordInput
                       value={pw.next}
                       onChange={(e) => setPw({ ...pw, next: e.target.value })}
                     />

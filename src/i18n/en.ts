@@ -2,6 +2,7 @@ const en = {
   appName: 'Law Office Management System',
   login: 'Sign in',
   loginHint: 'Enter your credentials to continue',
+  loginSelectUser: 'Select a user',
   defaultAccount: 'Default account: admin / Admin@123',
   username: 'Username',
   password: 'Password',
@@ -497,10 +498,10 @@ const en = {
     attachPoa: 'Attach power of attorney',
     addAddress: 'Add address',
     duplicateNationalId: 'This national ID is already used by “{{name}}” (code {{code}})',
-    copyToOpponent: 'Move to opponents',
-    copyToClient: 'Move to clients',
-    copied: 'Moved to the other list and removed from this one',
-    copiedExists: 'Already in the other list; removed from this one'
+    copyToOpponent: 'Copy to opponents',
+    copyToClient: 'Copy to clients',
+    copied: 'Copied to the other list. The original record is still there',
+    copiedExists: 'Already in the other list; linked without deleting the original'
   },
   party: {
     rating: 'Dealings rating',
@@ -905,6 +906,10 @@ const en = {
     newPasswordPrompt: 'Enter the new password (at least 6 characters)',
     passwordRequired: 'Password is required when creating a user (at least 6 characters)',
     passwordHint: 'Leave empty when editing to keep the current password',
+    password: 'Password',
+    showPassword: 'Show',
+    hidePassword: 'Hide',
+    passwordHidden: 'Hidden until an admin sets a new password',
     selectAll: 'Select all',
     module: {
       clients: 'Clients',

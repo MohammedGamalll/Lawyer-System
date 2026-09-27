@@ -9,7 +9,8 @@ describe('sync payload sanitizer', () => {
       password_hash: 'x',
       failed_login_attempts: 3,
       last_login_at: '2026-01-01',
-      last_login_device: 'Windows'
+      last_login_device: 'Windows',
+      password_reveal: 'secret'
     })
     expect(clean).toEqual({ id: 'u1', username: 'admin', password_hash: 'x' })
   })

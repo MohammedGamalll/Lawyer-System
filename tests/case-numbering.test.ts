@@ -81,6 +81,19 @@ describe.skipIf(!sqliteAvailable())('allocateCaseNumber', () => {
     db.close()
   })
 
+  it('uses first-instance year when case_year is empty and does not invent today', () => {
+    const db = seed()
+    const withFirst = allocateCaseNumber(db, {
+      numbering_mode: 'manual',
+      case_number: '6464',
+      first_instance_year: '1993'
+    })
+    expect(withFirst.year).toBe('1993')
+    const empty = allocateCaseNumber(db, { numbering_mode: 'manual', case_number: '6465' })
+    expect(empty.year).toBeNull()
+    db.close()
+  })
+
   it('stores the typed program code in manual mode', () => {
     const db = seed()
     const allocated = allocateCaseNumber(db, {

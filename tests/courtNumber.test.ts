@@ -26,27 +26,35 @@ describe('court number order', () => {
     expect(courtParts({ office_case_number: '2025 / 4523' })).toEqual({ office: '4523', year: '2025' })
   })
 
-  it('falls back to the stage number with the case year', () => {
+  it('uses first-instance number and year only on a case row', () => {
     expect(
       formatCourtNumber({
-        office_case_number: '',
+        id: 'c1',
+        case_number: '0001',
+        office_case_number: '1',
+        case_year: '2026',
         first_instance_number: '627',
-        case_year: '1994'
+        first_instance_year: '1994'
       })
     ).toBe('\u200F627 / 1994\u200F')
     expect(
       formatCourtNumber({
-        appeal_number: '16457',
-        appeal_year: '113',
-        case_year: '1994'
+        id: 'c2',
+        case_number: '2',
+        office_case_number: '2',
+        case_year: '2026'
       })
-    ).toBe('\u200F16457 / 1994\u200F')
+    ).toBe('\u200F2 / 2026\u200F')
     expect(
       formatCourtNumber({
-        cassation_number: '88',
-        cassation_year: '2020'
+        first_instance_number: '6464',
+        first_instance_year: '1993',
+        case_year: '2026'
       })
-    ).toBe('\u200F88 / 2020\u200F')
+    ).toBe('\u200F6464 / 1993\u200F')
+  })
+
+  it('still formats a parsed court pair without first-instance fields', () => {
     expect(
       formattedCourtNumber({
         first_instance_number: '627',
@@ -54,6 +62,7 @@ describe('court number order', () => {
       })
     ).toBe('\u200F627 / 1994\u200F')
   })
+
   it('isolates a pair with RLM', () => {
     expect(rtlIsolatedPair('4523', '2025')).toBe('\u200F4523 / 2025\u200F')
   })

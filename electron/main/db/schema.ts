@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS users (
   last_login_at TEXT,
   last_login_device TEXT,
   avatar_path TEXT,
+  password_reveal TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   deleted_at TEXT

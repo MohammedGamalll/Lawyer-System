@@ -18,7 +18,6 @@ function isYearToken(v: string) {
 }
 
 function stageCourt(row: Record<string, unknown>) {
-  const year = stripBidiMarks(row.case_year)
   const stages: [unknown, unknown][] = [
     [row.first_instance_number ?? row.first_degree_number, row.first_instance_year],
     [row.appeal_number, row.appeal_year],
@@ -26,9 +25,9 @@ function stageCourt(row: Record<string, unknown>) {
   ]
   for (const [num, stageYear] of stages) {
     const office = stripBidiMarks(num)
-    if (office) return { office, year: year || stripBidiMarks(stageYear) }
+    if (office) return { office, year: stripBidiMarks(stageYear) || stripBidiMarks(row.case_year) }
   }
-  return { office: '', year }
+  return { office: '', year: stripBidiMarks(row.case_year) }
 }
 
 export function courtParts(row: Record<string, unknown>) {
@@ -37,7 +36,9 @@ export function courtParts(row: Record<string, unknown>) {
   if (!office) {
     const stage = stageCourt(row)
     office = stage.office
-    year = year || stage.year
+    year = stage.year
+  } else if (!year) {
+    year = stripBidiMarks(row.first_instance_year)
   }
   const combined = office.match(/^(\d+)\s*\/\s*(\d{2,4})$/)
   if (combined) {
@@ -59,19 +60,36 @@ export function courtParts(row: Record<string, unknown>) {
   return { office, year }
 }
 
-export function formatCourtNumber(row: Record<string, unknown>) {
-  const { office, year } = courtParts(row)
-  const pair = rtlIsolatedPair(office, year)
-  if (pair) return pair
-  const cn = stripBidiMarks(row.case_number)
-  if (/^CS-/i.test(cn)) return '—'
-  const m = cn.match(/^(.+)\/(\d{2,4})$/)
-  if (m) {
-    const left = m[1].trim()
-    const right = m[2]
-    if (isYearToken(left) && !isYearToken(right)) return rtlIsolatedPair(right, left)
-    return rtlIsolatedPair(left, right)
+function pairFromNumberYear(number: string, year: string) {
+  let office = number
+  let y = year
+  const combined = office.match(/^(\d+)\s*\/\s*(\d{2,4})$/)
+  if (combined) {
+    const left = combined[1]
+    const right = combined[2]
+    if (isYearToken(left) && !isYearToken(right)) {
+      office = right
+      y = y || left
+    } else {
+      office = left
+      y = y || right
+    }
   }
+  if (isYearToken(office) && y && !isYearToken(y)) {
+    const swapped = office
+    office = y
+    y = swapped
+  }
+  return rtlIsolatedPair(office, y)
+}
+
+export function formatCourtNumber(row: Record<string, unknown>) {
+  const firstNum = stripBidiMarks(row.first_instance_number ?? row.first_degree_number)
+  const firstYear = stripBidiMarks(row.first_instance_year)
+  if (firstNum || firstYear) return pairFromNumberYear(firstNum, firstYear) || '—'
+  const office = stripBidiMarks(row.office_case_number)
+  const year = firstYear || stripBidiMarks(row.case_year)
+  if (office) return pairFromNumberYear(office, year) || '—'
   return '—'
 }
 

@@ -11,6 +11,16 @@ import { PERMISSIONS, ROLE_PERMISSIONS } from '@shared/permissions'
 import { userCreateSchema, userUpdateSchema, parseSchema } from '@shared/schemas'
 import { clampPageSize, pageKind } from '../db/queryLimits'
 
+export function listActiveUsernames(): { username: string; full_name: string }[] {
+  return getDb()
+    .prepare(
+      `SELECT username, COALESCE(full_name, '') AS full_name
+       FROM users WHERE ${notDeleted()} AND is_active = 1
+       ORDER BY COALESCE(NULLIF(trim(full_name), ''), username)`
+    )
+    .all() as { username: string; full_name: string }[]
+}
+
 export function listUsers(query: ListQuery = {}, actor?: AuthedUser | null) {
   const db = getDb()
   const page = query.page ?? 1
@@ -23,9 +33,11 @@ export function listUsers(query: ListQuery = {}, actor?: AuthedUser | null) {
     params.push(s, s, s)
   }
   const total = (db.prepare(`SELECT COUNT(*) as c FROM users u ${where}`).get(...params) as { c: number }).c
+  const canReveal = Boolean(actor && actor.roleCode === 'admin')
   const rows = db
     .prepare(
       `SELECT u.id, u.username, u.full_name, u.email, u.phone, u.role_id, u.is_active, u.last_login_at, u.locked_until,
+              ${canReveal ? 'u.password_reveal,' : ''}
               r.code as role_code, COALESCE(r.name_ar, '') as role_name,
               lw.id as lawyer_id, em.id as employee_id
        FROM users u LEFT JOIN roles r ON r.id = u.role_id AND ${notDeleted('r')}
@@ -41,7 +53,12 @@ export function listUsers(query: ListQuery = {}, actor?: AuthedUser | null) {
           username: r.username,
           full_name: r.full_name
         }))
-      : rows
+      : actor && !canReveal
+        ? (rows as Record<string, unknown>[]).map((r) => {
+            const { password_reveal: _hidden, ...rest } = r
+            return rest
+          })
+        : rows
   return { rows: safe, total, page, pageSize }
 }
 
@@ -78,12 +95,13 @@ export function createUser(actor: AuthedUser, data: Record<string, unknown>) {
   const ts = nowIso()
   const id = newId()
   db.prepare(
-    `INSERT INTO users (id, username, password_hash, full_name, email, phone, role_id, is_active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO users (id, username, password_hash, password_reveal, full_name, email, phone, role_id, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     username,
     bcrypt.hashSync(password, 10),
+    password,
     fullName,
     data.email ?? null,
     data.phone ?? null,
@@ -115,11 +133,14 @@ export function updateUser(actor: AuthedUser, id: string, data: Record<string, u
   const password = data.password ? String(data.password) : ''
   const hash = password.length >= 6 ? bcrypt.hashSync(password, 10) : old.password_hash
   db.prepare(
-    `UPDATE users SET username = ?, password_hash = ?, full_name = ?, email = ?, phone = ?, role_id = ?, is_active = ?,
+    `UPDATE users SET username = ?, password_hash = ?, password_reveal = CASE WHEN ? = 1 THEN ? ELSE password_reveal END,
+      full_name = ?, email = ?, phone = ?, role_id = ?, is_active = ?,
       failed_login_attempts = 0, locked_until = NULL, updated_at = ? WHERE id = ?`
   ).run(
     username,
     hash,
+    password.length >= 6 ? 1 : 0,
+    password.length >= 6 ? password : null,
     data.full_name,
     data.email ?? null,
     data.phone ?? null,

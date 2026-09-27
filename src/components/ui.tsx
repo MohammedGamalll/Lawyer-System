@@ -4,7 +4,7 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import * as Dialog from '@radix-ui/react-dialog'
 import * as TabsPrimitive from '@radix-ui/react-tabs'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { MoreVertical } from 'lucide-react'
+import { Eye, EyeOff, MoreVertical } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { DATE_INPUT_MAX, DATE_INPUT_MIN, formatCell } from '../lib/datetime'
 
@@ -59,6 +59,33 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
           props.className
         )}
       />
+    )
+  }
+)
+
+export const PasswordInput = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
+  function PasswordInput({ className, ...props }, ref) {
+    const { t } = useTranslation()
+    const [show, setShow] = React.useState(false)
+    return (
+      <div className="relative">
+        <Input
+          {...props}
+          ref={ref}
+          type={show ? 'text' : 'password'}
+          className={cn('pe-10', className)}
+        />
+        <button
+          type="button"
+          tabIndex={-1}
+          className="absolute inset-y-0 end-0 flex w-9 items-center justify-center text-navy-500 hover:text-navy-800 dark:text-navy-300 dark:hover:text-navy-50"
+          onClick={() => setShow((v) => !v)}
+          aria-label={show ? t('users.hidePassword') : t('users.showPassword')}
+          title={show ? t('users.hidePassword') : t('users.showPassword')}
+        >
+          {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+        </button>
+      </div>
     )
   }
 )

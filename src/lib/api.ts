@@ -13,6 +13,7 @@ const MUTATION =
   /:(create|update|remove|upload|delete|move|archive|restore|setPermissions|attendance|leave|linkCase|link|addContact|removeContact|rename|reorder|copyToOpponent|copyToClient)$/
 
 const EXTRA_SCOPES: Record<string, string[]> = {
+  'auth:resetPassword': ['users'],
   'clients:copyToOpponent': ['clients', 'opponents', 'documents'],
   'opponents:copyToClient': ['clients', 'opponents', 'documents'],
   'cases:link': ['cases'],
@@ -48,7 +49,8 @@ export async function invoke<T>(channel: string, ...args: unknown[]): Promise<T>
   if (
     MUTATION.test(channel) ||
     /lookups:(remember|remove|update|reorder)$/.test(channel) ||
-    /^notifications:(read|readAll)$/.test(channel)
+    /^notifications:(read|readAll)$/.test(channel) ||
+    channel === 'auth:resetPassword'
   ) {
     notifyDataChanged(scopesFromChannel(channel))
   }

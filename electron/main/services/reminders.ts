@@ -3,6 +3,7 @@ import { nowIso, addDays, todayIso } from '../utils/time'
 import { newId, asIdOrNull, notDeleted } from '../db/ids'
 import { recordLocalChange } from '../sync/queue'
 import { formattedCourtNumber } from '@shared/printLabels'
+import { shouldShowWorkAlert } from './alertVisibility'
 
 export function createReminder(data: {
   reminder_type: string
@@ -111,7 +112,8 @@ export function generateDailyNotifications(): void {
   const today = todayIso()
   const tomorrow = addDays(today, 1).slice(0, 10)
 
-  const hearingSelect = `SELECT h.id, cs.title, cs.case_number, cs.office_case_number, cs.case_year,
+  const hearingSelect = `SELECT h.id, h.hearing_date, h.next_hearing_date, h.result, h.court_decision, h.what_happened,
+              cs.title, cs.case_number, cs.office_case_number, cs.case_year, cs.status as case_status, cs.is_archived,
               cs.first_instance_number, cs.first_instance_year, cs.appeal_number, cs.appeal_year,
               cs.cassation_number, cs.cassation_year, cs.opponent_name, cl.full_name as client_name
        FROM hearings h
@@ -121,9 +123,16 @@ export function generateDailyNotifications(): void {
   type HearingAlert = {
     id: string
     title: string
+    hearing_date?: string
+    next_hearing_date?: string
+    result?: string
+    court_decision?: string
+    what_happened?: string
     case_number: string
     office_case_number?: string
     case_year?: string
+    case_status?: string
+    is_archived?: number
     first_instance_number?: string
     first_instance_year?: string
     appeal_number?: string
@@ -142,18 +151,48 @@ export function generateDailyNotifications(): void {
 
   const todayHearings = db.prepare(hearingSelect).all(today) as HearingAlert[]
   for (const h of todayHearings) {
+    if (
+      !shouldShowWorkAlert({
+        caseStatus: h.case_status,
+        caseArchived: h.is_archived,
+        kind: 'hearing',
+        actionDate: h.hearing_date || today,
+        nextDate: h.next_hearing_date,
+        result: h.result,
+        courtDecision: h.court_decision,
+        whatHappened: h.what_happened,
+        today
+      })
+    ) {
+      continue
+    }
     notifyUser(null, 'جلسة اليوم', hearingBody(h), 'hearing', 'hearing', h.id)
   }
 
   const tomorrowHearings = db.prepare(hearingSelect).all(tomorrow) as HearingAlert[]
   for (const h of tomorrowHearings) {
+    if (
+      !shouldShowWorkAlert({
+        caseStatus: h.case_status,
+        caseArchived: h.is_archived,
+        kind: 'hearing',
+        actionDate: h.hearing_date || tomorrow,
+        nextDate: h.next_hearing_date,
+        result: h.result,
+        courtDecision: h.court_decision,
+        whatHappened: h.what_happened,
+        today
+      })
+    ) {
+      continue
+    }
     notifyUser(null, 'جلسة الغد', hearingBody(h), 'hearing', 'hearing', h.id)
   }
 
   const overdue = db
     .prepare(
-      `SELECT t.id, t.title, t.description, cs.case_number, cs.office_case_number, cs.case_year,
-              cs.first_instance_number, cs.first_instance_year, cs.appeal_number, cs.appeal_year,
+      `SELECT t.id, t.title, t.description, t.due_date, t.status as task_status, cs.case_number, cs.office_case_number, cs.case_year,
+              cs.status as case_status, cs.is_archived, cs.first_instance_number, cs.first_instance_year, cs.appeal_number, cs.appeal_year,
               cs.cassation_number, cs.cassation_year, cs.court, cs.opponent_name,
               cl.full_name as client_name
        FROM tasks t
@@ -165,14 +204,30 @@ export function generateDailyNotifications(): void {
       id: string
       title: string
       description?: string
+      due_date?: string
+      task_status?: string
       case_number?: string
       office_case_number?: string
       case_year?: string
+      case_status?: string
+      is_archived?: number
       court?: string
       opponent_name?: string
       client_name?: string
     }[]
   for (const t of overdue) {
+    if (
+      !shouldShowWorkAlert({
+        caseStatus: t.case_status,
+        caseArchived: t.is_archived,
+        kind: 'task',
+        actionDate: t.due_date,
+        taskStatus: t.task_status,
+        today
+      })
+    ) {
+      continue
+    }
     const changed = db
       .prepare(`UPDATE tasks SET status = 'overdue', updated_at = ? WHERE id = ? AND status != 'overdue'`)
       .run(nowIso(), t.id)

@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { staffSchema } from '@shared/schemas'
 import { invoke } from '../lib/api'
 import { useApp } from '../store'
-import { Button, Card, Field, Input, MiniTable, PageHeader, Select, Textarea, UiTabs } from '../components/ui'
+import { Button, Card, Field, Input, MiniTable, PageHeader, PasswordInput, Select, Textarea, UiTabs } from '../components/ui'
 import { DatePicker, TimePicker } from '../components/DateTimePicker'
 import { toIsoDate } from '../lib/datetime'
 import { LookupCombo } from '../components/LookupCombo'
@@ -522,7 +522,7 @@ export function StaffFormPage() {
           </div>
           <div style={{ width: '18ch' }} className="max-w-full">
           <Field label={`${t('fields.password')} (${t('users.passwordHint')})`} required={isNew}>
-            <Input type="password" autoComplete="new-password" value={String(form.password ?? '')} onChange={(e) => setField('password', e.target.value)} />
+            <PasswordInput autoComplete="new-password" value={String(form.password ?? '')} onChange={(e) => setField('password', e.target.value)} />
           </Field>
           </div>
           <div style={{ width: '12ch' }} className="max-w-full">
