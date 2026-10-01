@@ -161,6 +161,7 @@ export function generateDailyNotifications(): void {
         result: h.result,
         courtDecision: h.court_decision,
         whatHappened: h.what_happened,
+        hearingStatus: 'upcoming',
         today
       })
     ) {
@@ -181,6 +182,7 @@ export function generateDailyNotifications(): void {
         result: h.result,
         courtDecision: h.court_decision,
         whatHappened: h.what_happened,
+        hearingStatus: 'upcoming',
         today
       })
     ) {

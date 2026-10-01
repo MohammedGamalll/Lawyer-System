@@ -11,6 +11,8 @@ import { rememberLookup } from './lookups'
 import { createTask } from './schedule'
 import { clampPageSize, pageKind, pickSort, sqlDir } from '../db/queryLimits'
 import { casePrintJoinSql, casePrintSelectSql, enrichPrintRows } from './printCaseFields'
+import { parsePostponedDate } from '@shared/hearingText'
+import { isHearingDoneStatus } from './alertVisibility'
 
 export function listHearings(query: ListQuery = {}, userId?: string) {
   const db = getDb()
@@ -251,7 +253,13 @@ export function createHearing(actor: AuthedUser, data: Record<string, unknown>) 
   rememberLookup('hearing_type', data.hearing_type)
   rememberLookup('hearing_status', data.status)
   rememberLookup('venue', data.venue)
-  attachHearingReminder(id, caseId, String(data.hearing_date), data.hearing_time as string | undefined)
+  rememberLookup('hearing_decision', data.previous_decision)
+  rememberLookup('hearing_decision', data.court_decision)
+  if (!isHearingDoneStatus(data.status)) {
+    attachHearingReminder(id, caseId, String(data.hearing_date), data.hearing_time as string | undefined)
+  } else {
+    clearHearingNotifications(id)
+  }
   const blob = [data.court_decision, data.postponement_reason, data.next_hearing_date, data.result, data.notes]
     .map((v) => String(v ?? ''))
     .join(' ')
@@ -334,6 +342,9 @@ export function updateHearing(actor: AuthedUser, id: string, data: Record<string
   rememberLookup('hearing_type', data.hearing_type)
   rememberLookup('hearing_status', data.status)
   rememberLookup('venue', data.venue)
+  rememberLookup('hearing_decision', data.previous_decision)
+  rememberLookup('hearing_decision', data.court_decision)
+  if (isHearingDoneStatus(status)) clearHearingNotifications(id)
   let autoHearing = false
   if (parsedNext && parsedNext !== old.hearing_date) {
     autoHearing = ensureNextHearing(actor, old.case_id, parsedNext, data.hearing_time as string | undefined, {
@@ -357,6 +368,8 @@ export function postponeHearing(actor: AuthedUser, id: string, nextDate: string,
         case_id: string
         lawyer_id: string | null
         hearing_type: string | null
+        venue?: string | null
+        court_decision?: string | null
       }
     | undefined
   if (!old) throw new Error('الجلسة غير موجودة')
@@ -409,27 +422,20 @@ function normalizeHearingDate(raw: unknown, refDate?: string): string {
   const t = String(raw ?? '').trim()
   if (!t) return ''
   if (/^\d{4}-\d{2}-\d{2}/.test(t)) return t.slice(0, 10)
-  return parseLooseDate(t, refDate) || ''
+  return parsePostponedDate(t, refDate) || ''
 }
 
-function parseLooseDate(text: string, refDate?: string): string | null {
-  const t = String(text || '')
-  const iso = t.match(/(\d{4}-\d{2}-\d{2})/)
-  if (iso) return iso[1]
-  const m = t.match(/(\d{1,2})\s*[/\-.]\s*(\d{1,2})(?:\s*[/\-.]\s*(\d{2,4}))?/)
-  if (!m) return null
-  const d = Number(m[1])
-  const mo = Number(m[2])
-  if (d < 1 || d > 31 || mo < 1 || mo > 12) return null
-  let y = m[3] ? Number(m[3]) : undefined
-  if (y && y < 100) y += 2000
-  const ref = refDate ? new Date(`${refDate}T12:00:00`) : new Date()
-  if (!y || Number.isNaN(y)) {
-    y = ref.getFullYear()
-    const candidate = new Date(y, mo - 1, d)
-    if (candidate.getTime() < ref.getTime() - 36 * 3600 * 1000) y += 1
-  }
-  return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+function clearHearingNotifications(hearingId: string): void {
+  const db = getDb()
+  const ts = nowIso()
+  const rows = db
+    .prepare(`SELECT id FROM notifications WHERE related_type = 'hearing' AND related_id = ? AND ${notDeleted()}`)
+    .all(hearingId) as { id: string }[]
+  if (!rows.length) return
+  db.prepare(
+    `UPDATE notifications SET deleted_at = ?, updated_at = ? WHERE related_type = 'hearing' AND related_id = ? AND deleted_at IS NULL`
+  ).run(ts, ts, hearingId)
+  for (const r of rows) recordLocalChange('notifications', r.id, 'UPDATE')
 }
 
 function migrateAdminFromHearing(actor: AuthedUser, caseId: string, hearingId: string, data: Record<string, unknown>): number {
@@ -500,26 +506,7 @@ function migrateAdminFromHearing(actor: AuthedUser, caseId: string, hearingId: s
   return n
 }
 
-export function parsePostponedDate(text: string, refDate?: string): string | null {
-  const t = String(text || '')
-  const iso = t.match(/(\d{4}-\d{2}-\d{2})/)
-  if (iso) return iso[1]
-  if (!/أجل|تأجيل|مؤجل|لجلسة/.test(t)) return null
-  const m = t.match(/(\d{1,2})\s*[/\-.]\s*(\d{1,2})(?:\s*[/\-.]\s*(\d{2,4}))?/)
-  if (!m) return null
-  const d = Number(m[1])
-  const mo = Number(m[2])
-  if (d < 1 || d > 31 || mo < 1 || mo > 12) return null
-  let y = m[3] ? Number(m[3]) : undefined
-  if (y && y < 100) y += 2000
-  const ref = refDate ? new Date(`${refDate}T12:00:00`) : new Date()
-  if (!y || Number.isNaN(y)) {
-    y = ref.getFullYear()
-    const candidate = new Date(y, mo - 1, d)
-    if (candidate.getTime() < ref.getTime() - 36 * 3600 * 1000) y += 1
-  }
-  return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-}
+export { parsePostponedDate }
 
 function judgmentFollowUp(text: string): string | undefined {
   if (/براءة|إدانة|ادانة|حكم نهائي|رفض الدعوى|قبول الطعن/.test(text)) {

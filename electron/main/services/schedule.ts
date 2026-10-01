@@ -565,6 +565,8 @@ export function listNotifications(userId: string) {
               h.result AS hearing_result,
               h.court_decision AS hearing_court_decision,
               h.what_happened AS hearing_what_happened,
+              h.status AS hearing_status,
+              (SELECT MAX(hx.hearing_date) FROM hearings hx WHERE hx.case_id = h.case_id AND hx.deleted_at IS NULL) AS latest_hearing_date,
               t.due_date AS task_due_date,
               t.status AS task_status,
               r.remind_at AS reminder_at

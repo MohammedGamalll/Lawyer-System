@@ -4,13 +4,13 @@ import { CrudPage, FieldDef } from '../components/CrudPage'
 import { HearingFormExtras } from '../components/HearingFormExtras'
 import { TaskFormExtras } from '../components/TaskFormExtras'
 import { VenuePrintBar } from '../components/VenuePrintBar'
-import { Button, Modal, Select } from '../components/ui'
+import { Button, Select } from '../components/ui'
 import { DatePicker } from '../components/DateTimePicker'
 import { invoke } from '../lib/api'
 import { useApp } from '../store'
 import { expertHearingSchema, hearingSchema, taskSchema } from '@shared/schemas'
 import { formatCell } from '../lib/datetime'
-import { formatProgramCode, isManualProgramCode } from '../lib/courtNumber'
+import { formatProgramCode, isManualProgramCode, degreeNumberLines } from '../lib/courtNumber'
 import { CourtNumberText } from '../components/CourtNumberText'
 import { RecordDetailsModal } from '../components/RecordDetailsModal'
 import { ExpertFormExtras } from '../components/ExpertFormExtras'
@@ -40,6 +40,33 @@ function typeSubject(r: Record<string, unknown>) {
     .join(' — ') || '—'
 }
 
+function hearingCourtText(r: Record<string, unknown>) {
+  return [r.court || r.court_name, r.circuit || r.circuit_number]
+    .map((v) => String(v || '').trim())
+    .filter(Boolean)
+    .join(' — ') || '—'
+}
+
+function DegreeNumbers({
+  row,
+  t
+}: {
+  row: Record<string, unknown>
+  t: (k: string) => string
+}) {
+  const lines = degreeNumberLines(row)
+  if (!lines.length) return <span>—</span>
+  return (
+    <div className="leading-tight">
+      {lines.map((line) => (
+        <div key={line.key}>
+          {t(`fields.${line.key}`)}: {line.value}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function useRowDetails() {
   const [state, setState] = useState<{ row: Record<string, unknown>; edit: () => void } | null>(null)
   return {
@@ -57,8 +84,6 @@ function useRowDetails() {
 export function HearingsPage({ embeddedCaseId }: { embeddedCaseId?: string } = {}) {
   const { t, i18n } = useTranslation()
   const { setPage, toast, pageMeta, goBack } = useApp()
-  const [adminModal, setAdminModal] = useState<{ caseId: string; rows: Record<string, unknown>[] } | null>(null)
-  const [adminLoading, setAdminLoading] = useState(false)
   const details = useRowDetails()
   const [view, setView] = useState(() => String(pageMeta.view || 'all'))
   const [rangeFrom, setRangeFrom] = useState('')
@@ -75,34 +100,6 @@ export function HearingsPage({ embeddedCaseId }: { embeddedCaseId?: string } = {
     if (rangeTo) listFilters.date_to = rangeTo
   }
   const fromCase = Boolean(caseId)
-
-  const openAdminActions = async (row: Record<string, unknown>) => {
-    const cid = String(row.case_id || '')
-    const count = Number(row.case_admin_count || 0)
-    if (count <= 1) {
-      if (row.current_admin_task_id) setPage('tasks', { edit_id: row.current_admin_task_id, case_id: cid, work_kind: 'admin' })
-      return
-    }
-    if (!cid) return
-    setAdminLoading(true)
-    setAdminModal({ caseId: cid, rows: [] })
-    try {
-      const res = await invoke<{ rows: Record<string, unknown>[] }>('tasks:list', {
-        page: 1,
-        pageSize: 200,
-        filters: { case_id: cid, work_kind: 'admin' }
-      })
-      setAdminModal({
-        caseId: cid,
-        rows: (res.rows || []).filter((tk) => String(tk.status || '') !== 'cancelled')
-      })
-    } catch (e) {
-      toast((e as Error).message, 'err')
-      setAdminModal(null)
-    } finally {
-      setAdminLoading(false)
-    }
-  }
 
   return (
     <>
@@ -127,15 +124,22 @@ export function HearingsPage({ embeddedCaseId }: { embeddedCaseId?: string } = {
         {
           key: 'case_number',
           label: t('fields.program_code'),
+          widthCh: 8,
           render: (r: Record<string, unknown>) => (
             <span className={isManualProgramCode(r) ? 'font-bold text-red-600' : ''}>{formatProgramCode(r) || '—'}</span>
           ),
           onCellClick: (r: Record<string, unknown>) => r.case_id && setPage('caseProfile', { id: r.case_id })
         },
+        { key: 'hearing_date', label: t('fields.hearing_date') },
         {
-          key: 'office_case_number',
+          key: 'hearing_court',
+          label: t('fields.hearingCourt'),
+          render: (r: Record<string, unknown>) => hearingCourtText(r)
+        },
+        {
+          key: 'court_numbers',
           label: t('fields.court_number'),
-          render: (r: Record<string, unknown>) => <CourtNumberText row={r} />
+          render: (r: Record<string, unknown>) => <DegreeNumbers row={r} t={t} />
         },
         {
           key: 'caseTypeAndSubject',
@@ -143,48 +147,20 @@ export function HearingsPage({ embeddedCaseId }: { embeddedCaseId?: string } = {
           render: (r: Record<string, unknown>) => typeSubject(r)
         },
         {
-          key: 'hearing_court',
-          label: t('fields.hearingCourt'),
-          render: (r: Record<string, unknown>) => String(r.court || r.court_name || r.venue || '—')
-        },
-        {
           key: 'parties',
           label: t('fields.parties'),
           render: (r: Record<string, unknown>) => partiesText(r)
         },
-        { key: 'current_admin_status', label: t('fields.action_status'), status: true },
-        { key: 'status', label: t('fields.status'), status: true },
-        { key: 'hearing_date', label: t('fields.hearing_date') },
         { key: 'previous_decision', label: t('fields.previous_decision') },
-        { key: 'court_decision', label: t('fields.court_decision') },
-        ...(fromCase
-          ? [
-              {
-                key: 'current_admin_action',
-                label: t('fields.current_admin'),
-                render: (r: Record<string, unknown>) => {
-                  const n = Number(r.case_admin_count || 0)
-                  const text = String(r.current_admin_action || '').trim()
-                  if (!text && n <= 0) return '—'
-                  return (
-                    <span className="whitespace-normal">
-                      {text || t('fields.adminActions')}
-                      {n > 1 ? <span className="ms-1 text-navy-500">({t('fields.moreAdmin', { count: n - (text ? 1 : 0) })})</span> : null}
-                    </span>
-                  )
-                },
-                onCellClick: (r: Record<string, unknown>) => void openAdminActions(r)
-              }
-            ]
-          : [])
+        { key: 'court_decision', label: t('fields.court_decision') }
       ]}
       fields={[
         f(t, 'case_id', { lookup: 'cases', required: true }),
         f(t, 'lawyer_id', { lookup: 'lawyers' }),
         f(t, 'status', { type: 'combo', comboKind: 'hearing_status' }),
-        f(t, 'previous_decision'),
+        f(t, 'previous_decision', { type: 'combo', comboKind: 'hearing_decision' }),
         f(t, 'result', { hint: t('fields.resultHint') }),
-        f(t, 'court_decision', { type: 'textarea' }),
+        f(t, 'court_decision', { type: 'textarea', comboKind: 'hearing_decision' }),
         f(t, 'postponement_reason'),
         f(t, 'what_happened', { type: 'textarea' }),
         f(t, 'required_documents', { type: 'textarea' }),
@@ -240,10 +216,10 @@ export function HearingsPage({ embeddedCaseId }: { embeddedCaseId?: string } = {
         details.row
           ? [
               { label: t('fields.program_code'), value: formatProgramCode(details.row) },
-              { label: t('fields.court_number'), value: <CourtNumberText row={details.row} /> },
+              { label: t('fields.court_number'), value: <DegreeNumbers row={details.row} t={t} /> },
               { label: t('fields.parties'), value: partiesText(details.row) },
               { label: t('fields.caseTypeAndSubject'), value: typeSubject(details.row) },
-              { label: t('fields.hearingCourt'), value: String(details.row.court || details.row.court_name || details.row.venue || '') },
+              { label: t('fields.hearingCourt'), value: hearingCourtText(details.row) },
               { label: t('fields.circuit'), value: String(details.row.circuit || details.row.circuit_number || '') },
               { label: t('fields.hall'), value: String(details.row.hall || '') },
               { label: t('fields.floor'), value: String(details.row.floor || '') },
@@ -262,64 +238,6 @@ export function HearingsPage({ embeddedCaseId }: { embeddedCaseId?: string } = {
           : []
       }
     />
-    <Modal
-      open={Boolean(adminModal)}
-      wide
-      title={t('fields.adminActions')}
-      onClose={() => setAdminModal(null)}
-    >
-      {adminLoading ? (
-        <div className="text-sm text-navy-500">{t('loading')}</div>
-      ) : !adminModal?.rows.length ? (
-        <div className="text-sm text-navy-400">{t('noData')}</div>
-      ) : (
-        <div className="space-y-3">
-          {adminModal.rows.map((tk) => (
-            <div
-              key={String(tk.id)}
-              className="rounded-lg border border-navy-100 p-3 text-sm dark:border-navy-700"
-            >
-              <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
-                <div className="font-bold text-navy-900 dark:text-white">
-                  {String(tk.description || tk.title || '—')}
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-8 shrink-0 px-2 text-xs"
-                  onClick={() => {
-                    setAdminModal(null)
-                    setPage('tasks', { edit_id: tk.id, case_id: tk.case_id, work_kind: 'admin' })
-                  }}
-                >
-                  {t('edit')}
-                </Button>
-              </div>
-              <div className="grid gap-1.5 sm:grid-cols-2">
-                <div>
-                  <strong>{t('fields.due_date')}:</strong> {formatCell('due_date', tk.due_date, i18n.language, t)}
-                </div>
-                <div>
-                  <strong>{t('fields.status')}:</strong> {formatCell('status', tk.status, i18n.language, t)}
-                </div>
-                <div>
-                  <strong>{t('fields.venue')}:</strong> {String(tk.venue || '—')}
-                </div>
-                <div>
-                  <strong>{t('fields.assignee_name')}:</strong> {String(tk.assignee_name || '—')}
-                </div>
-                <div>
-                  <strong>{t('fields.priority')}:</strong> {formatCell('priority', tk.priority, i18n.language, t)}
-                </div>
-                <div>
-                  <strong>{t('fields.case_subject')}:</strong> {String(tk.case_subject || tk.case_title || '—')}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </Modal>
     </>
   )
 }
@@ -623,8 +541,8 @@ export function ExpertsPage({ embeddedCaseId }: { embeddedCaseId?: string } = {}
         f(t, 'case_id', { lookup: 'cases', required: true }),
         f(t, 'lawyer_id', { lookup: 'lawyers' }),
         f(t, 'status', { type: 'combo', comboKind: 'hearing_status' }),
-        f(t, 'previous_action', { type: 'textarea' }),
-        f(t, 'current_action', { type: 'textarea' }),
+        f(t, 'previous_action', { type: 'textarea', comboKind: 'hearing_decision' }),
+        f(t, 'current_action', { type: 'textarea', comboKind: 'hearing_decision' }),
         f(t, 'notes', { type: 'textarea' })
       ]}
       listFilters={Object.keys(listFilters).length ? listFilters : undefined}

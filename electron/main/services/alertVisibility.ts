@@ -24,6 +24,11 @@ function hasText(value?: unknown): boolean {
   return Boolean(String(value || '').trim())
 }
 
+export function isHearingDoneStatus(status?: unknown): boolean {
+  const s = String(status || '').trim()
+  return s === 'done' || s === 'تمت'
+}
+
 export function shouldShowWorkAlert(input: {
   caseStatus?: unknown
   caseArchived?: unknown
@@ -34,10 +39,18 @@ export function shouldShowWorkAlert(input: {
   courtDecision?: unknown
   whatHappened?: unknown
   taskStatus?: unknown
+  hearingStatus?: unknown
+  latestHearingDate?: unknown
   today: string
 }): boolean {
+  if (input.kind === 'hearing' && isHearingDoneStatus(input.hearingStatus)) return false
   const next = dayOf(input.nextDate)
   const action = dayOf(input.actionDate)
+  const latest = dayOf(input.latestHearingDate)
+  if (input.kind === 'hearing' && latest && action && latest > action) {
+    const st = String(input.hearingStatus || '').trim()
+    if (action < input.today || st === 'postponed' || st === 'cancelled') return false
+  }
   const upcoming = (next && next >= input.today) || (action && action >= input.today)
   if (upcoming) return true
   if (isInactiveCaseForAlerts(input.caseStatus, input.caseArchived)) return false
@@ -64,6 +77,8 @@ export function notificationIsVisible(row: Record<string, unknown>, today: strin
       result: row.hearing_result,
       courtDecision: row.hearing_court_decision,
       whatHappened: row.hearing_what_happened,
+      hearingStatus: row.hearing_status,
+      latestHearingDate: row.latest_hearing_date,
       today
     })
   }

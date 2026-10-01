@@ -304,7 +304,7 @@ function seedIfEmpty(database: BetterSqlite3.Database): void {
     language: 'ar',
     theme: 'light',
     max_login_attempts: '5',
-    lock_minutes: '15',
+    lock_minutes: '5',
     invoice_tax_percent: '0',
     silent_print: 'false',
     print_a4_printer: '',

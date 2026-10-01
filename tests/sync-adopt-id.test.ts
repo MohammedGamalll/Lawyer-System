@@ -159,4 +159,76 @@ describe.skipIf(!sqliteAvailable())('adopt remote role id', () => {
     const after = db.prepare(`SELECT password_hash FROM users WHERE id = ?`).get(user.id) as { password_hash: string }
     expect(after.password_hash).toBe(cloudHash)
   })
+
+  it('does not crash when a remote role is missing code', async () => {
+    const { getDb } = await import('../electron/main/db/database')
+    const { applyRemoteWrite } = await import('../electron/main/sync/applyRemote')
+    const db = getDb()
+    const before = (db.prepare(`SELECT COUNT(*) as c FROM roles`).get() as { c: number }).c
+    const later = new Date(Date.now() + 5000).toISOString()
+    expect(() =>
+      applyRemoteWrite(
+        'roles',
+        {
+          id: randomUUID(),
+          code: null,
+          name_ar: 'دور ناقص',
+          name_en: 'Missing',
+          is_system: 1,
+          created_at: later,
+          updated_at: later,
+          deleted_at: null
+        },
+        'INSERT'
+      )
+    ).not.toThrow()
+    expect(db.prepare(`SELECT COUNT(*) as c FROM roles`).get()).toEqual({ c: before })
+  })
+
+  it('keeps the local role code when the cloud update sends null', async () => {
+    const { getDb } = await import('../electron/main/db/database')
+    const { applyRemoteWrite } = await import('../electron/main/sync/applyRemote')
+    const db = getDb()
+    const local = db.prepare(`SELECT * FROM roles WHERE code = 'admin'`).get() as {
+      id: string
+      code: string
+      name_ar: string
+    }
+    const later = new Date(Date.now() + 5000).toISOString()
+    applyRemoteWrite(
+      'roles',
+      {
+        id: local.id,
+        code: null,
+        name_ar: 'المدير محدّث',
+        name_en: 'Admin',
+        is_system: 1,
+        created_at: later,
+        updated_at: later,
+        deleted_at: null
+      },
+      'UPDATE'
+    )
+    const after = db.prepare(`SELECT code, name_ar FROM roles WHERE id = ?`).get(local.id) as {
+      code: string
+      name_ar: string
+    }
+    expect(after.code).toBe('admin')
+    expect(after.name_ar).toBe('المدير محدّث')
+  })
+
+  it('clears fake client national ids on schema patch', async () => {
+    const { getDb } = await import('../electron/main/db/database')
+    const { patchSchema } = await import('../electron/main/db/patch')
+    const db = getDb()
+    const id = randomUUID()
+    const ts = new Date().toISOString()
+    db.prepare(
+      `INSERT INTO clients (id, client_number, full_name, national_id, client_type, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'individual', ?, ?)`
+    ).run(id, `CL-FAKE-${id.slice(0, 8)}`, 'موكل تجريبي', '01056630270863', ts, ts)
+    patchSchema(db)
+    const after = db.prepare(`SELECT national_id FROM clients WHERE id = ?`).get(id) as { national_id: string | null }
+    expect(after.national_id).toBeNull()
+  })
 })

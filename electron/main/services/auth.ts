@@ -12,6 +12,7 @@ import { createSession, destroySession, destroySessionsForUser, loadPermissions,
 import type { AuthedUser } from '../ipc/helpers'
 import type { UserSession } from '@shared/types'
 import { loginSchema, passwordChangeSchema, parseSchema } from '@shared/schemas'
+import { DEFAULT_LOCK_MINUTES, DEFAULT_MAX_LOGIN_ATTEMPTS, lockDurationMinutes, remainingLockMinutes } from '@shared/loginLock'
 
 function setting(key: string, fallback: string): string {
   const row = getDb().prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined
@@ -84,7 +85,8 @@ export async function login(
   }
   if (user.locked_until && new Date(user.locked_until).getTime() > Date.now()) {
     logAttempt(0)
-    throw new Error('الحساب مقفل مؤقتًا بسبب محاولات دخول فاشلة')
+    const left = remainingLockMinutes(user.locked_until)
+    throw new Error(`الحساب مقفل مؤقتًا بسبب محاولات دخول فاشلة. تبقّى ${left} دقيقة`)
   }
   if (!user.role_code) {
     logAttempt(0)
@@ -103,17 +105,18 @@ export async function login(
         throw new Error('اسم المستخدم أو كلمة المرور غير صحيحة')
       }
     } else {
-      const max = Number(setting('max_login_attempts', '5'))
-      const lockMin = Number(setting('lock_minutes', '15'))
+      const max = Number(setting('max_login_attempts', String(DEFAULT_MAX_LOGIN_ATTEMPTS)))
+      const baseMin = Number(setting('lock_minutes', String(DEFAULT_LOCK_MINUTES)))
       const fails = user.failed_login_attempts + 1
-      const lockedUntil = fails >= max ? new Date(Date.now() + lockMin * 60 * 1000).toISOString() : null
+      const lockMin = lockDurationMinutes(fails, max, baseMin)
+      const lockedUntil = lockMin ? new Date(Date.now() + lockMin * 60 * 1000).toISOString() : null
       db.prepare('UPDATE users SET failed_login_attempts = ?, locked_until = ? WHERE id = ?').run(
         fails,
         lockedUntil,
         user.id
       )
       logAttempt(0)
-      if (lockedUntil) throw new Error(`تم قفل الحساب لمدة ${lockMin} دقيقة بعد ${max} محاولات فاشلة`)
+      if (lockedUntil && lockMin) throw new Error(`تم قفل الحساب لمدة ${lockMin} دقيقة بعد ${max} محاولات فاشلة`)
       throw new Error('اسم المستخدم أو كلمة المرور غير صحيحة')
     }
   }

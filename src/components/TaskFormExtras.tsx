@@ -48,7 +48,6 @@ export function TaskFormExtras({
         }
         if (!String(form.opponent_address || '') && address && !address.includes('****')) setField('opponent_address', address)
         if (!String(form.opponent_phone || '') && phone && !phone.includes('****')) setField('opponent_phone', phone)
-        if (!String(form.venue || '') && row.court) setField('venue', String(row.court))
       })
       .catch(() => setOpp({ name: '', address: '', phone: '' }))
   }, [form.case_id, workKind])

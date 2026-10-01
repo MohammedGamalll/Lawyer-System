@@ -121,3 +121,23 @@ export function formatProgramCode(row: Record<string, unknown>) {
   const internal = String(row.internal_file_number ?? '').trim()
   return stripInternalPrefix(internal || cn)
 }
+
+export function degreeNumberLines(
+  row: Record<string, unknown>
+): { key: 'degree_first' | 'degree_appeal' | 'degree_cassation'; value: string }[] {
+  const items: { key: 'degree_first' | 'degree_appeal' | 'degree_cassation'; value: string }[] = []
+  const first = pairFromNumberYear(
+    stripBidiMarks(row.first_instance_number ?? row.first_degree_number),
+    stripBidiMarks(row.first_instance_year)
+  )
+  if (first) items.push({ key: 'degree_first', value: first })
+  const appeal = pairFromNumberYear(stripBidiMarks(row.appeal_number), stripBidiMarks(row.appeal_year))
+  if (appeal) items.push({ key: 'degree_appeal', value: appeal })
+  const cass = pairFromNumberYear(stripBidiMarks(row.cassation_number), stripBidiMarks(row.cassation_year))
+  if (cass) items.push({ key: 'degree_cassation', value: cass })
+  if (!items.length) {
+    const fallback = formatCourtNumber(row)
+    if (fallback && fallback !== '—') items.push({ key: 'degree_first', value: fallback })
+  }
+  return items
+}

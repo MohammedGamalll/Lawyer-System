@@ -1,5 +1,7 @@
 import type Database from 'better-sqlite3'
+import { isEgyptianNationalId } from '@shared/archiveMigrate'
 import { PERMISSIONS, ROLE_PERMISSIONS } from '@shared/permissions'
+import { normalizeDigits } from '@shared/schemas'
 import { nowIso } from '../utils/time'
 import { newId } from './ids'
 import { PERFORMANCE_INDEXES } from './indexes'
@@ -34,6 +36,7 @@ const LOOKUP_SEEDS: Record<string, string[]> = {
     'عدم تسليم حصة ميراثية'
   ],
   extra_ref_type: ['تسوية', 'فض منازعات', 'شهر عقاري', 'سجل خبراء', 'أخرى'],
+  hearing_decision: ['أول جلسة', 'إعادة إعلان', 'للاطلاع', 'ندب خبير', 'للحكم', 'مذكرات', 'تصوير قضية', 'متابعة بالجدول'],
   admin_action: [
     'تصوير قضية',
     'رفع',
@@ -118,6 +121,11 @@ export function patchSchema(db: Db): void {
     extractCourtNumbers(db)
   } catch (err) {
     console.error('extractCourtNumbers', err)
+  }
+  try {
+    clearInvalidClientNationalIds(db)
+  } catch (err) {
+    console.error('clearInvalidClientNationalIds', err)
   }
   try {
     mergeDuplicateClientsByNationalId(db)
@@ -226,6 +234,7 @@ export function patchSchema(db: Db): void {
   addColumn(db, 'lookup_values', 'sort_order', 'INTEGER NOT NULL DEFAULT 0')
   seedLookups(db)
   backfillLookupSort(db)
+  applyLoginLockPolicy(db)
   migrateExpertHearings(db)
   for (const stmt of PERFORMANCE_INDEXES.split(';').map((s) => s.trim()).filter(Boolean)) {
     try {
@@ -389,8 +398,39 @@ function extractCourtNumbers(db: Db): void {
 }
 
 function digitsNid(value: unknown) {
-  const s = String(value ?? '').replace(/\D/g, '')
-  return s.length === 14 ? s : ''
+  if (!isEgyptianNationalId(value)) return ''
+  return normalizeDigits(value).replace(/\D/g, '')
+}
+
+function clearInvalidClientNationalIds(db: Db): void {
+  if (!tableCols(db, 'clients').has('national_id')) return
+  const rows = db
+    .prepare(
+      `SELECT id, national_id FROM clients
+       WHERE deleted_at IS NULL AND national_id IS NOT NULL AND TRIM(national_id) != ''`
+    )
+    .all() as { id: string; national_id: string }[]
+  if (!rows.length) return
+  const ts = nowIso()
+  const upd = db.prepare(`UPDATE clients SET national_id = NULL, updated_at = ? WHERE id = ?`)
+  const hasQueue = tableCols(db, 'local_sync_queue').has('payload')
+  const delQ = hasQueue
+    ? db.prepare(`DELETE FROM local_sync_queue WHERE table_name = 'clients' AND record_id = ?`)
+    : null
+  const insQ = hasQueue
+    ? db.prepare(
+        `INSERT INTO local_sync_queue (id, table_name, record_id, operation, payload, created_at) VALUES (?,?,?,?,?,?)`
+      )
+    : null
+  const load = db.prepare(`SELECT * FROM clients WHERE id = ?`)
+  for (const r of rows) {
+    if (isEgyptianNationalId(r.national_id)) continue
+    upd.run(ts, r.id)
+    if (!delQ || !insQ) continue
+    const full = load.get(r.id)
+    delQ.run(r.id)
+    insQ.run(newId(), 'clients', r.id, 'UPDATE', JSON.stringify(full ?? { id: r.id }), Date.now())
+  }
 }
 
 const CLIENT_ID_TABLES = [
@@ -495,6 +535,22 @@ function backfillLookupSort(db: Db): void {
     const rows = list.all(kind) as { id: string }[]
     rows.forEach((r, i) => upd.run(i, r.id))
   }
+}
+
+function applyLoginLockPolicy(db: Db): void {
+  const ts = nowIso()
+  const upsert = db.prepare(
+    `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+  )
+  upsert.run('lock_minutes', '5', ts)
+  const flag = db.prepare(`SELECT value FROM settings WHERE key = ?`).get('login_lock_unlocked_5x2') as { value: string } | undefined
+  if (flag?.value === '1') return
+  db.prepare(
+    `UPDATE users SET failed_login_attempts = 0, locked_until = NULL, updated_at = ?
+     WHERE IFNULL(failed_login_attempts, 0) > 0 OR locked_until IS NOT NULL`
+  ).run(ts)
+  upsert.run('login_lock_unlocked_5x2', '1', ts)
 }
 
 function seedLookups(db: Db): void {

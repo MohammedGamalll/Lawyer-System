@@ -166,6 +166,31 @@ export function CaseFormExtras({
   const [pinnedOpps, setPinnedOpps] = useState<LookupOption[]>([])
   const extras = (form.extra_clients as ExtraClient[]) || []
   const extraOpps = (form.extra_opponents as ExtraOpp[]) || []
+  const numberingMode = String(
+    form.__numbering_mode ||
+      (form.id && String(form.case_number || '').trim() && !/^CS-/i.test(String(form.case_number))
+        ? 'manual'
+        : 'auto')
+  )
+  const [codeTaken, setCodeTaken] = useState(false)
+
+  useEffect(() => {
+    if (numberingMode !== 'manual') {
+      setCodeTaken(false)
+      return
+    }
+    const code = String(form.case_number || '').trim()
+    if (!code) {
+      setCodeTaken(false)
+      return
+    }
+    const timer = window.setTimeout(() => {
+      invoke<{ taken: boolean }>('cases:checkProgramCode', code, form.id ? String(form.id) : undefined)
+        .then((r) => setCodeTaken(Boolean(r.taken)))
+        .catch(() => setCodeTaken(false))
+    }, 280)
+    return () => window.clearTimeout(timer)
+  }, [form.case_number, form.id, numberingMode])
 
   const addClient = () => setField('extra_clients', [...extras, emptyClient()])
   const addOpp = () => setField('extra_opponents', [...extraOpps, emptyOpp()])
@@ -239,12 +264,7 @@ export function CaseFormExtras({
         <Field label={t('caseForm.numberingMode')}>
           <select
             className="flex h-9 w-full max-w-xs rounded-md border border-navy-200 bg-white px-3 text-sm dark:border-navy-700 dark:bg-navy-900"
-            value={String(
-              form.__numbering_mode ||
-                (form.id && String(form.case_number || '').trim() && !/^CS-/i.test(String(form.case_number))
-                  ? 'manual'
-                  : 'auto')
-            )}
+            value={numberingMode}
             onChange={(e) => {
               const mode = e.target.value
               setField('__numbering_mode', mode)
@@ -255,21 +275,26 @@ export function CaseFormExtras({
             <option value="manual">{t('caseForm.numberingManual')}</option>
           </select>
         </Field>
-        {String(
-          form.__numbering_mode ||
-            (form.id && String(form.case_number || '').trim() && !/^CS-/i.test(String(form.case_number))
-              ? 'manual'
-              : 'auto')
-        ) === 'auto' ? (
+        {numberingMode === 'auto' ? (
           <p className="text-xs text-navy-500">{t('caseForm.numberingAutoHint')}</p>
         ) : (
           <>
-            <Field label={t('fields.program_code')}>
+            <Field label={t('fields.program_code')} error={codeTaken ? t('caseForm.duplicateCaseCode') : undefined}>
               <Input
                 className="w-40"
                 dir="ltr"
                 value={String(form.case_number || '')}
                 onChange={(e) => setField('case_number', e.target.value)}
+                onBlur={() => {
+                  const code = String(form.case_number || '').trim()
+                  if (!code) {
+                    setCodeTaken(false)
+                    return
+                  }
+                  invoke<{ taken: boolean }>('cases:checkProgramCode', code, form.id ? String(form.id) : undefined)
+                    .then((r) => setCodeTaken(Boolean(r.taken)))
+                    .catch(() => setCodeTaken(false))
+                }}
                 placeholder="245"
               />
             </Field>

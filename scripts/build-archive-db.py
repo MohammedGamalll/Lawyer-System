@@ -13,7 +13,6 @@ and do not JOIN tables.
 """
 from __future__ import annotations
 
-import csv
 import re
 import sqlite3
 from collections import Counter, OrderedDict
@@ -21,8 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "resources" / "archive.db"
-WIN = Path(r"C:\Users\medom\Downloads\Sal_Jas\WinCases")
-CSV_DIR = Path(r"C:\Users\medom\Downloads\CSV_Data")
+WIN = Path(r"C:\Users\medom\Downloads\WinCases\WinCases")
 OFFICES = ("Mas001", "Mas002", "Mas003", "Mas004")
 REC1, REC2 = 1120, 160
 
@@ -162,16 +160,6 @@ def rec160_rows(office: str, names: tuple[str, ...], kind: str) -> list[tuple]:
     return out
 
 
-def import_csv(con: sqlite3.Connection, table: str, path: Path) -> None:
-    if not path.exists() or path.stat().st_size < 8:
-        return
-    with path.open("r", encoding="utf-8-sig", newline="") as f:
-        reader = csv.DictReader(f)
-        cols = [c.strip() or f"col{i}" for i, c in enumerate(reader.fieldnames or [])]
-        rows = [tuple((row.get(c) or "").strip() for c in (reader.fieldnames or [])) for row in reader]
-    insert_rows(con, table, cols, rows)
-
-
 def main() -> None:
     if not WIN.is_dir():
         raise SystemExit(f"WinCases folder not found: {WIN}")
@@ -267,8 +255,8 @@ def main() -> None:
         poa,
     )
 
-    import_csv(con, "الفهارس", CSV_DIR / "INDEXES.csv")
-    import_csv(con, "الحراسة", CSV_DIR / "Remind_Custody_Mas.csv")
+    # Skip stale INDEXES.csv (Aug 2026) and Remind_Custody_Mas.csv.
+    # Newest indexes/custody live in Ind002 / Remind of the WinCases dump; not decoded here.
 
     con.commit()
     con.execute("VACUUM")

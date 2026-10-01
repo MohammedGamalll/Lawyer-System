@@ -1,3 +1,4 @@
+import log from 'electron-log'
 import { SYNC_TABLES } from '../db/schema'
 import { getSetting, setSettingSilent } from '../services/settings'
 import { applyRemoteWrite } from './applyRemote'
@@ -19,9 +20,13 @@ export async function pullChanges(): Promise<void> {
     )
     if (error) continue
     for (const row of data || []) {
-      applyRemoteWrite(table, row as Record<string, unknown>, row.deleted_at ? 'DELETE' : 'UPDATE')
-      const u = String((row as { updated_at?: string }).updated_at || '')
-      if (u > maxTs) maxTs = u
+      try {
+        applyRemoteWrite(table, row as Record<string, unknown>, row.deleted_at ? 'DELETE' : 'UPDATE')
+        const u = String((row as { updated_at?: string }).updated_at || '')
+        if (u > maxTs) maxTs = u
+      } catch (err) {
+        log.warn('pull apply failed', table, err)
+      }
     }
   }
   setSettingSilent('sync_last_pulled_at', maxTs)

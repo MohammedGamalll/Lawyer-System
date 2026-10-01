@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { courtParts, formatCourtNumber } from '../src/lib/courtNumber'
+import { courtParts, formatCourtNumber, degreeNumberLines } from '../src/lib/courtNumber'
 import { formattedCourtNumber } from '../shared/printLabels'
 import { rtlIsolatedPair } from '../shared/rtlBidi'
 
@@ -65,5 +65,20 @@ describe('court number order', () => {
 
   it('isolates a pair with RLM', () => {
     expect(rtlIsolatedPair('4523', '2025')).toBe('\u200F4523 / 2025\u200F')
+  })
+
+  it('stacks first, appeal, and cassation numbers when present', () => {
+    const lines = degreeNumberLines({
+      first_instance_number: '627',
+      first_instance_year: '1994',
+      appeal_number: '80',
+      appeal_year: '1995',
+      cassation_number: '12',
+      cassation_year: '1996'
+    })
+    expect(lines.map((l) => l.key)).toEqual(['degree_first', 'degree_appeal', 'degree_cassation'])
+    expect(lines[0].value).toContain('627')
+    expect(lines[1].value).toContain('80')
+    expect(lines[2].value).toContain('12')
   })
 })

@@ -17,6 +17,7 @@ import { startSyncService } from "./sync/service";
 import { loadDotEnv } from "./env";
 import log from "electron-log";
 import { fatalStartup } from "./crashGuard";
+import { attachEditContextMenu } from "./editMenu";
 
 // الكود ده هيشتغل بس لو إحنا طلبنا نفتح النسخة التانية
 if (process.env.SECOND_INSTANCE === "true") {
@@ -147,6 +148,7 @@ function createWindow(): void {
     dialog.showErrorBox("تعذر فتح الواجهة", `${desc || code}`);
   });
   wireZoomShortcuts(mainWindow);
+  attachEditContextMenu(mainWindow.webContents, () => mainWindow);
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url);
     return { action: "deny" };

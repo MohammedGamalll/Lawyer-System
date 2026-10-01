@@ -90,17 +90,20 @@ export const PasswordInput = React.forwardRef<HTMLInputElement, React.InputHTMLA
   }
 )
 
-export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return (
-    <textarea
-      {...props}
-      className={cn(
-        'flex min-h-[88px] w-full rounded-md border border-navy-200 bg-white px-3 py-2 text-sm text-navy-900 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-gold-400 dark:bg-navy-900 dark:border-navy-700 dark:text-navy-50',
-        props.className
-      )}
-    />
-  )
-}
+export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttributes<HTMLTextAreaElement>>(
+  function Textarea(props, ref) {
+    return (
+      <textarea
+        {...props}
+        ref={ref}
+        className={cn(
+          'flex min-h-[88px] w-full rounded-md border border-navy-200 bg-white px-3 py-2 text-sm text-navy-900 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-gold-400 dark:bg-navy-900 dark:border-navy-700 dark:text-navy-50',
+          props.className
+        )}
+      />
+    )
+  }
+)
 
 export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (

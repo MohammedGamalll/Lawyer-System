@@ -11,7 +11,7 @@ import { maskClientContactFields } from './clients'
 import { maskOpponentContactFields } from './people'
 import { clampPageSize, pageKind, pickSort, sqlDir, includeIds } from '../db/queryLimits'
 import { ftsQuery } from '../db/fts'
-import { arabicLike, foldedLikeTerm } from '@shared/arabic'
+import { arabicLike, arabicFold, foldedLikeTerm } from '@shared/arabic'
 
 function splitCourtQuery(raw: string): { number: string; year: string } {
   const t = String(raw ?? '').trim()
@@ -690,6 +690,15 @@ export function createCaseType(actor: AuthedUser, nameAr: string, nameEn?: strin
   return { id }
 }
 
+export function findOrCreateCaseType(actor: AuthedUser, nameAr: string) {
+  const name = String(nameAr || '').trim()
+  if (!name) throw new Error('اسم النوع مطلوب')
+  const rows = listCaseTypes() as { id: string; name_ar: string }[]
+  const hit = rows.find((r) => arabicFold(r.name_ar) === arabicFold(name))
+  if (hit) return { id: hit.id }
+  return createCaseType(actor, name)
+}
+
 export function updateCaseType(id: string, data: Record<string, unknown>) {
   getDb()
     .prepare('UPDATE case_types SET name_ar=?, name_en=?, is_active=?, updated_at=? WHERE id=?')
@@ -722,6 +731,7 @@ function rememberCaseLookups(data: Record<string, unknown>) {
   rememberLookup('police_station', data.police_station)
   rememberLookup('link_type', data.link_type)
   rememberLookup('case_status', data.status)
+  rememberLookup('venue', data.session_place)
 }
 
 const DUPLICATE_CASE_CODE = 'هذا الكود مستخدم من قبل، يرجى إدخال كود غير مكرر'
@@ -749,14 +759,22 @@ function bumpCaseSequenceIfNeeded(db: ReturnType<typeof getDb>, code: string) {
 }
 
 function assertUniqueProgramCode(db: ReturnType<typeof getDb>, code: string, excludeId?: string) {
+  if (isProgramCodeTaken(db, code, excludeId)) throw new Error(DUPLICATE_CASE_CODE)
+}
+
+export function checkProgramCode(code: string, excludeId?: string): { taken: boolean } {
+  return { taken: isProgramCodeTaken(getDb(), code, excludeId) }
+}
+
+function isProgramCodeTaken(db: ReturnType<typeof getDb>, code: string, excludeId?: string): boolean {
   const key = programCodeKey(code)
-  if (!key) throw new Error('أدخل كود القضية')
+  if (!key) return false
   const rows = (
     excludeId
       ? db.prepare(`SELECT id, case_number FROM cases WHERE ${notDeleted()} AND id != ?`).all(excludeId)
       : db.prepare(`SELECT id, case_number FROM cases WHERE ${notDeleted()}`).all()
   ) as { id: string; case_number: string }[]
-  if (rows.some((r) => programCodeKey(r.case_number) === key)) throw new Error(DUPLICATE_CASE_CODE)
+  return rows.some((r) => programCodeKey(r.case_number) === key)
 }
 
 export function allocateCaseNumber(

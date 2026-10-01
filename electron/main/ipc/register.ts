@@ -172,7 +172,14 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
     ok(await importer.commitImport(user!, 'cases', Buffer.from(buf as ArrayBuffer), Boolean(upd)))
   )
 
+  handle(ipc, IPC.cases.checkProgramCode, { permission: ['cases.create', 'cases.update'] }, (_e, _u, code, excludeId) =>
+    ok(cases.checkProgramCode(String(code ?? ''), excludeId ? String(excludeId) : undefined))
+  )
+
   handle(ipc, IPC.caseTypes.list, {}, () => ok(cases.listCaseTypes()))
+  handle(ipc, IPC.caseTypes.findOrCreate, { permission: ['cases.create', 'cases.update'], write: true }, (_e, user, name) =>
+    ok(cases.findOrCreateCaseType(user!, String(name)))
+  )
   handle(ipc, IPC.caseTypes.create, { permission: 'settings.manage', write: true }, (_e, user, name) => ok(cases.createCaseType(user!, String(name))))
   handle(ipc, IPC.caseTypes.update, { permission: 'settings.manage', write: true }, (_e, _u, id, data) => {
     cases.updateCaseType(String(id), data as never)

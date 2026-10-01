@@ -24,17 +24,26 @@ export function ExpertFormExtras({
         setField('client_name', String(row.client_name || ''))
         setField('opponent_name', String(row.opponent_name || opps[0]?.full_name || ''))
         setField('hearing_court', String(row.court || ''))
-        if (!String(form.venue || '') && row.court) setField('venue', String(row.court))
       })
       .catch(() => undefined)
   }, [form.case_id])
 
   return (
     <div className="mb-2 space-y-2">
-      {form.client_name || form.opponent_name ? (
+      {form.client_name || form.opponent_name || form.hearing_court ? (
         <div className="rounded-md border border-navy-100 px-2 py-1.5 text-sm dark:border-navy-700">
-          <span className="font-semibold">{t('fields.parties')}: </span>
-          {[form.client_name, form.opponent_name].filter(Boolean).join(' / ') || '—'}
+          {form.client_name || form.opponent_name ? (
+            <div>
+              <span className="font-semibold">{t('fields.parties')}: </span>
+              {[form.client_name, form.opponent_name].filter(Boolean).join(' / ') || '—'}
+            </div>
+          ) : null}
+          {form.hearing_court ? (
+            <div>
+              <span className="font-semibold">{t('fields.hearingCourt')}: </span>
+              {String(form.hearing_court)}
+            </div>
+          ) : null}
         </div>
       ) : null}
       <div className="flex flex-wrap items-end gap-2">

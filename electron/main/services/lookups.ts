@@ -2,6 +2,9 @@ import { getDb } from '../db/database'
 import { nowIso } from '../utils/time'
 import { newId, notDeleted } from '../db/ids'
 import { recordLocalChange } from '../sync/queue'
+import { stemLookupValue } from '@shared/hearingText'
+
+const STEM_KINDS = new Set(['hearing_decision', 'previous_decision', 'admin_action'])
 
 export function listLookups(kind: string): { value: string }[] {
   if (!kind) return []
@@ -13,7 +16,8 @@ export function listLookups(kind: string): { value: string }[] {
 }
 
 export function rememberLookup(kind: string, raw?: unknown): void {
-  const value = String(raw ?? '').trim()
+  const trimmed = String(raw ?? '').trim()
+  const value = STEM_KINDS.has(kind) ? stemLookupValue(trimmed) : trimmed
   if (!kind || !value) return
   const db = getDb()
   const row = db

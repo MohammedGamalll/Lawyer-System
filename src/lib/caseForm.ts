@@ -12,7 +12,7 @@ export function caseFormFields(t: (k: string) => string): FieldDef[] {
     f('court', { type: 'combo', comboKind: 'court' }),
     f('circuit', { size: 'sm' }),
     f('police_station', { type: 'combo', comboKind: 'police_station' }),
-    f('session_place', { size: 'sm' }),
+    f('session_place', { type: 'combo', comboKind: 'venue', size: 'sm' }),
     f('previous_circuit', { size: 'sm' }),
     f('first_instance_number', { size: 'sm' }),
     f('first_instance_year', { size: 'sm' }),

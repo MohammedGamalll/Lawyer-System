@@ -11,6 +11,7 @@ import { Button, Field, Input, Select, Textarea, Modal, PageHeader, PasswordInpu
 import { DatePicker, DateTimePicker, TimePicker } from './DateTimePicker'
 import { EntitySelect } from './EntitySelect'
 import { LookupCombo } from './LookupCombo'
+import { CaseTypeCombo } from './CaseTypeCombo'
 import { formatCell } from '../lib/datetime'
 import { formatProgramCode, isManualProgramCode } from '../lib/courtNumber'
 import { applyPrintColFilters, compactTableHtml, escPrint, printVal } from '../lib/printKit'
@@ -114,8 +115,17 @@ export function FormFields({
           <React.Fragment key={f.name}>
           <div className={full ? 'w-full basis-full' : 'max-w-full'} style={full ? undefined : { width: `${ch}ch` }}>
             <Field label={f.label} required={f.required} error={err} hint={f.hint}>
-              {f.type === 'textarea' ? (
+              {f.comboKind ? (
+                <LookupCombo
+                  kind={f.comboKind}
+                  value={String(val)}
+                  multiline={f.type === 'textarea'}
+                  onChange={(v) => onChange(f.name, v)}
+                />
+              ) : f.type === 'textarea' ? (
                 <Textarea {...reg} value={String(val)} onChange={(e) => { reg.onChange?.(e); onChange(f.name, e.target.value) }} />
+              ) : f.lookup === 'caseTypes' ? (
+                <CaseTypeCombo value={String(val)} onChange={(v) => onChange(f.name, v)} />
               ) : f.lookup ? (
                 <div className="flex items-center gap-2">
                   <div className="min-w-0 flex-1">
@@ -138,8 +148,6 @@ export function FormFields({
                     </Button>
                   ) : null}
                 </div>
-              ) : f.type === 'combo' && f.comboKind ? (
-                <LookupCombo kind={f.comboKind} value={String(val)} onChange={(v) => onChange(f.name, v)} />
               ) : f.type === 'select' ? (
                 <Select {...reg} value={String(val)} onChange={(e) => { reg.onChange?.(e); onChange(f.name, e.target.value) }}>
                   <option value="">—</option>
@@ -193,6 +201,7 @@ export type Column = {
   label: string
   status?: boolean
   money?: boolean
+  widthCh?: number
   render?: (row: Record<string, unknown>) => React.ReactNode
   onCellClick?: (row: Record<string, unknown>) => void
 }
@@ -578,13 +587,17 @@ export function CrudPage({
     return rows
   }, [data.rows, colFilters, sortKey, sortDir, i18n.language, t])
 
+  const colStyle = (c: Column): React.CSSProperties | undefined =>
+    c.widthCh ? { width: `${c.widthCh}ch`, maxWidth: `${c.widthCh}ch` } : undefined
+
   const rowCells = (row: Record<string, unknown>) => (
     <>
       {columns.map((c) => (
         <td
           key={c.key}
           title={c.render ? undefined : formatCell(c.key, row[c.key], i18n.language, t)}
-          className={`max-w-[18rem] whitespace-normal break-words px-2 py-1.5 text-start align-middle leading-relaxed text-navy-900 dark:text-white ${c.onCellClick ? 'cursor-pointer underline decoration-navy-300' : ''}`}
+          style={colStyle(c)}
+          className={`${c.widthCh ? 'truncate' : 'max-w-[18rem] whitespace-normal break-words'} px-2 py-1.5 text-start align-middle leading-relaxed text-navy-900 dark:text-white ${c.onCellClick ? 'cursor-pointer underline decoration-navy-300' : ''}`}
           onClick={(e) => {
             if (!c.onCellClick) return
             e.stopPropagation()
@@ -623,7 +636,11 @@ export function CrudPage({
     <>
       <tr>
         {columns.map((c) => (
-          <th key={c.key} className="max-w-[12rem] truncate px-2 py-1.5 text-start font-semibold">
+          <th
+            key={c.key}
+            style={colStyle(c)}
+            className={`${c.widthCh ? '' : 'max-w-[12rem]'} truncate px-2 py-1.5 text-start font-semibold`}
+          >
             <button type="button" className="inline-flex items-center gap-1" onClick={() => toggleSort(c.key)}>
               {c.label}
               <span className="text-[10px] opacity-80">

@@ -45,7 +45,8 @@ export const IPC = {
     restore: 'cases:restore',
     importPreview: 'cases:importPreview',
     importCommit: 'cases:importCommit',
-    importTemplate: 'cases:importTemplate'
+    importTemplate: 'cases:importTemplate',
+    checkProgramCode: 'cases:checkProgramCode'
   },
   hearings: {
     list: 'hearings:list',
@@ -75,7 +76,7 @@ export const IPC = {
     checkNationalId: 'opponents:checkNationalId',
     copyToClient: 'opponents:copyToClient'
   },
-  caseTypes: { list: 'caseTypes:list', create: 'caseTypes:create', update: 'caseTypes:update', remove: 'caseTypes:remove', reorder: 'caseTypes:reorder' },
+  caseTypes: { list: 'caseTypes:list', create: 'caseTypes:create', findOrCreate: 'caseTypes:findOrCreate', update: 'caseTypes:update', remove: 'caseTypes:remove', reorder: 'caseTypes:reorder' },
   tasks: { list: 'tasks:list', get: 'tasks:get', create: 'tasks:create', update: 'tasks:update', remove: 'tasks:remove' },
   reminders: { list: 'reminders:list', get: 'reminders:get', create: 'reminders:create', update: 'reminders:update', remove: 'reminders:remove', dismiss: 'reminders:dismiss' },
   appointments: { list: 'appointments:list', get: 'appointments:get', create: 'appointments:create', update: 'appointments:update', remove: 'appointments:remove' },

@@ -9,6 +9,7 @@ import { expertHearingSchema, parseSchema } from '@shared/schemas'
 import { rememberLookup } from './lookups'
 import { clampPageSize, pageKind, pickSort, sqlDir } from '../db/queryLimits'
 import { casePrintJoinSql, casePrintSelectSql, enrichPrintRow, enrichPrintRows } from './printCaseFields'
+import { parsePostponedDate } from '@shared/hearingText'
 
 export function listExpertHearings(query: ListQuery = {}) {
   const db = getDb()
@@ -144,14 +145,35 @@ export function createExpertHearing(actor: AuthedUser, data: Record<string, unkn
   )
   recordLocalChange('expert_hearings', id, 'INSERT')
   rememberLookup('venue', data.venue)
+  rememberLookup('hearing_decision', data.previous_action)
+  rememberLookup('hearing_decision', data.current_action)
+  const parsedNext = parsePostponedDate(
+    [data.current_action, data.notes].map((v) => String(v ?? '')).join(' '),
+    String(data.hearing_date)
+  )
+  let autoHearing = false
+  if (parsedNext && parsedNext !== String(data.hearing_date)) {
+    autoHearing = ensureNextExpertHearing(actor, caseId, parsedNext, {
+      hearing_time: data.hearing_time as string | undefined,
+      venue: (data.venue as string) || null,
+      expert_office: (data.expert_office as string) || null,
+      expert_name: (data.expert_name as string) || null,
+      floor: (data.floor as string) || null,
+      hall: (data.hall as string) || null,
+      lawyer_id: asIdOrNull(data.lawyer_id),
+      current_action: String(data.current_action ?? '')
+    })
+  }
   audit(actor, 'create', 'expert_hearings', id, `تم إنشاء جلسة خبير بتاريخ ${data.hearing_date}`)
-  return { id }
+  return { id, autoHearing }
 }
 
 export function updateExpertHearing(actor: AuthedUser, id: string, data: Record<string, unknown>) {
   data = parseSchema(expertHearingSchema, data) as Record<string, unknown>
   const db = getDb()
-  const old = db.prepare(`SELECT id FROM expert_hearings WHERE id = ? AND ${notDeleted()}`).get(id)
+  const old = db.prepare(`SELECT * FROM expert_hearings WHERE id = ? AND ${notDeleted()}`).get(id) as
+    | { id: string; case_id: string; hearing_date: string }
+    | undefined
   if (!old) throw new Error('جلسة الخبير غير موجودة')
   db.prepare(
     `UPDATE expert_hearings SET case_id=?, hearing_date=?, hearing_time=?, venue=?, expert_office=?, expert_name=?, floor=?, hall=?,
@@ -175,8 +197,62 @@ export function updateExpertHearing(actor: AuthedUser, id: string, data: Record<
   )
   recordLocalChange('expert_hearings', id, 'UPDATE')
   rememberLookup('venue', data.venue)
+  rememberLookup('hearing_decision', data.previous_action)
+  rememberLookup('hearing_decision', data.current_action)
+  const parsedNext = parsePostponedDate(
+    [data.current_action, data.notes].map((v) => String(v ?? '')).join(' '),
+    String(data.hearing_date || old.hearing_date)
+  )
+  let autoHearing = false
+  if (parsedNext && parsedNext !== String(data.hearing_date || old.hearing_date)) {
+    autoHearing = ensureNextExpertHearing(actor, String(data.case_id || old.case_id), parsedNext, {
+      hearing_time: data.hearing_time as string | undefined,
+      venue: (data.venue as string) || null,
+      expert_office: (data.expert_office as string) || null,
+      expert_name: (data.expert_name as string) || null,
+      floor: (data.floor as string) || null,
+      hall: (data.hall as string) || null,
+      lawyer_id: asIdOrNull(data.lawyer_id),
+      current_action: String(data.current_action ?? '')
+    })
+  }
   audit(actor, 'update', 'expert_hearings', id, `تم تعديل جلسة خبير رقم ${id}`)
-  return { id }
+  return { id, autoHearing }
+}
+
+function ensureNextExpertHearing(
+  actor: AuthedUser,
+  caseId: string,
+  nextDate: string,
+  old: {
+    hearing_time?: string
+    venue?: string | null
+    expert_office?: string | null
+    expert_name?: string | null
+    floor?: string | null
+    hall?: string | null
+    lawyer_id?: string | null
+    current_action?: string
+  }
+) {
+  const exists = getDb()
+    .prepare(`SELECT id FROM expert_hearings WHERE case_id = ? AND hearing_date = ? AND ${notDeleted()}`)
+    .get(caseId, nextDate) as { id: string } | undefined
+  if (exists) return false
+  createExpertHearing(actor, {
+    case_id: caseId,
+    hearing_date: nextDate,
+    hearing_time: old.hearing_time,
+    venue: old.venue,
+    expert_office: old.expert_office,
+    expert_name: old.expert_name,
+    floor: old.floor,
+    hall: old.hall,
+    lawyer_id: old.lawyer_id,
+    previous_action: old.current_action || undefined,
+    status: 'upcoming'
+  })
+  return true
 }
 
 export function removeExpertHearing(actor: AuthedUser, id: string) {
