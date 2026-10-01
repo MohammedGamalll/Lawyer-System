@@ -26,6 +26,7 @@ export type ListQuery = {
   lookup?: boolean
   includeIds?: string[]
   filters?: Record<string, string | number | boolean | null | undefined>
+  columnFilters?: Record<string, string | number | boolean | null | undefined>
 }
 
 export const CASE_STATUSES = [

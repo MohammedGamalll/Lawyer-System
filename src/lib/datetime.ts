@@ -1,4 +1,4 @@
-import { stripInternalPrefix } from './courtNumber'
+import { padProgramDigits, stripInternalPrefix } from './courtNumber'
 
 export const DATE_PICKER_MIN_YEAR = 1940
 export const DATE_PICKER_MAX_YEAR = 2050
@@ -166,7 +166,8 @@ export function isTimeKey(key: string) {
 
 export function formatCell(key: string, value: unknown, lang: string, translate: (k: string) => string): string {
   if (value === null || value === undefined || value === '') return '—'
-  if (key === 'case_number' || key === 'client_number' || key === 'program_code') return stripInternalPrefix(value) || '—'
+  if (key === 'case_number' || key === 'program_code') return padProgramDigits(value) || '—'
+  if (key === 'client_number') return stripInternalPrefix(value) || '—'
   if (key === 'file_name' || key === 'file' || key === 'original_name') return prettyFileName(String(value), lang)
   if (isDateTimeKey(key)) return formatDateTime(String(value), lang)
   if (isTimeKey(key) && !isDateKey(key)) return formatTime(String(value), lang)

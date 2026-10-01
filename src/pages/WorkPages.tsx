@@ -124,7 +124,8 @@ export function HearingsPage({ embeddedCaseId }: { embeddedCaseId?: string } = {
         {
           key: 'case_number',
           label: t('fields.program_code'),
-          widthCh: 8,
+          keepText: true,
+          widthCh: 12,
           render: (r: Record<string, unknown>) => (
             <span className={isManualProgramCode(r) ? 'font-bold text-red-600' : ''}>{formatProgramCode(r) || '—'}</span>
           ),
@@ -197,7 +198,8 @@ export function HearingsPage({ embeddedCaseId }: { embeddedCaseId?: string } = {
           page: 1,
           pageSize: 1000,
           print: true,
-          filters: listFilters
+          filters: listFilters,
+          columnFilters: ctx.colFilters
         })
         const fetched = res.rows || []
         const rows = applyPrintColFilters(fetched, ctx.colFilters, i18n.language, t)
@@ -279,7 +281,7 @@ export function TasksPage({
   const details = useRowDetails()
 
   return (
-    <div>
+    <div className="flex min-h-0 flex-1 flex-col">
       {!fromCase ? (
         <div className="mb-3 flex flex-wrap gap-2">
           {(['all', 'mine', 'overdue', 'today', 'upcoming', 'byLawyer'] as const).map((v) => (
@@ -337,6 +339,8 @@ export function TasksPage({
                 {
                   key: 'case_number',
                   label: t('fields.program_code'),
+                  keepText: true,
+                  widthCh: 12,
                   render: (r: Record<string, unknown>) => (
                     <span className={isManualProgramCode(r) ? 'font-bold text-red-600' : ''}>
                       {formatProgramCode(r) || '—'}
@@ -380,6 +384,8 @@ export function TasksPage({
                 {
                   key: 'case_number',
                   label: t('fields.program_code'),
+                  keepText: true,
+                  widthCh: 12,
                   render: (r: Record<string, unknown>) => (
                     <span className={isManualProgramCode(r) ? 'font-bold text-red-600' : ''}>
                       {formatProgramCode(r) || '—'}
@@ -436,7 +442,8 @@ export function TasksPage({
             page: 1,
             pageSize: 1000,
             print: true,
-            filters
+            filters,
+            columnFilters: ctx.colFilters
           })
           const fetched = res.rows || []
           const rows = applyPrintColFilters(fetched, ctx.colFilters, i18n.language, t)
@@ -511,6 +518,8 @@ export function ExpertsPage({ embeddedCaseId }: { embeddedCaseId?: string } = {}
         {
           key: 'case_number',
           label: t('fields.program_code'),
+          keepText: true,
+          widthCh: 12,
           render: (r: Record<string, unknown>) => (
             <span className={isManualProgramCode(r) ? 'font-bold text-red-600' : ''}>{formatProgramCode(r) || '—'}</span>
           ),
@@ -561,7 +570,8 @@ export function ExpertsPage({ embeddedCaseId }: { embeddedCaseId?: string } = {}
           page: 1,
           pageSize: 1000,
           print: true,
-          filters: listFilters
+          filters: listFilters,
+          columnFilters: ctx.colFilters
         })
         const fetched = res.rows || []
         const rows = applyPrintColFilters(fetched, ctx.colFilters, i18n.language, t)

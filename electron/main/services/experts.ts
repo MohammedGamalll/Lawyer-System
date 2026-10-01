@@ -7,7 +7,7 @@ import type { AuthedUser } from '../ipc/helpers'
 import type { ListQuery } from '@shared/types'
 import { expertHearingSchema, parseSchema } from '@shared/schemas'
 import { rememberLookup } from './lookups'
-import { clampPageSize, pageKind, pickSort, sqlDir } from '../db/queryLimits'
+import { clampPageSize, pageKind, applyColumnFilters, orderBySql, programCodeSortSql, courtNumberSortSql } from '../db/queryLimits'
 import { casePrintJoinSql, casePrintSelectSql, enrichPrintRow, enrichPrintRows } from './printCaseFields'
 import { parsePostponedDate } from '@shared/hearingText'
 
@@ -54,6 +54,21 @@ export function listExpertHearings(query: ListQuery = {}) {
     )`
     params.push(s, s, s, s, s, s)
   }
+  where = applyColumnFilters(where, params, query.columnFilters, {
+    case_number: 'cs.case_number',
+    office_case_number: `(IFNULL(cs.first_instance_number,'') || IFNULL(cs.office_case_number,'') || IFNULL(cs.appeal_number,'') || IFNULL(cs.cassation_number,''))`,
+    parties: `(IFNULL(cl.full_name,'') || IFNULL(cs.opponent_name,''))`,
+    status: 'e.status',
+    hearing_date: 'e.hearing_date',
+    hearing_time: 'e.hearing_time',
+    venue: 'e.venue',
+    expert_office: 'e.expert_office',
+    expert_name: 'e.expert_name',
+    floor: 'e.floor',
+    hall: 'e.hall',
+    previous_action: 'e.previous_action',
+    current_action: 'e.current_action'
+  })
   const total = (
     db
       .prepare(
@@ -64,19 +79,26 @@ export function listExpertHearings(query: ListQuery = {}) {
       )
       .get(...params) as { c: number }
   ).c
-  const order = pickSort(
+  const order = orderBySql(
     query.sortBy,
+    query.sortDir,
     {
+      case_number: programCodeSortSql('cs.case_number'),
+      office_case_number: courtNumberSortSql('cs'),
+      parties: `(IFNULL(cl.full_name,'') || IFNULL(cs.opponent_name,'')) COLLATE NOCASE`,
+      status: 'e.status',
       hearing_date: 'e.hearing_date',
-      expert_name: 'e.expert_name',
-      expert_office: 'e.expert_office',
-      venue: 'e.venue',
-      case_number: 'cs.case_number',
-      status: 'e.status'
+      hearing_time: 'e.hearing_time',
+      venue: 'e.venue COLLATE NOCASE',
+      expert_office: 'e.expert_office COLLATE NOCASE',
+      expert_name: 'e.expert_name COLLATE NOCASE',
+      floor: 'e.floor COLLATE NOCASE',
+      hall: 'e.hall COLLATE NOCASE',
+      previous_action: 'e.previous_action COLLATE NOCASE',
+      current_action: 'e.current_action COLLATE NOCASE'
     },
     'e.hearing_date DESC, e.hearing_time DESC'
   )
-  const dir = query.sortBy ? ` ${sqlDir(query.sortDir)}` : ''
   const rows = db
     .prepare(
       `SELECT e.id, e.case_id, e.hearing_date, e.hearing_time, e.venue, e.expert_office, e.expert_name, e.floor, e.hall,
@@ -88,7 +110,7 @@ export function listExpertHearings(query: ListQuery = {}) {
        ${casePrintJoinSql('e.case_id')}
        LEFT JOIN clients cl ON cl.id = cs.client_id AND ${notDeleted('cl')}
        LEFT JOIN lawyers l ON l.id = e.lawyer_id AND ${notDeleted('l')}
-       ${where} ORDER BY ${order}${dir} LIMIT ? OFFSET ?`
+       ${where} ORDER BY ${order} LIMIT ? OFFSET ?`
     )
     .all(...params, pageSize, (page - 1) * pageSize)
   return { rows: enrichPrintRows(rows), total, page, pageSize }

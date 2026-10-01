@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -16,7 +16,7 @@ import { formatCell } from '../lib/datetime'
 import { formatProgramCode, isManualProgramCode } from '../lib/courtNumber'
 import { applyPrintColFilters, compactTableHtml, escPrint, printVal } from '../lib/printKit'
 
-const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 500, 1000]
 
 function storedListPageSize(channel: string) {
   try {
@@ -202,6 +202,7 @@ export type Column = {
   status?: boolean
   money?: boolean
   widthCh?: number
+  keepText?: boolean
   render?: (row: Record<string, unknown>) => React.ReactNode
   onCellClick?: (row: Record<string, unknown>) => void
 }
@@ -296,7 +297,11 @@ export function CrudPage({
   const [sortKey, setSortKey] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [colFilters, setColFilters] = useState<Record<string, string>>({})
+  const debouncedColFilters = useDebouncedValue(colFilters, 300)
   const [listPageSize, setListPageSize] = useState(() => storedListPageSize(listChannel))
+  const tableWrapRef = useRef<HTMLDivElement>(null)
+  const [tableHeight, setTableHeight] = useState(embedded ? 360 : 520)
+  const skipFilterPageReset = useRef(true)
   const zodSchema = (editing ? updateSchema : createSchema) ?? schema ?? schemaFromFields(fields)
   const rhf = useForm<Record<string, unknown>>({ resolver: zodResolver(zodSchema as never), values: form, mode: 'onBlur' })
   const openRef = useRef(open)
@@ -311,12 +316,22 @@ export function CrudPage({
       return { ...prev, [n]: nextVal }
     })
   }
-  const hasListFilter = Object.values(listFilters || {}).some((v) => String(v ?? '').trim())
+  const columnFilters = useMemo(() => {
+    const out: Record<string, string> = {}
+    for (const [k, v] of Object.entries(debouncedColFilters)) {
+      const s = v.trim()
+      if (s) out[k] = s
+    }
+    return out
+  }, [debouncedColFilters])
+  const hasListFilter =
+    Object.values(listFilters || {}).some((v) => String(v ?? '').trim()) || Object.keys(columnFilters).length > 0
   const queryPayload = {
     page,
     pageSize: listPageSize,
     search: debouncedQ,
     filters: listFilters || {},
+    columnFilters,
     sortBy: sortKey || undefined,
     sortDir
   }
@@ -343,10 +358,11 @@ export function CrudPage({
     try {
       const res = await invoke<{ rows: Record<string, unknown>[]; total: number }> (listChannel, {
         page: 1,
-        pageSize: 500,
+        pageSize: 1000,
         print: true,
         search: debouncedQ,
         filters: listFilters || {},
+        columnFilters,
         sortBy: sortKey || undefined,
         sortDir
       })
@@ -370,9 +386,33 @@ export function CrudPage({
     }
   }
 
+  useLayoutEffect(() => {
+    if (embedded) {
+      setTableHeight(360)
+      return
+    }
+    const el = tableWrapRef.current
+    if (!el) return
+    const measure = () => {
+      const top = el.getBoundingClientRect().top
+      setTableHeight(Math.max(280, Math.floor(window.innerHeight - top - 64)))
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [embedded, extraActions, extraFilters, hideQuickSearch, title])
+
+  useEffect(() => {
+    if (skipFilterPageReset.current) {
+      skipFilterPageReset.current = false
+      return
+    }
+    setPage(1)
+  }, [JSON.stringify(columnFilters), sortKey, sortDir])
+
   useEffect(() => {
     load().catch((e) => toast(e.message, 'err'))
-  }, [page, debouncedQ, listChannel, JSON.stringify(listFilters), sortKey, sortDir, idleUntilSearch, listPageSize])
+  }, [page, debouncedQ, listChannel, JSON.stringify(listFilters), JSON.stringify(columnFilters), sortKey, sortDir, idleUntilSearch, listPageSize])
 
   useEffect(
     () =>
@@ -383,7 +423,7 @@ export function CrudPage({
         }
         load().catch(() => undefined)
       }, dataScope),
-    [listChannel, page, debouncedQ, JSON.stringify(listFilters), sortKey, sortDir, listPageSize, dataScope]
+    [listChannel, page, debouncedQ, JSON.stringify(listFilters), JSON.stringify(columnFilters), sortKey, sortDir, listPageSize, dataScope]
   )
 
   useEffect(() => {
@@ -562,33 +602,25 @@ export function CrudPage({
     }
   }
 
-  const displayRows = useMemo(() => {
-    let rows = [...data.rows]
-    for (const [k, v] of Object.entries(colFilters)) {
-      const s = v.trim().toLowerCase()
-      if (!s) continue
-      rows = rows.filter((r) => formatCell(k, r[k], i18n.language, t).toLowerCase().includes(s) || String(r[k] ?? '').toLowerCase().includes(s))
-    }
-    if (sortKey) {
-      rows.sort((a, b) => {
-        const av = a[sortKey]
-        const bv = b[sortKey]
-        const an = Number(av)
-        const bn = Number(bv)
-        let cmp = 0
-        if (av == null && bv == null) cmp = 0
-        else if (av == null) cmp = 1
-        else if (bv == null) cmp = -1
-        else if (!Number.isNaN(an) && !Number.isNaN(bn) && String(av) !== '' && String(bv) !== '') cmp = an - bn
-        else cmp = String(av).localeCompare(String(bv), i18n.language === 'en' ? 'en' : 'ar', { numeric: true })
-        return sortDir === 'asc' ? cmp : -cmp
-      })
-    }
-    return rows
-  }, [data.rows, colFilters, sortKey, sortDir, i18n.language, t])
+  const displayRows = data.rows
 
   const colStyle = (c: Column): React.CSSProperties | undefined =>
-    c.widthCh ? { width: `${c.widthCh}ch`, maxWidth: `${c.widthCh}ch` } : undefined
+    c.widthCh
+      ? {
+          width: `${c.widthCh}ch`,
+          minWidth: `${c.widthCh}ch`,
+          ...(c.keepText ? {} : { maxWidth: `${c.widthCh}ch` })
+        }
+      : undefined
+
+  const colGroup = (
+    <colgroup>
+      {columns.map((c) => (
+        <col key={c.key} style={colStyle(c)} />
+      ))}
+      <col style={{ width: '3.5rem' }} />
+    </colgroup>
+  )
 
   const rowCells = (row: Record<string, unknown>) => (
     <>
@@ -597,7 +629,7 @@ export function CrudPage({
           key={c.key}
           title={c.render ? undefined : formatCell(c.key, row[c.key], i18n.language, t)}
           style={colStyle(c)}
-          className={`${c.widthCh ? 'truncate' : 'max-w-[18rem] whitespace-normal break-words'} px-2 py-1.5 text-start align-middle leading-relaxed text-navy-900 dark:text-white ${c.onCellClick ? 'cursor-pointer underline decoration-navy-300' : ''}`}
+          className={`${c.keepText ? 'cell-keep' : 'truncate'} px-2 py-1.5 text-start align-middle leading-relaxed text-navy-900 dark:text-white ${c.onCellClick ? 'cursor-pointer underline decoration-navy-300' : ''}`}
           onClick={(e) => {
             if (!c.onCellClick) return
             e.stopPropagation()
@@ -639,7 +671,7 @@ export function CrudPage({
           <th
             key={c.key}
             style={colStyle(c)}
-            className={`${c.widthCh ? '' : 'max-w-[12rem]'} truncate px-2 py-1.5 text-start font-semibold`}
+            className={`${c.keepText ? 'cell-keep' : 'truncate'} px-2 py-1.5 text-start font-semibold`}
           >
             <button type="button" className="inline-flex items-center gap-1" onClick={() => toggleSort(c.key)}>
               {c.label}
@@ -651,18 +683,21 @@ export function CrudPage({
         ))}
         <th className="w-12 px-2 py-2 text-center">{t('actions')}</th>
       </tr>
-      <tr className="bg-navy-700">
+      <tr className="bg-navy-700 col-filter-row">
         {columns.map((c) => (
-          <th key={c.key} className="px-2 py-1.5">
+          <th key={c.key} className="col-filter px-2 py-1.5">
             <input
-              className="h-7 w-full rounded border-0 bg-white/95 px-2 text-xs font-normal text-navy-900 outline-none dark:bg-navy-800 dark:text-white"
+              className="h-7 w-full min-w-0 rounded border-0 bg-white/95 px-2 text-xs font-normal text-navy-900 outline-none dark:bg-navy-800 dark:text-white"
               placeholder={t('filter')}
               value={colFilters[c.key] || ''}
               onChange={(e) => setColFilters((prev) => ({ ...prev, [c.key]: e.target.value }))}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => e.stopPropagation()}
             />
           </th>
         ))}
-        <th />
+        <th className="col-filter" />
       </tr>
     </>
   )
@@ -676,7 +711,7 @@ export function CrudPage({
   }
 
   return (
-    <div>
+    <div className={embedded ? '' : 'flex min-h-0 flex-1 flex-col'}>
       {embedded ? (
         <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
           <Button type="button" variant="outline" disabled={printing} onClick={() => (onPrint ? onPrint({ colFilters }) : printList())}>
@@ -716,52 +751,49 @@ export function CrudPage({
         ) : null}
         {extraFilters}
       </div>
-      <div className="data-table-wrap overflow-y-auto overflow-x-auto rounded-xl border border-navy-100 bg-white dark:bg-navy-900 dark:border-navy-800">
-        {displayRows.length > 50 ? (
-          <TableVirtuoso
-            style={{ height: 520 }}
-            data={displayRows}
-            className="border-collapse text-sm"
-            fixedHeaderContent={() => headerRows}
-            itemContent={(_i, row) => rowCells(row)}
-            components={{
-              Table: (props) => <table {...props} className="border-collapse text-sm" />,
-              TableRow: (props) => {
-                const row = displayRows[props['data-index'] as number]
-                return (
-                  <tr
-                    {...props}
-                    className="cursor-pointer border-t border-navy-50 hover:bg-navy-50/60 dark:border-navy-800 dark:hover:bg-navy-800/60"
-                    onClick={(e) => row && onRowClick(e, row)}
-                  />
-                )
-              },
-              TableHead: (props) => <thead {...props} className="bg-navy-800 text-white" />
-            }}
-          />
-        ) : (
-        <table className="border-collapse text-sm">
-          <thead className="bg-navy-800 text-white">{headerRows}</thead>
-          <tbody>
-            {displayRows.length === 0 && (
-              <tr>
-                <td colSpan={columns.length + 1} className="px-3 py-10 text-center text-navy-400">
-                  {idleUntilSearch && !q.trim() && !hasListFilter ? emptyHint || t('cases.searchFirst') : t('noData')}
-                </td>
-              </tr>
-            )}
-            {displayRows.map((row) => (
-              <tr
-                key={String(row.id)}
-                className="cursor-pointer border-t border-navy-50 hover:bg-navy-50/60 dark:border-navy-800 dark:hover:bg-navy-800/60"
-                onClick={(e) => onRowClick(e, row)}
-              >
-                {rowCells(row)}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        )}
+      <div
+        ref={tableWrapRef}
+        className="data-table-wrap crud-table-fill flex flex-col overflow-hidden rounded-xl border border-navy-100 bg-white dark:bg-navy-900 dark:border-navy-800"
+        style={{ height: tableHeight }}
+      >
+        <div className="shrink-0">
+          <table className="w-full border-collapse text-sm">
+            {colGroup}
+            <thead className="bg-navy-800 text-white">{headerRows}</thead>
+          </table>
+        </div>
+        <div className="min-h-0 flex-1">
+          {displayRows.length === 0 ? (
+            <div className="px-3 py-10 text-center text-navy-400">
+              {idleUntilSearch && !q.trim() && !hasListFilter ? emptyHint || t('cases.searchFirst') : t('noData')}
+            </div>
+          ) : (
+            <TableVirtuoso
+              style={{ height: '100%' }}
+              data={displayRows}
+              className="border-collapse text-sm"
+              itemContent={(_i, row) => rowCells(row)}
+              components={{
+                Table: ({ children, ...props }) => (
+                  <table {...props} className="w-full border-collapse text-sm">
+                    {colGroup}
+                    {children}
+                  </table>
+                ),
+                TableRow: (props) => {
+                  const row = displayRows[props['data-index'] as number]
+                  return (
+                    <tr
+                      {...props}
+                      className="cursor-pointer border-t border-navy-50 hover:bg-navy-50/60 dark:border-navy-800 dark:hover:bg-navy-800/60"
+                      onClick={(e) => row && onRowClick(e, row)}
+                    />
+                  )
+                }
+              }}
+            />
+          )}
+        </div>
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm text-navy-600 dark:text-navy-200">
         <span>

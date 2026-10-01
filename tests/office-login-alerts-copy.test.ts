@@ -74,7 +74,7 @@ describe('alert visibility', () => {
     ).toBe(true)
   })
 
-  it('shows a past unfinished action on an open case', () => {
+  it('hides a past unfinished action once its date has passed', () => {
     expect(
       shouldShowWorkAlert({
         caseStatus: 'open',
@@ -82,13 +82,34 @@ describe('alert visibility', () => {
         actionDate: '2026-09-01',
         today: '2026-09-27'
       })
-    ).toBe(true)
+    ).toBe(false)
     expect(
       shouldShowWorkAlert({
         caseStatus: 'open',
         kind: 'task',
         actionDate: '2026-09-01',
         taskStatus: 'overdue',
+        today: '2026-09-27'
+      })
+    ).toBe(false)
+  })
+
+  it('still shows today’s hearing or task', () => {
+    expect(
+      shouldShowWorkAlert({
+        caseStatus: 'open',
+        kind: 'hearing',
+        actionDate: '2026-09-27',
+        hearingStatus: 'upcoming',
+        today: '2026-09-27'
+      })
+    ).toBe(true)
+    expect(
+      shouldShowWorkAlert({
+        caseStatus: 'open',
+        kind: 'task',
+        actionDate: '2026-09-27',
+        taskStatus: 'not_done',
         today: '2026-09-27'
       })
     ).toBe(true)

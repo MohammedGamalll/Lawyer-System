@@ -208,9 +208,15 @@ export function ClientsPage() {
 
 export function CasesPage() {
   const { t, i18n } = useTranslation()
-  const { setPage, toast, pageMeta } = useApp()
-  const [draft, setDraft] = useState({ office_case_number: '', program_code: '', client_name: '', opponent_name: '' })
-  const [applied, setApplied] = useState<Record<string, unknown>>(draft)
+  const { setPage, toast, pageMeta, can } = useApp()
+  const [draft, setDraft] = useState({
+    office_case_number: '',
+    program_code: '',
+    client_name: '',
+    opponent_name: '',
+    archive_scope: 'all'
+  })
+  const [applied, setApplied] = useState<Record<string, unknown>>({ archive_scope: 'all' })
   const [printOpen, setPrintOpen] = useState(false)
   const [printScope, setPrintScope] = useState<'filtered' | 'all' | 'upcoming'>('filtered')
   const [printColFilters, setPrintColFilters] = useState<Record<string, string>>({})
@@ -224,9 +230,13 @@ export function CasesPage() {
       if (pageMeta.status_in) next.status_in = String(pageMeta.status_in)
       if (pageMeta.status) next.status = String(pageMeta.status)
       if (pageMeta.status_not_in) next.status_not_in = String(pageMeta.status_not_in)
+      if (pageMeta.archive_scope) {
+        next.archive_scope = String(pageMeta.archive_scope)
+        setDraft((d) => ({ ...d, archive_scope: String(pageMeta.archive_scope) }))
+      }
       return next
     })
-  }, [pageMeta.status_in, pageMeta.status, pageMeta.status_not_in])
+  }, [pageMeta.status_in, pageMeta.status, pageMeta.status_not_in, pageMeta.archive_scope])
   const runSearch = () => {
     setApplied({
       ...draft,
@@ -287,12 +297,27 @@ export function CasesPage() {
           <Button type="button" onClick={runSearch}>
             {t('search')}
           </Button>
+          <Select
+            className="h-9 w-36"
+            value={String(draft.archive_scope || 'all')}
+            onChange={(e) => {
+              const archive_scope = e.target.value
+              setDraft({ ...draft, archive_scope })
+              setApplied((p) => ({ ...p, archive_scope }))
+            }}
+          >
+            <option value="all">{t('cases.scopeAll')}</option>
+            <option value="open">{t('cases.scopeOpen')}</option>
+            <option value="archived">{t('cases.scopeArchived')}</option>
+          </Select>
         </div>
       }
       columns={[
         {
           key: 'case_number',
           label: t('fields.program_code'),
+          keepText: true,
+          widthCh: 8,
           render: (r) => (
             <span className={isManualProgramCode(r) ? 'font-bold text-red-600' : ''}>{formatProgramCode(r)}</span>
           ),
@@ -337,6 +362,23 @@ export function CasesPage() {
       fields={caseFormFields(t)}
       onRowOpen={(r) => setPage('caseProfile', { id: r.id })}
       extraActions={<ImportButton kind="cases" />}
+      rowActions={(r, reload) =>
+        Number(r.is_archived) === 1 && can('archive.view') ? (
+          <Button
+            variant="ghost"
+            onClick={() =>
+              invoke('cases:restore', r.id)
+                .then(() => {
+                  toast(t('savedOk'))
+                  return reload()
+                })
+                .catch((e) => toast((e as Error).message, 'err'))
+            }
+          >
+            {t('restore')}
+          </Button>
+        ) : null
+      }
       onPrint={(ctx) => {
         setPrintColFilters(ctx.colFilters)
         setPrintOpen(true)
@@ -438,7 +480,11 @@ export function CasesPage() {
       onClose={() => setPrintOpen(false)}
       onConfirm={async (selected) => {
         const filters: Record<string, unknown> =
-          printScope === 'all' ? {} : printScope === 'upcoming' ? { upcoming: true } : { ...applied }
+          printScope === 'all'
+            ? { archive_scope: 'all' }
+            : printScope === 'upcoming'
+              ? { upcoming: true, archive_scope: applied.archive_scope || 'all' }
+              : { ...applied }
         if (printExtra.case_type && printExtra.case_type_id) filters.case_type_id = printExtra.case_type_id
         if (printExtra.title && printExtra.title_value.trim()) filters.title = printExtra.title_value.trim()
         if (printExtra.dates && printExtra.date_from) filters.date_from = printExtra.date_from
@@ -452,7 +498,8 @@ export function CasesPage() {
           page: 1,
           pageSize: 1000,
           print: true,
-          filters
+          filters,
+          columnFilters: printColFilters
         })
         const fetched = res.rows || []
         const rows = applyPrintColFilters(fetched, printColFilters, i18n.language, t)

@@ -8,6 +8,7 @@ import type { AuthedUser } from '../ipc/helpers'
 import type { ListQuery } from '@shared/types'
 import { paymentSchema, expenseSchema, invoiceSchema, caseDueSchema, parseSchema } from '@shared/schemas'
 import { rememberLookup } from './lookups'
+import { clampPageSize, pageKind, applyColumnFilters, orderBySql, programCodeSortSql } from '../db/queryLimits'
 
 function defaultCashboxId(): string {
   const row = getDb()
@@ -59,7 +60,7 @@ function touchCashbox(
 export function listPayments(q: ListQuery = {}) {
   const db = getDb()
   const page = q.page ?? 1
-  const pageSize = q.pageSize ?? 20
+  const pageSize = clampPageSize(q.pageSize, pageKind(q))
   const params: unknown[] = []
   let where = `WHERE ${notDeleted('p')}`
   if (q.search) {
@@ -75,6 +76,29 @@ export function listPayments(q: ListQuery = {}) {
     where += ' AND p.client_id = ?'
     params.push(q.filters.client_id)
   }
+  where = applyColumnFilters(where, params, q.columnFilters, {
+    payment_number: 'p.payment_number',
+    client_name: 'cl.full_name',
+    case_number: 'cs.case_number',
+    amount: 'p.amount',
+    payment_type: 'p.payment_type',
+    payment_method: 'p.payment_method',
+    payment_date: 'p.payment_date'
+  })
+  const order = orderBySql(
+    q.sortBy,
+    q.sortDir,
+    {
+      payment_number: programCodeSortSql('p.payment_number'),
+      client_name: 'cl.full_name COLLATE NOCASE',
+      case_number: programCodeSortSql('cs.case_number'),
+      amount: 'CAST(p.amount AS REAL)',
+      payment_type: 'p.payment_type COLLATE NOCASE',
+      payment_method: 'p.payment_method COLLATE NOCASE',
+      payment_date: 'p.payment_date'
+    },
+    'p.created_at DESC'
+  )
   const total = (
     db
       .prepare(
@@ -89,7 +113,7 @@ export function listPayments(q: ListQuery = {}) {
        LEFT JOIN clients cl ON cl.id = p.client_id AND ${notDeleted('cl')}
        LEFT JOIN cases cs ON cs.id = p.case_id AND ${notDeleted('cs')}
        LEFT JOIN cashboxes cb ON cb.id = p.cashbox_id AND ${notDeleted('cb')}
-       ${where} ORDER BY p.created_at DESC LIMIT ? OFFSET ?`
+       ${where} ORDER BY ${order} LIMIT ? OFFSET ?`
     )
     .all(...params, pageSize, (page - 1) * pageSize)
   return { rows, total, page, pageSize }
@@ -273,7 +297,7 @@ export function paymentBalance(clientId?: string, caseId?: string) {
 export function listExpenses(q: ListQuery = {}) {
   const db = getDb()
   const page = q.page ?? 1
-  const pageSize = q.pageSize ?? 20
+  const pageSize = clampPageSize(q.pageSize, pageKind(q))
   const params: unknown[] = []
   let where = `WHERE ${notDeleted('e')}`
   if (q.search) {
@@ -281,14 +305,41 @@ export function listExpenses(q: ListQuery = {}) {
     const s = `%${q.search}%`
     params.push(s, s)
   }
-  const total = (db.prepare(`SELECT COUNT(*) as c FROM expenses e ${where}`).get(...params) as { c: number }).c
+  where = applyColumnFilters(where, params, q.columnFilters, {
+    expense_number: 'e.expense_number',
+    category_name: 'cat.name_ar',
+    amount: 'e.amount',
+    expense_date: 'e.expense_date',
+    description: 'e.description'
+  })
+  const order = orderBySql(
+    q.sortBy,
+    q.sortDir,
+    {
+      expense_number: programCodeSortSql('e.expense_number'),
+      category_name: 'cat.name_ar COLLATE NOCASE',
+      amount: 'CAST(e.amount AS REAL)',
+      expense_date: 'e.expense_date',
+      description: 'e.description COLLATE NOCASE'
+    },
+    'e.created_at DESC'
+  )
+  const total = (
+    db
+      .prepare(
+        `SELECT COUNT(*) as c FROM expenses e
+         LEFT JOIN expense_categories cat ON cat.id = e.category_id AND ${notDeleted('cat')}
+         ${where}`
+      )
+      .get(...params) as { c: number }
+  ).c
   const rows = db
     .prepare(
       `SELECT e.*, cat.name_ar as category_name, cb.name as cashbox_name
        FROM expenses e
        LEFT JOIN expense_categories cat ON cat.id = e.category_id AND ${notDeleted('cat')}
        LEFT JOIN cashboxes cb ON cb.id = e.cashbox_id AND ${notDeleted('cb')}
-       ${where} ORDER BY e.created_at DESC LIMIT ? OFFSET ?`
+       ${where} ORDER BY ${order} LIMIT ? OFFSET ?`
     )
     .all(...params, pageSize, (page - 1) * pageSize)
   return { rows, total, page, pageSize }
@@ -356,7 +407,7 @@ export function expenseCategories() {
 export function listInvoices(q: ListQuery = {}) {
   const db = getDb()
   const page = q.page ?? 1
-  const pageSize = q.pageSize ?? 20
+  const pageSize = clampPageSize(q.pageSize, pageKind(q))
   const params: unknown[] = []
   let where = `WHERE ${notDeleted('i')}`
   if (q.search) {
@@ -364,10 +415,36 @@ export function listInvoices(q: ListQuery = {}) {
     const s = `%${q.search}%`
     params.push(s, s)
   }
+  where = applyColumnFilters(where, params, q.columnFilters, {
+    invoice_number: 'i.invoice_number',
+    client_name: 'cl.full_name',
+    case_number: 'cs.case_number',
+    total: 'i.total',
+    paid: 'i.paid',
+    status: 'i.status',
+    invoice_date: 'i.invoice_date'
+  })
+  const order = orderBySql(
+    q.sortBy,
+    q.sortDir,
+    {
+      invoice_number: programCodeSortSql('i.invoice_number'),
+      client_name: 'cl.full_name COLLATE NOCASE',
+      case_number: programCodeSortSql('cs.case_number'),
+      total: 'CAST(i.total AS REAL)',
+      paid: 'CAST(i.paid AS REAL)',
+      status: 'i.status',
+      invoice_date: 'i.invoice_date'
+    },
+    'i.created_at DESC'
+  )
   const total = (
     db
       .prepare(
-        `SELECT COUNT(*) as c FROM invoices i LEFT JOIN clients cl ON cl.id = i.client_id AND ${notDeleted('cl')} ${where}`
+        `SELECT COUNT(*) as c FROM invoices i
+         LEFT JOIN clients cl ON cl.id = i.client_id AND ${notDeleted('cl')}
+         LEFT JOIN cases cs ON cs.id = i.case_id AND ${notDeleted('cs')}
+         ${where}`
       )
       .get(...params) as { c: number }
   ).c
@@ -377,7 +454,7 @@ export function listInvoices(q: ListQuery = {}) {
        FROM invoices i
        LEFT JOIN clients cl ON cl.id = i.client_id AND ${notDeleted('cl')}
        LEFT JOIN cases cs ON cs.id = i.case_id AND ${notDeleted('cs')}
-       ${where} ORDER BY i.created_at DESC LIMIT ? OFFSET ?`
+       ${where} ORDER BY ${order} LIMIT ? OFFSET ?`
     )
     .all(...params, pageSize, (page - 1) * pageSize)
   return { rows, total, page, pageSize }

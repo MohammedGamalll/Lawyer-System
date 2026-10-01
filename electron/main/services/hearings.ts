@@ -9,7 +9,7 @@ import type { ListQuery } from '@shared/types'
 import { hearingSchema, parseSchema } from '@shared/schemas'
 import { rememberLookup } from './lookups'
 import { createTask } from './schedule'
-import { clampPageSize, pageKind, pickSort, sqlDir } from '../db/queryLimits'
+import { clampPageSize, pageKind, applyColumnFilters, orderBySql, programCodeSortSql, courtNumberSortSql } from '../db/queryLimits'
 import { casePrintJoinSql, casePrintSelectSql, enrichPrintRows } from './printCaseFields'
 import { parsePostponedDate } from '@shared/hearingText'
 import { isHearingDoneStatus } from './alertVisibility'
@@ -82,25 +82,53 @@ export function listHearings(query: ListQuery = {}, userId?: string) {
     where += ` AND (h.lawyer_id = ? OR h.lawyer_id IN (SELECT id FROM lawyers WHERE user_id = ? AND ${notDeleted()}))`
     params.push(userId, userId)
   }
+  where = applyColumnFilters(where, params, query.columnFilters, {
+    case_number: 'cs.case_number',
+    hearing_date: 'h.hearing_date',
+    hearing_court: `(IFNULL(cs.court,'') || IFNULL(cs.circuit,'') || IFNULL(h.venue,''))`,
+    court_numbers: `(IFNULL(cs.first_instance_number,'') || IFNULL(cs.office_case_number,'') || IFNULL(cs.appeal_number,'') || IFNULL(cs.cassation_number,'') || IFNULL(cs.case_year,''))`,
+    caseTypeAndSubject: `(IFNULL(ct.name_ar,'') || IFNULL(cs.title,'') || IFNULL(cs.category,''))`,
+    parties: `(IFNULL(cl.full_name,'') || IFNULL(cs.opponent_name,''))`,
+    previous_decision: 'h.previous_decision',
+    court_decision: 'h.court_decision',
+    status: 'h.status',
+    venue: 'h.venue',
+    hearing_type: 'h.hearing_type',
+    client_name: 'cl.full_name',
+    lawyer_name: 'l.full_name'
+  })
   const total = (
     db
       .prepare(
         `SELECT COUNT(*) as c FROM hearings h
          LEFT JOIN cases cs ON cs.id = h.case_id AND ${notDeleted('cs')}
+         LEFT JOIN case_types ct ON ct.id = cs.case_type_id AND ${notDeleted('ct')}
          LEFT JOIN clients cl ON cl.id = cs.client_id AND ${notDeleted('cl')}
+         LEFT JOIN lawyers l ON l.id = h.lawyer_id AND ${notDeleted('l')}
          ${where}`
       )
       .get(...params) as { c: number }
   ).c
-  const order = pickSort(query.sortBy, {
-    hearing_date: 'h.hearing_date',
-    hearing_type: 'h.hearing_type',
-    venue: 'h.venue',
-    status: 'h.status',
-    case_number: 'cs.case_number',
-    client_name: 'cl.full_name'
-  }, 'h.hearing_date DESC, h.hearing_time DESC')
-  const dir = query.sortBy ? ` ${sqlDir(query.sortDir)}` : ''
+  const order = orderBySql(
+    query.sortBy,
+    query.sortDir,
+    {
+      case_number: programCodeSortSql('cs.case_number'),
+      hearing_date: 'h.hearing_date',
+      hearing_court: `(IFNULL(cs.court,'') || IFNULL(cs.circuit,'') || IFNULL(h.venue,'')) COLLATE NOCASE`,
+      court_numbers: courtNumberSortSql('cs'),
+      caseTypeAndSubject: `(IFNULL(ct.name_ar,'') || IFNULL(cs.title,'') || IFNULL(cs.category,'')) COLLATE NOCASE`,
+      parties: `(IFNULL(cl.full_name,'') || IFNULL(cs.opponent_name,'')) COLLATE NOCASE`,
+      previous_decision: 'h.previous_decision COLLATE NOCASE',
+      court_decision: 'h.court_decision COLLATE NOCASE',
+      hearing_type: 'h.hearing_type COLLATE NOCASE',
+      venue: 'h.venue COLLATE NOCASE',
+      status: 'h.status',
+      client_name: 'cl.full_name COLLATE NOCASE',
+      lawyer_name: 'l.full_name COLLATE NOCASE'
+    },
+    'h.hearing_date DESC, h.hearing_time DESC'
+  )
   const rows = db
     .prepare(
       `SELECT h.id, h.case_id, h.hearing_date, h.hearing_time, h.hearing_type,
@@ -143,7 +171,7 @@ export function listHearings(query: ListQuery = {}, userId?: string) {
        ${casePrintJoinSql('h.case_id')}
        LEFT JOIN clients cl ON cl.id = cs.client_id AND ${notDeleted('cl')}
        LEFT JOIN lawyers l ON l.id = h.lawyer_id AND ${notDeleted('l')}
-       ${where} ORDER BY ${order}${dir} LIMIT ? OFFSET ?`
+       ${where} ORDER BY ${order} LIMIT ? OFFSET ?`
     )
     .all(...params, pageSize, (page - 1) * pageSize)
   return { rows: enrichPrintRows(rows), total, page, pageSize }

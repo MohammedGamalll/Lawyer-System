@@ -9,7 +9,7 @@ import type { AuthedUser } from '../ipc/helpers'
 import type { ListQuery } from '@shared/types'
 import { PERMISSIONS, ROLE_PERMISSIONS } from '@shared/permissions'
 import { userCreateSchema, userUpdateSchema, parseSchema } from '@shared/schemas'
-import { clampPageSize, pageKind } from '../db/queryLimits'
+import { clampPageSize, pageKind, applyColumnFilters, orderBySql } from '../db/queryLimits'
 
 export function listActiveUsernames(): { username: string; full_name: string }[] {
   return getDb()
@@ -32,7 +32,32 @@ export function listUsers(query: ListQuery = {}, actor?: AuthedUser | null) {
     const s = `%${query.search}%`
     params.push(s, s, s)
   }
-  const total = (db.prepare(`SELECT COUNT(*) as c FROM users u ${where}`).get(...params) as { c: number }).c
+  where = applyColumnFilters(where, params, query.columnFilters, {
+    username: 'u.username',
+    full_name: 'u.full_name',
+    role_name: `COALESCE(r.name_ar, '')`,
+    is_active: 'u.is_active',
+    last_login_at: 'u.last_login_at'
+  })
+  const order = orderBySql(
+    query.sortBy,
+    query.sortDir,
+    {
+      username: 'u.username COLLATE NOCASE',
+      full_name: 'u.full_name COLLATE NOCASE',
+      role_name: `COALESCE(r.name_ar, '') COLLATE NOCASE`,
+      is_active: 'u.is_active',
+      last_login_at: 'u.last_login_at'
+    },
+    'u.created_at DESC'
+  )
+  const total = (
+    db
+      .prepare(
+        `SELECT COUNT(*) as c FROM users u LEFT JOIN roles r ON r.id = u.role_id AND ${notDeleted('r')} ${where}`
+      )
+      .get(...params) as { c: number }
+  ).c
   const canReveal = Boolean(actor && actor.roleCode === 'admin')
   const rows = db
     .prepare(
@@ -43,7 +68,7 @@ export function listUsers(query: ListQuery = {}, actor?: AuthedUser | null) {
        FROM users u LEFT JOIN roles r ON r.id = u.role_id AND ${notDeleted('r')}
        LEFT JOIN lawyers lw ON lw.user_id = u.id AND ${notDeleted('lw')}
        LEFT JOIN employees em ON em.user_id = u.id AND ${notDeleted('em')}
-       ${where} ORDER BY u.created_at DESC LIMIT ? OFFSET ?`
+       ${where} ORDER BY ${order} LIMIT ? OFFSET ?`
     )
     .all(...params, pageSize, (page - 1) * pageSize)
   const safe =

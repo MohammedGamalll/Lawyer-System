@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { courtParts, formatCourtNumber, degreeNumberLines } from '../src/lib/courtNumber'
+import { courtParts, formatCourtNumber, formatProgramCode, degreeNumberLines, padProgramDigits } from '../src/lib/courtNumber'
 import { formattedCourtNumber } from '../shared/printLabels'
 import { rtlIsolatedPair } from '../shared/rtlBidi'
 
@@ -80,5 +80,30 @@ describe('court number order', () => {
     expect(lines[0].value).toContain('627')
     expect(lines[1].value).toContain('80')
     expect(lines[2].value).toContain('12')
+  })
+
+  it('falls back to appeal then cassation when first instance is empty', () => {
+    expect(
+      formatCourtNumber({
+        appeal_number: '80',
+        appeal_year: '1995',
+        cassation_number: '12',
+        cassation_year: '1996'
+      })
+    ).toBe('\u200F80 / 1995\u200F')
+    expect(
+      formatCourtNumber({
+        cassation_number: '12',
+        cassation_year: '1996'
+      })
+    ).toBe('\u200F12 / 1996\u200F')
+  })
+
+  it('pads program codes to 5 digits without rewriting CS- storage', () => {
+    expect(formatProgramCode({ case_number: '2' })).toBe('00002')
+    expect(formatProgramCode({ case_number: '0001' })).toBe('00001')
+    expect(formatProgramCode({ case_number: 'CS-2' })).toBe('00002')
+    expect(formatProgramCode({ case_number: 'CS-02334' })).toBe('02334')
+    expect(padProgramDigits('10')).toBe('00010')
   })
 })

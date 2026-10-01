@@ -19,8 +19,8 @@ const PAGE_SIZE = 100
 
 export function ArchivePage() {
   const { t } = useTranslation()
-  const { toast } = useApp()
-  const [archived, setArchived] = useState<{ id: string; case_number: string; title: string }[]>([])
+  const { toast, setPage: go } = useApp()
+  const [archivedTotal, setArchivedTotal] = useState(0)
   const [tabs, setTabs] = useState<TabsResult>({ tables: [], missing: false })
   const [table, setTable] = useState('')
   const [q, setQ] = useState('')
@@ -30,8 +30,8 @@ export function ArchivePage() {
   const [loading, setLoading] = useState(false)
 
   const loadArchived = () =>
-    invoke<{ rows: { id: string; case_number: string; title: string }[] }>('cases:list', { pageSize: 50, archived: 1 })
-      .then((r) => setArchived(r.rows || []))
+    invoke<{ total: number }>('cases:list', { pageSize: 1, archived: 1 })
+      .then((r) => setArchivedTotal(r.total || 0))
       .catch((e) => toast((e as Error).message, 'err'))
 
   useEffect(() => {
@@ -71,26 +71,17 @@ export function ArchivePage() {
 
       <Card>
         <h3 className="mb-3 font-bold">{t('archivePage.appArchived')}</h3>
-        {archived.length === 0 ? (
+        {archivedTotal === 0 ? (
           <p className="text-sm text-navy-500">{t('archivePage.noAppArchived')}</p>
         ) : (
-          archived.map((r) => (
-            <div key={r.id} className="flex items-center justify-between border-b py-2">
-              <div>
-                {r.case_number} — {r.title}
-              </div>
-              <Button
-                variant="outline"
-                onClick={async () => {
-                  await invoke('cases:restore', r.id)
-                  toast(t('savedOk'))
-                  loadArchived()
-                }}
-              >
-                {t('restore')}
-              </Button>
-            </div>
-          ))
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-navy-700 dark:text-navy-100">
+              {t('archivePage.appArchivedCount', { count: archivedTotal })}
+            </p>
+            <Button variant="outline" onClick={() => go('cases', { archive_scope: 'archived' })}>
+              {t('archivePage.openInCases')}
+            </Button>
+          </div>
         )}
       </Card>
 

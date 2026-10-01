@@ -129,11 +129,12 @@ label {
 .data-table-wrap {
   overflow-x: auto;
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .data-table-wrap table {
-  table-layout: auto;
-  width: max-content;
+  table-layout: fixed;
+  width: 100%;
   min-width: 100%;
   border-collapse: collapse;
 }
@@ -141,16 +142,29 @@ label {
 .data-table-wrap th {
   white-space: nowrap;
   vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.data-table-wrap th.col-filter {
+  overflow: visible;
+  text-overflow: unset;
 }
 
 .data-table-wrap td {
-  white-space: normal;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  max-width: 22rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
+  word-break: normal;
+  max-width: none;
+  vertical-align: middle;
+}
+
+.data-table-wrap td.cell-keep,
+.data-table-wrap th.cell-keep {
   overflow: visible;
   text-overflow: unset;
-  vertical-align: top;
 }
 
 .court-number {

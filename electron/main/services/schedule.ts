@@ -8,7 +8,7 @@ import type { AuthedUser } from '../ipc/helpers'
 import type { ListQuery } from '@shared/types'
 import { parseSchema, reminderSchema, taskSchema } from '@shared/schemas'
 import { rememberLookup } from './lookups'
-import { clampPageSize, pageKind, pickSort, sqlDir } from '../db/queryLimits'
+import { clampPageSize, pageKind, applyColumnFilters, orderBySql, programCodeSortSql, courtNumberSortSql } from '../db/queryLimits'
 import { casePrintJoinSql, casePrintSelectSql, enrichPrintRows } from './printCaseFields'
 import { notificationIsVisible } from './alertVisibility'
 
@@ -83,19 +83,60 @@ export function listTasks(query: ListQuery = {}, userId?: string) {
     where += ' AND t.title LIKE ?'
     params.push(`%${query.search}%`)
   }
-  const total = (db.prepare(`SELECT COUNT(*) as c FROM tasks t ${where}`).get(...params) as { c: number }).c
-  const order = pickSort(query.sortBy, {
+  where = applyColumnFilters(where, params, query.columnFilters, {
     title: 't.title',
     due_date: 't.due_date',
     status: 't.status',
     venue: 't.venue',
     case_number: 'cs.case_number',
-    office_case_number: 'cs.office_case_number',
+    office_case_number: `(IFNULL(cs.first_instance_number,'') || IFNULL(cs.office_case_number,'') || IFNULL(cs.appeal_number,'') || IFNULL(cs.cassation_number,''))`,
     description: 't.description',
     notes: 't.notes',
-    assignee_name: 'u.full_name'
-  }, 't.due_date IS NULL, t.due_date ASC')
-  const dir = query.sortBy ? ` ${sqlDir(query.sortDir)}` : ''
+    assignee_name: 'u.full_name',
+    client_name: 'COALESCE(cl.full_name, c2.full_name)',
+    required_action: 't.description',
+    parties: `(IFNULL(COALESCE(cl.full_name, c2.full_name),'') || IFNULL(cs.opponent_name,''))`,
+    opponent_name: 'cs.opponent_name',
+    execution_kind: 't.execution_kind',
+    police_station: 't.police_station',
+    hasr: `(IFNULL(t.police_report_kind,'') || IFNULL(t.police_report_no,''))`
+  })
+  const total = (
+    db
+      .prepare(
+        `SELECT COUNT(*) as c FROM tasks t
+         LEFT JOIN users u ON u.id = t.assignee_id AND ${notDeleted('u')}
+         ${casePrintJoinSql('t.case_id')}
+         LEFT JOIN hearings h ON h.id = t.hearing_id AND ${notDeleted('h')}
+         LEFT JOIN clients cl ON cl.id = t.client_id AND ${notDeleted('cl')}
+         LEFT JOIN clients c2 ON c2.id = cs.client_id AND ${notDeleted('c2')}
+         ${where}`
+      )
+      .get(...params) as { c: number }
+  ).c
+  const order = orderBySql(
+    query.sortBy,
+    query.sortDir,
+    {
+      title: 't.title COLLATE NOCASE',
+      due_date: 't.due_date',
+      status: 't.status',
+      venue: 't.venue COLLATE NOCASE',
+      case_number: programCodeSortSql('cs.case_number'),
+      office_case_number: courtNumberSortSql('cs'),
+      description: 't.description COLLATE NOCASE',
+      notes: 't.notes COLLATE NOCASE',
+      assignee_name: 'u.full_name COLLATE NOCASE',
+      client_name: 'COALESCE(cl.full_name, c2.full_name) COLLATE NOCASE',
+      required_action: 't.description COLLATE NOCASE',
+      parties: `(IFNULL(COALESCE(cl.full_name, c2.full_name),'') || IFNULL(cs.opponent_name,'')) COLLATE NOCASE`,
+      opponent_name: 'cs.opponent_name COLLATE NOCASE',
+      execution_kind: 't.execution_kind COLLATE NOCASE',
+      police_station: 't.police_station COLLATE NOCASE',
+      hasr: `(IFNULL(t.police_report_kind,'') || IFNULL(t.police_report_no,'')) COLLATE NOCASE`
+    },
+    't.due_date IS NULL, t.due_date ASC'
+  )
   const rows = db
     .prepare(
       `SELECT t.id, t.title, t.description as required_action, t.description, t.venue, t.notes,
@@ -114,7 +155,7 @@ export function listTasks(query: ListQuery = {}, userId?: string) {
        LEFT JOIN hearings h ON h.id = t.hearing_id AND ${notDeleted('h')}
        LEFT JOIN clients cl ON cl.id = t.client_id AND ${notDeleted('cl')}
        LEFT JOIN clients c2 ON c2.id = cs.client_id AND ${notDeleted('c2')}
-       ${where} ORDER BY ${order}${dir} LIMIT ? OFFSET ?`
+       ${where} ORDER BY ${order} LIMIT ? OFFSET ?`
     )
     .all(...params, pageSize, (page - 1) * pageSize)
   return { rows: enrichPrintRows(rows), total, page, pageSize }
@@ -285,7 +326,34 @@ export function listReminders(query: ListQuery = {}) {
     where += ' AND r.reminder_type = ?'
     params.push(query.filters.reminder_type)
   }
-  const total = (db.prepare(`SELECT COUNT(*) as c FROM reminders r ${where}`).get(...params) as { c: number }).c
+  where = applyColumnFilters(where, params, query.columnFilters, {
+    title: 'r.title',
+    reminder_type: 'r.reminder_type',
+    remind_at: 'r.remind_at',
+    priority: 'r.priority',
+    assignee_name: 'u.full_name'
+  })
+  const order = orderBySql(
+    query.sortBy,
+    query.sortDir,
+    {
+      title: 'r.title COLLATE NOCASE',
+      reminder_type: 'r.reminder_type COLLATE NOCASE',
+      remind_at: 'r.remind_at',
+      priority: 'r.priority',
+      assignee_name: 'u.full_name COLLATE NOCASE'
+    },
+    'r.remind_at ASC'
+  )
+  const total = (
+    db
+      .prepare(
+        `SELECT COUNT(*) as c FROM reminders r
+         LEFT JOIN users u ON u.id = r.assignee_id AND ${notDeleted('u')}
+         ${where}`
+      )
+      .get(...params) as { c: number }
+  ).c
   const rows = db
     .prepare(
       `SELECT r.*, u.full_name as assignee_name, cs.case_number, cl.full_name as client_name
@@ -293,7 +361,7 @@ export function listReminders(query: ListQuery = {}) {
        LEFT JOIN users u ON u.id = r.assignee_id AND ${notDeleted('u')}
        LEFT JOIN cases cs ON cs.id = r.case_id AND ${notDeleted('cs')}
        LEFT JOIN clients cl ON cl.id = r.client_id AND ${notDeleted('cl')}
-       ${where} ORDER BY r.remind_at ASC LIMIT ? OFFSET ?`
+       ${where} ORDER BY ${order} LIMIT ? OFFSET ?`
     )
     .all(...params, pageSize, (page - 1) * pageSize)
   return { rows, total, page, pageSize }
@@ -368,7 +436,7 @@ export function removeReminder(actor: AuthedUser, id: string) {
 export function listAppointments(query: ListQuery = {}) {
   const db = getDb()
   const page = query.page ?? 1
-  const pageSize = query.pageSize ?? 50
+  const pageSize = clampPageSize(query.pageSize, pageKind(query))
   const params: unknown[] = []
   let where = `WHERE ${notDeleted('a')}`
   if (query.search) {
@@ -385,6 +453,27 @@ export function listAppointments(query: ListQuery = {}) {
     where += ' AND a.status = ?'
     params.push(af.status)
   }
+  where = applyColumnFilters(where, params, query.columnFilters, {
+    title: 'a.title',
+    appointment_type: 'a.appointment_type',
+    client_name: 'cl.full_name',
+    date: 'a.date',
+    time: 'a.time',
+    status: 'a.status'
+  })
+  const order = orderBySql(
+    query.sortBy,
+    query.sortDir,
+    {
+      title: 'a.title COLLATE NOCASE',
+      appointment_type: 'a.appointment_type COLLATE NOCASE',
+      client_name: 'cl.full_name COLLATE NOCASE',
+      date: 'a.date',
+      time: 'a.time',
+      status: 'a.status'
+    },
+    'a.date DESC, a.time DESC'
+  )
   const total = (
     db
       .prepare(
@@ -398,7 +487,7 @@ export function listAppointments(query: ListQuery = {}) {
        FROM appointments a
        LEFT JOIN clients cl ON cl.id = a.client_id AND ${notDeleted('cl')}
        LEFT JOIN lawyers l ON l.id = a.lawyer_id AND ${notDeleted('l')}
-       ${where} ORDER BY a.date DESC, a.time DESC LIMIT ? OFFSET ?`
+       ${where} ORDER BY ${order} LIMIT ? OFFSET ?`
     )
     .all(...params, pageSize, (page - 1) * pageSize)
   return { rows, total, page, pageSize }

@@ -51,8 +51,9 @@ export function shouldShowWorkAlert(input: {
     const st = String(input.hearingStatus || '').trim()
     if (action < input.today || st === 'postponed' || st === 'cancelled') return false
   }
-  const upcoming = (next && next >= input.today) || (action && action >= input.today)
-  if (upcoming) return true
+  const stillOpen = (next && next >= input.today) || (action && action >= input.today)
+  if (stillOpen) return true
+  if (action && action < input.today && !(next && next >= input.today)) return false
   if (isInactiveCaseForAlerts(input.caseStatus, input.caseArchived)) return false
   if (!action && !next) return true
   if (input.kind === 'task') {
@@ -93,8 +94,9 @@ export function notificationIsVisible(row: Record<string, unknown>, today: strin
     })
   }
   if (kind === 'reminder' || kind === 'case') {
-    if (!isInactiveCaseForAlerts(row.case_status, row.case_archived)) return true
     const date = dayOf(row.reminder_at)
+    if (date && date < today) return false
+    if (!isInactiveCaseForAlerts(row.case_status, row.case_archived)) return true
     return Boolean(date && date >= today)
   }
   return true

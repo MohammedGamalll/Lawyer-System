@@ -1,12 +1,21 @@
 import { rtlIsolatedPair, stripBidiMarks } from '@shared/rtlBidi'
 
+export const PROGRAM_CODE_PAD = 5
+
 export function stripInternalPrefix(code: unknown) {
   return String(code ?? '').replace(/^(CS|CL)-/i, '')
 }
 
+export function padProgramDigits(raw: unknown): string {
+  const t = stripInternalPrefix(raw).trim()
+  if (!t) return ''
+  if (/^\d+$/.test(t)) return t.padStart(PROGRAM_CODE_PAD, '0')
+  return t
+}
+
 export function displayCaseCode(row: Record<string, unknown> | unknown) {
   if (row && typeof row === 'object') return formatProgramCode(row as Record<string, unknown>)
-  return stripInternalPrefix(row) || '—'
+  return padProgramDigits(row) || '—'
 }
 
 export function displayClientCode(code: unknown) {
@@ -86,10 +95,14 @@ function pairFromNumberYear(number: string, year: string) {
 export function formatCourtNumber(row: Record<string, unknown>) {
   const firstNum = stripBidiMarks(row.first_instance_number ?? row.first_degree_number)
   const firstYear = stripBidiMarks(row.first_instance_year)
-  if (firstNum || firstYear) return pairFromNumberYear(firstNum, firstYear) || '—'
+  if (firstNum) return pairFromNumberYear(firstNum, firstYear) || '—'
   const office = stripBidiMarks(row.office_case_number)
-  const year = firstYear || stripBidiMarks(row.case_year)
+  const year = stripBidiMarks(row.case_year) || firstYear
   if (office) return pairFromNumberYear(office, year) || '—'
+  const appeal = pairFromNumberYear(stripBidiMarks(row.appeal_number), stripBidiMarks(row.appeal_year))
+  if (appeal) return appeal
+  const cass = pairFromNumberYear(stripBidiMarks(row.cassation_number), stripBidiMarks(row.cassation_year))
+  if (cass) return cass
   return '—'
 }
 
@@ -117,9 +130,9 @@ export function formatPoliceStation(s: unknown): string {
 
 export function formatProgramCode(row: Record<string, unknown>) {
   const cn = String(row.case_number ?? '')
-  if (/^CS-/i.test(cn)) return stripInternalPrefix(cn)
+  if (/^CS-/i.test(cn)) return padProgramDigits(cn)
   const internal = String(row.internal_file_number ?? '').trim()
-  return stripInternalPrefix(internal || cn)
+  return padProgramDigits(internal || cn)
 }
 
 export function degreeNumberLines(

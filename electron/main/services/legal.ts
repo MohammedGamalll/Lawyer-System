@@ -6,7 +6,7 @@ import { recordLocalChange, softDelete } from '../sync/queue'
 import { createReminder, reminderBeforeExpiry } from './reminders'
 import type { AuthedUser } from '../ipc/helpers'
 import type { ListQuery } from '@shared/types'
-import { clampPageSize, pageKind } from '../db/queryLimits'
+import { clampPageSize, pageKind, applyColumnFilters, orderBySql, programCodeSortSql } from '../db/queryLimits'
 import { rememberLookup } from './lookups'
 import { arabicLike, foldedLikeTerm } from '@shared/arabic'
 
@@ -21,6 +21,27 @@ export function listPoa(q: ListQuery = {}) {
     const s = foldedLikeTerm(q.search)
     params.push(s, s, s)
   }
+  where = applyColumnFilters(where, params, q.columnFilters, {
+    poa_number: 'p.poa_number',
+    poa_type: 'p.poa_type',
+    client_name: 'cl.full_name',
+    expiry_date: 'p.expiry_date',
+    status: 'p.status',
+    document_id: 'p.document_id'
+  })
+  const order = orderBySql(
+    q.sortBy,
+    q.sortDir,
+    {
+      poa_number: programCodeSortSql('p.poa_number'),
+      poa_type: 'p.poa_type COLLATE NOCASE',
+      client_name: 'cl.full_name COLLATE NOCASE',
+      expiry_date: 'p.expiry_date',
+      status: 'p.status',
+      document_id: 'p.document_id'
+    },
+    'p.created_at DESC'
+  )
   const total = (
     db.prepare(`SELECT COUNT(*) as c FROM power_of_attorney p LEFT JOIN clients cl ON cl.id = p.client_id AND ${notDeleted('cl')} ${where}`).get(
       ...params
@@ -41,7 +62,7 @@ export function listPoa(q: ListQuery = {}) {
        FROM power_of_attorney p
        LEFT JOIN clients cl ON cl.id = p.client_id AND ${notDeleted('cl')}
        LEFT JOIN lawyers l ON l.id = p.lawyer_id AND ${notDeleted('l')}
-       ${where} ORDER BY p.created_at DESC LIMIT ? OFFSET ?`
+       ${where} ORDER BY ${order} LIMIT ? OFFSET ?`
     )
     .all(...params, pageSize, (page - 1) * pageSize)
   return { rows, total, page, pageSize }
@@ -155,6 +176,27 @@ export function listContracts(q: ListQuery = {}) {
     const s = `%${q.search}%`
     params.push(s, s, s)
   }
+  where = applyColumnFilters(where, params, q.columnFilters, {
+    contract_number: 'c.contract_number',
+    title: 'c.title',
+    client_name: 'cl.full_name',
+    end_date: 'c.end_date',
+    value: 'c.value',
+    status: 'c.status'
+  })
+  const order = orderBySql(
+    q.sortBy,
+    q.sortDir,
+    {
+      contract_number: programCodeSortSql('c.contract_number'),
+      title: 'c.title COLLATE NOCASE',
+      client_name: 'cl.full_name COLLATE NOCASE',
+      end_date: 'c.end_date',
+      value: 'CAST(c.value AS REAL)',
+      status: 'c.status'
+    },
+    'c.created_at DESC'
+  )
   const total = (
     db.prepare(`SELECT COUNT(*) as c FROM contracts c LEFT JOIN clients cl ON cl.id = c.client_id AND ${notDeleted('cl')} ${where}`).get(
       ...params
@@ -166,7 +208,7 @@ export function listContracts(q: ListQuery = {}) {
        FROM contracts c
        LEFT JOIN clients cl ON cl.id = c.client_id AND ${notDeleted('cl')}
        LEFT JOIN lawyers l ON l.id = c.lawyer_id AND ${notDeleted('l')}
-       ${where} ORDER BY c.created_at DESC LIMIT ? OFFSET ?`
+       ${where} ORDER BY ${order} LIMIT ? OFFSET ?`
     )
     .all(...params, pageSize, (page - 1) * pageSize)
   return { rows, total, page, pageSize }
@@ -253,6 +295,25 @@ export function listConsultations(q: ListQuery = {}) {
     const s = `%${q.search}%`
     params.push(s, s)
   }
+  where = applyColumnFilters(where, params, q.columnFilters, {
+    subject: 'c.subject',
+    client_name: 'cl.full_name',
+    consultation_date: 'c.consultation_date',
+    fees: 'c.fees',
+    payment_status: 'c.payment_status'
+  })
+  const order = orderBySql(
+    q.sortBy,
+    q.sortDir,
+    {
+      subject: 'c.subject COLLATE NOCASE',
+      client_name: 'cl.full_name COLLATE NOCASE',
+      consultation_date: 'c.consultation_date',
+      fees: 'CAST(c.fees AS REAL)',
+      payment_status: 'c.payment_status'
+    },
+    'c.created_at DESC'
+  )
   const total = (
     db.prepare(`SELECT COUNT(*) as c FROM consultations c LEFT JOIN clients cl ON cl.id = c.client_id AND ${notDeleted('cl')} ${where}`).get(
       ...params
@@ -264,7 +325,7 @@ export function listConsultations(q: ListQuery = {}) {
        FROM consultations c
        LEFT JOIN clients cl ON cl.id = c.client_id AND ${notDeleted('cl')}
        LEFT JOIN lawyers l ON l.id = c.lawyer_id AND ${notDeleted('l')}
-       ${where} ORDER BY c.created_at DESC LIMIT ? OFFSET ?`
+       ${where} ORDER BY ${order} LIMIT ? OFFSET ?`
     )
     .all(...params, pageSize, (page - 1) * pageSize)
   return { rows, total, page, pageSize }
@@ -340,12 +401,31 @@ export function listCorrespondence(q: ListQuery = {}) {
     where += ' AND c.direction = ?'
     params.push(q.filters.direction)
   }
+  where = applyColumnFilters(where, params, q.columnFilters, {
+    correspondence_number: 'c.correspondence_number',
+    direction: 'c.direction',
+    date: 'c.date',
+    party: 'c.party',
+    subject: 'c.subject'
+  })
+  const order = orderBySql(
+    q.sortBy,
+    q.sortDir,
+    {
+      correspondence_number: programCodeSortSql('c.correspondence_number'),
+      direction: 'c.direction',
+      date: 'c.date',
+      party: 'c.party COLLATE NOCASE',
+      subject: 'c.subject COLLATE NOCASE'
+    },
+    'c.created_at DESC'
+  )
   const total = (db.prepare(`SELECT COUNT(*) as c FROM correspondence c ${where}`).get(...params) as { c: number }).c
   const rows = db
     .prepare(
       `SELECT c.*, u.full_name as responsible_name FROM correspondence c
        LEFT JOIN users u ON u.id = c.responsible_user_id AND ${notDeleted('u')}
-       ${where} ORDER BY c.created_at DESC LIMIT ? OFFSET ?`
+       ${where} ORDER BY ${order} LIMIT ? OFFSET ?`
     )
     .all(...params, pageSize, (page - 1) * pageSize)
   return { rows, total, page, pageSize }

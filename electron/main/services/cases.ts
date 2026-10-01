@@ -9,7 +9,7 @@ import { caseSchema, parseSchema } from '@shared/schemas'
 import { rememberLookup } from './lookups'
 import { maskClientContactFields } from './clients'
 import { maskOpponentContactFields } from './people'
-import { clampPageSize, pageKind, pickSort, sqlDir, includeIds } from '../db/queryLimits'
+import { clampPageSize, pageKind, includeIds, applyColumnFilters, orderBySql, programCodeSortSql, courtNumberSortSql } from '../db/queryLimits'
 import { ftsQuery } from '../db/fts'
 import { arabicLike, arabicFold, foldedLikeTerm } from '@shared/arabic'
 
@@ -67,52 +67,108 @@ function applyNameAnd(
   return where
 }
 
-export function listCases(query: ListQuery = {}, archived = 0) {
+function applyProgramCodeFilter(where: string, params: unknown[], raw: string): string {
+  const t = String(raw || '').trim()
+  if (!t) return where
+  const digits = t.replace(/\D/g, '')
+  where += ' AND (c.case_number LIKE ? OR IFNULL(c.internal_file_number, \'\') LIKE ?'
+  params.push(`%${t}%`, `%${t}%`)
+  if (digits) {
+    where += ` OR CAST(REPLACE(REPLACE(c.case_number, 'CS-', ''), 'cs-', '') AS INTEGER) = ?`
+    params.push(Number(digits))
+  }
+  where += ')'
+  return where
+}
+
+function applyCourtNumberFilter(where: string, params: unknown[], raw: string): string {
+  const courtQ = splitCourtQuery(raw)
+  if (!courtQ.number) return where
+  if (courtQ.year) {
+    where += ` AND (
+      (IFNULL(c.first_instance_number,'') LIKE ? AND IFNULL(c.first_instance_year,'') LIKE ?)
+      OR (IFNULL(c.office_case_number,'') LIKE ? AND IFNULL(c.case_year,'') LIKE ?)
+      OR (IFNULL(c.appeal_number,'') LIKE ? AND IFNULL(c.appeal_year,'') LIKE ?)
+      OR (IFNULL(c.cassation_number,'') LIKE ? AND IFNULL(c.cassation_year,'') LIKE ?)
+    )`
+    const n = `%${courtQ.number}%`
+    const y = `%${courtQ.year}%`
+    params.push(n, y, n, y, n, y, n, y)
+  } else {
+    where += ` AND (
+      IFNULL(c.first_instance_number,'') LIKE ?
+      OR IFNULL(c.office_case_number,'') LIKE ?
+      OR IFNULL(c.appeal_number,'') LIKE ?
+      OR IFNULL(c.cassation_number,'') LIKE ?
+      OR IFNULL(c.case_number,'') LIKE ?
+    )`
+    const s = `%${courtQ.number}%`
+    params.push(s, s, s, s, s)
+  }
+  return where
+}
+
+const CASE_LIST_SELECT = `c.id, c.case_number, c.office_case_number, c.case_year, c.internal_file_number,
+              c.first_instance_number, c.first_instance_year, c.appeal_number, c.appeal_year,
+              c.cassation_number, c.cassation_year, c.is_archived,
+              c.title, c.category, c.status, c.court, c.circuit,
+              c.session_place, c.filing_date, c.received_date, c.client_id, c.opponent_name, c.primary_lawyer_id, c.case_type_id,
+              cl.full_name as client_name, cl.client_number, ct.name_ar as case_type_name, l.full_name as lawyer_name`
+
+export function listCases(query: ListQuery = {}, archived: number | 'all' = 0) {
   const db = getDb()
   const page = query.page ?? 1
   const pageSize = clampPageSize(query.pageSize, pageKind(query))
-  const params: unknown[] = [archived]
-  let where = `WHERE c.is_archived = ? AND ${notDeleted('c')} AND ${notDeleted('cl')}`
+  const f = query.filters ?? {}
+  const params: unknown[] = []
+  const scope = String(f.archive_scope ?? '')
+  let archivedSql = ''
+  if (scope === 'all' || archived === 'all') {
+    archivedSql = ''
+  } else if (scope === 'archived' || archived === 1) {
+    archivedSql = 'c.is_archived = 1 AND '
+  } else {
+    archivedSql = 'c.is_archived = 0 AND '
+  }
+  let where = `WHERE ${archivedSql}${notDeleted('c')} AND ${notDeleted('cl')}`
   const fts = ftsQuery(String(query.search || ''))
-  if (query.search && fts) {
+  const courtFromSearch = query.search ? splitCourtQuery(String(query.search)) : { number: '', year: '' }
+  if (query.search && fts && !courtFromSearch.year) {
     where += ` AND c.rowid IN (SELECT rowid FROM cases_fts WHERE cases_fts MATCH ?)`
     params.push(fts)
-  } else if (query.search) {
-    where += ` AND (${arabicLike('c.title')} OR c.case_number LIKE ? OR c.office_case_number LIKE ? OR c.case_year LIKE ? OR c.first_instance_number LIKE ? OR c.first_instance_year LIKE ? OR c.internal_file_number LIKE ? OR ${arabicLike('cl.full_name')} OR ${arabicLike('c.category')} OR ${arabicLike('c.opponent_name')})`
+  } else if (query.search && !courtFromSearch.year) {
+    where += ` AND (${arabicLike('c.title')} OR c.case_number LIKE ? OR c.office_case_number LIKE ? OR c.case_year LIKE ? OR c.first_instance_number LIKE ? OR c.first_instance_year LIKE ? OR c.appeal_number LIKE ? OR c.appeal_year LIKE ? OR c.cassation_number LIKE ? OR c.cassation_year LIKE ? OR c.internal_file_number LIKE ? OR ${arabicLike('cl.full_name')} OR ${arabicLike('c.category')} OR ${arabicLike('c.opponent_name')})`
     const s = foldedLikeTerm(query.search)
-    params.push(s, s, s, s, s, s, s, s, s, s)
+    params.push(s, s, s, s, s, s, s, s, s, s, s, s, s, s)
   }
-  const f = query.filters ?? {}
-  const courtQ = splitCourtQuery(String(f.office_case_number ?? query.search ?? ''))
-  if (f.office_case_number) {
-    if (courtQ.year) {
-      where +=
-        ' AND ((c.first_instance_number LIKE ? AND c.first_instance_year LIKE ?) OR (c.office_case_number LIKE ? AND c.case_year LIKE ?))'
-      params.push(`%${courtQ.number}%`, `%${courtQ.year}%`, `%${courtQ.number}%`, `%${courtQ.year}%`)
-    } else {
-      where += ' AND (c.first_instance_number LIKE ? OR c.office_case_number LIKE ? OR c.case_number LIKE ?)'
-      const s = `%${courtQ.number}%`
-      params.push(s, s, s)
-    }
-  } else if (query.search && courtQ.year) {
-    where +=
-      ' AND ((c.first_instance_number LIKE ? AND c.first_instance_year LIKE ?) OR (c.office_case_number LIKE ? AND c.case_year LIKE ?))'
-    params.push(`%${courtQ.number}%`, `%${courtQ.year}%`, `%${courtQ.number}%`, `%${courtQ.year}%`)
+  const courtRaw = String(f.office_case_number ?? '')
+  if (courtRaw) {
+    where = applyCourtNumberFilter(where, params, courtRaw)
+  } else if (query.search) {
+    const courtQ = splitCourtQuery(String(query.search))
+    if (courtQ.year) where = applyCourtNumberFilter(where, params, String(query.search))
   }
-  if (f.program_code) {
-    const raw = String(f.program_code).trim()
-    const digits = raw.replace(/\D/g, '')
-    where += ' AND (c.case_number LIKE ? OR c.internal_file_number LIKE ?'
-    params.push(`%${raw}%`, `%${raw}%`)
-    if (digits) {
-      where += ' OR CAST(REPLACE(c.case_number, \'CS-\', \'\') AS INTEGER) = ?'
-      params.push(Number(digits))
-    }
-    where += ')'
-  }
+  if (f.program_code) where = applyProgramCodeFilter(where, params, String(f.program_code))
   const parties = parsePartyFilters(String(f.client_name ?? ''), String(f.opponent_name ?? ''))
   where = applyNameAnd(where, params, parties.client, 'client')
   where = applyNameAnd(where, params, parties.opponent, 'opponent')
+  const cols = query.columnFilters ?? {}
+  if (cols.office_case_number) where = applyCourtNumberFilter(where, params, String(cols.office_case_number))
+  if (cols.case_number) where = applyProgramCodeFilter(where, params, String(cols.case_number))
+  if (cols.client_name) {
+    where = applyNameAnd(where, params, parsePartyFilters(String(cols.client_name), '').client, 'client')
+  }
+  if (cols.opponent_name) {
+    where = applyNameAnd(where, params, parsePartyFilters('', String(cols.opponent_name)).opponent, 'opponent')
+  }
+  where = applyColumnFilters(where, params, cols, {
+    title: 'c.title',
+    lawyer_name: 'l.full_name',
+    case_type_name: 'ct.name_ar',
+    status: 'c.status',
+    category: 'c.category',
+    court: 'c.court'
+  }, ['office_case_number', 'case_number', 'client_name', 'opponent_name'])
   if (f.status_in) {
     const parts = String(f.status_in)
       .split(',')
@@ -172,21 +228,31 @@ export function listCases(query: ListQuery = {}, archived = 0) {
   const isLookup = pageKind(query) === 'lookup'
   const pinIds = includeIds(query)
   const total = (
-    db.prepare(`SELECT COUNT(*) as c FROM cases c JOIN clients cl ON cl.id = c.client_id ${where}`).get(...params) as {
-      c: number
-    }
+    db
+      .prepare(
+        `SELECT COUNT(*) as c FROM cases c
+         JOIN clients cl ON cl.id = c.client_id
+         LEFT JOIN case_types ct ON ct.id = c.case_type_id AND ${notDeleted('ct')}
+         LEFT JOIN lawyers l ON l.id = c.primary_lawyer_id AND ${notDeleted('l')}
+         ${where}`
+      )
+      .get(...params) as { c: number }
   ).c
-  const order = pickSort(query.sortBy, {
-    case_number: 'c.case_number',
-    office_case_number: 'c.office_case_number',
-    title: 'c.title',
-    status: 'c.status',
-    client_name: 'cl.full_name',
-    opponent_name: 'c.opponent_name',
-    lawyer_name: 'l.full_name',
-    case_type_name: 'ct.name_ar'
-  }, 'IFNULL(c.filing_date, IFNULL(c.received_date, c.created_at)) ASC, c.created_at ASC')
-  const dir = query.sortBy ? ` ${sqlDir(query.sortDir)}` : ''
+  const order = orderBySql(
+    query.sortBy,
+    query.sortDir,
+    {
+      case_number: programCodeSortSql('c.case_number'),
+      office_case_number: courtNumberSortSql('c'),
+      title: 'c.title COLLATE NOCASE',
+      status: 'c.status',
+      client_name: 'cl.full_name COLLATE NOCASE',
+      opponent_name: 'c.opponent_name COLLATE NOCASE',
+      lawyer_name: 'l.full_name COLLATE NOCASE',
+      case_type_name: 'ct.name_ar COLLATE NOCASE'
+    },
+    'IFNULL(c.filing_date, IFNULL(c.received_date, c.created_at)) ASC, c.created_at ASC'
+  )
   const extraSelect = isLookup
     ? `'' as extra_client_names, '' as opponent_names`
     : `(SELECT GROUP_CONCAT(clx.full_name, '، ') FROM case_clients x JOIN clients clx ON clx.id = x.client_id
@@ -195,16 +261,13 @@ export function listCases(query: ListQuery = {}, archived = 0) {
                 WHERE xo.case_id = c.id AND ${notDeleted('xo')} AND ${notDeleted('ox')}) as opponent_names`
   const rows = db
     .prepare(
-      `SELECT c.id, c.case_number, c.office_case_number, c.case_year, c.first_instance_number, c.first_instance_year,
-              c.title, c.category, c.status, c.court, c.circuit,
-              c.session_place, c.filing_date, c.received_date, c.client_id, c.opponent_name, c.primary_lawyer_id, c.case_type_id,
-              cl.full_name as client_name, cl.client_number, ct.name_ar as case_type_name, l.full_name as lawyer_name,
+      `SELECT ${CASE_LIST_SELECT},
               ${extraSelect}
        FROM cases c
        JOIN clients cl ON cl.id = c.client_id
        LEFT JOIN case_types ct ON ct.id = c.case_type_id AND ${notDeleted('ct')}
        LEFT JOIN lawyers l ON l.id = c.primary_lawyer_id AND ${notDeleted('l')}
-       ${where} ORDER BY ${order}${dir} LIMIT ? OFFSET ?`
+       ${where} ORDER BY ${order} LIMIT ? OFFSET ?`
     )
     .all(...params, pageSize, (page - 1) * pageSize) as Record<string, unknown>[]
   if (pinIds.length) {
@@ -213,10 +276,7 @@ export function listCases(query: ListQuery = {}, archived = 0) {
     if (missing.length) {
       const extra = db
         .prepare(
-          `SELECT c.id, c.case_number, c.office_case_number, c.case_year, c.first_instance_number, c.first_instance_year,
-                  c.title, c.category, c.status, c.court, c.circuit,
-                  c.session_place, c.filing_date, c.received_date, c.client_id, c.opponent_name, c.primary_lawyer_id, c.case_type_id,
-                  cl.full_name as client_name, cl.client_number, ct.name_ar as case_type_name, l.full_name as lawyer_name,
+          `SELECT ${CASE_LIST_SELECT},
                   ${extraSelect}
            FROM cases c
            JOIN clients cl ON cl.id = c.client_id

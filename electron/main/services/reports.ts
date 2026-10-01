@@ -7,6 +7,8 @@ import { hasAnyPermission } from '../ipc/session'
 import { maskClientContactFields } from './clients'
 import { ftsQuery } from '../db/fts'
 import { arabicLike, foldedLikeTerm } from '@shared/arabic'
+import type { ListQuery } from '@shared/types'
+import { clampPageSize, pageKind, applyColumnFilters, orderBySql } from '../db/queryLimits'
 import { listHearings } from './hearings'
 import { listTasks } from './schedule'
 
@@ -628,10 +630,10 @@ export function searchLegacyArchive(term: string) {
   return { cases, indexes, rows }
 }
 
-export function listAudit(q: { page?: number; pageSize?: number; search?: string }) {
+export function listAudit(q: ListQuery = {}) {
   const db = getDb()
   const page = q.page ?? 1
-  const pageSize = q.pageSize ?? 50
+  const pageSize = clampPageSize(q.pageSize, pageKind(q))
   const params: unknown[] = []
   let where = `WHERE ${notDeleted()}`
   if (q.search) {
@@ -639,9 +641,28 @@ export function listAudit(q: { page?: number; pageSize?: number; search?: string
     const s = `%${q.search}%`
     params.push(s, s, s)
   }
+  where = applyColumnFilters(where, params, q.columnFilters, {
+    created_at: 'created_at',
+    username: 'username',
+    action: 'action',
+    entity_type: 'entity_type',
+    description: 'description'
+  })
+  const order = orderBySql(
+    q.sortBy,
+    q.sortDir,
+    {
+      created_at: 'created_at',
+      username: 'username COLLATE NOCASE',
+      action: 'action COLLATE NOCASE',
+      entity_type: 'entity_type COLLATE NOCASE',
+      description: 'description COLLATE NOCASE'
+    },
+    'created_at DESC'
+  )
   const total = (db.prepare(`SELECT COUNT(*) as c FROM audit_logs ${where}`).get(...params) as { c: number }).c
   const rows = db
-    .prepare(`SELECT * FROM audit_logs ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
+    .prepare(`SELECT * FROM audit_logs ${where} ORDER BY ${order} LIMIT ? OFFSET ?`)
     .all(...params, pageSize, (page - 1) * pageSize)
   return { rows, total, page, pageSize }
 }

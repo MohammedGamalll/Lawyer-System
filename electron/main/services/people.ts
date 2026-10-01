@@ -2,7 +2,7 @@ import { getDb } from '../db/database'
 import { nowIso } from '../utils/time'
 import { audit } from './audit'
 import { newId, asId, asIdOrNull, notDeleted } from '../db/ids'
-import { clampPageSize, pageKind, includeIds } from '../db/queryLimits'
+import { clampPageSize, pageKind, includeIds, applyColumnFilters, orderBySql } from '../db/queryLimits'
 import { recordLocalChange, softDelete } from '../sync/queue'
 import { destroySessionsForUser } from '../ipc/session'
 import { rememberLookup } from './lookups'
@@ -65,10 +65,18 @@ function paged(table: string, searchCols: string[], query: ListQuery, extraWhere
     const s = `%${query.search}%`
     searchCols.forEach(() => params.push(s))
   }
+  const colMap: Record<string, string> = {}
+  const sortMap: Record<string, string> = {}
+  for (const c of searchCols) {
+    colMap[c] = c
+    sortMap[c] = `${c} COLLATE NOCASE`
+  }
+  where = applyColumnFilters(where, params, query.columnFilters, colMap)
   const pinIds = includeIds(query)
+  const order = orderBySql(query.sortBy, query.sortDir, sortMap, 'created_at DESC')
   const total = (db.prepare(`SELECT COUNT(*) as c FROM ${table} ${where}`).get(...params) as { c: number }).c
   const rows = db
-    .prepare(`SELECT * FROM ${table} ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
+    .prepare(`SELECT * FROM ${table} ${where} ORDER BY ${order} LIMIT ? OFFSET ?`)
     .all(...params, pageSize, (page - 1) * pageSize) as Record<string, unknown>[]
   if (pinIds.length) {
     const have = new Set(rows.map((r) => String(r.id)))
@@ -96,6 +104,27 @@ export function listLawyers(q: ListQuery = {}) {
     const s = `%${q.search}%`
     params.push(s, s, s, s, s)
   }
+  where = applyColumnFilters(where, params, q.columnFilters, {
+    full_name: 'l.full_name',
+    bar_number: 'l.bar_number',
+    bar_degree: 'l.bar_degree',
+    duties: 'l.duties',
+    phone: 'l.phone',
+    status: 'l.status'
+  })
+  const order = orderBySql(
+    q.sortBy,
+    q.sortDir,
+    {
+      full_name: 'l.full_name COLLATE NOCASE',
+      bar_number: 'l.bar_number COLLATE NOCASE',
+      bar_degree: 'l.bar_degree COLLATE NOCASE',
+      duties: 'l.duties COLLATE NOCASE',
+      phone: 'l.phone',
+      status: 'l.status'
+    },
+    'IFNULL(l.sort_order, 0) ASC, l.full_name COLLATE NOCASE ASC'
+  )
   const total = (db.prepare(`SELECT COUNT(*) as c FROM lawyers l ${where}`).get(...params) as { c: number }).c
   const rows = db
     .prepare(
@@ -103,7 +132,7 @@ export function listLawyers(q: ListQuery = {}) {
        FROM lawyers l
        LEFT JOIN users u ON u.id = l.user_id AND ${notDeleted('u')}
        LEFT JOIN employees e ON e.user_id = l.user_id AND ${notDeleted('e')}
-       ${where} ORDER BY IFNULL(l.sort_order, 0) ASC, l.full_name COLLATE NOCASE ASC LIMIT ? OFFSET ?`
+       ${where} ORDER BY ${order} LIMIT ? OFFSET ?`
     )
     .all(...params, pageSize, (page - 1) * pageSize)
   return { rows, total, page, pageSize }
@@ -611,7 +640,35 @@ export function listEmployees(q: ListQuery = {}) {
     const s = `%${q.search}%`
     params.push(s, s, s)
   }
-  const total = (db.prepare(`SELECT COUNT(*) as c FROM employees e ${where}`).get(...params) as { c: number }).c
+  where = applyColumnFilters(where, params, q.columnFilters, {
+    full_name: 'e.full_name',
+    role_name: `COALESCE(r.name_ar,'')`,
+    job_title: 'e.job_title',
+    phone: 'e.phone',
+    status: 'e.status'
+  })
+  const order = orderBySql(
+    q.sortBy,
+    q.sortDir,
+    {
+      full_name: 'e.full_name COLLATE NOCASE',
+      role_name: `COALESCE(r.name_ar,'') COLLATE NOCASE`,
+      job_title: 'e.job_title COLLATE NOCASE',
+      phone: 'e.phone',
+      status: 'e.status'
+    },
+    'e.created_at DESC'
+  )
+  const total = (
+    db
+      .prepare(
+        `SELECT COUNT(*) as c FROM employees e
+         LEFT JOIN users u ON u.id = e.user_id AND ${notDeleted('u')}
+         LEFT JOIN roles r ON r.id = u.role_id AND ${notDeleted('r')}
+         ${where}`
+      )
+      .get(...params) as { c: number }
+  ).c
   const rows = db
     .prepare(
       `SELECT e.*, l.id as lawyer_id, u.username, u.role_id, r.code as role_code, COALESCE(r.name_ar,'') as role_name
@@ -619,7 +676,7 @@ export function listEmployees(q: ListQuery = {}) {
        LEFT JOIN users u ON u.id = e.user_id AND ${notDeleted('u')}
        LEFT JOIN roles r ON r.id = u.role_id AND ${notDeleted('r')}
        LEFT JOIN lawyers l ON l.user_id = e.user_id AND ${notDeleted('l')}
-       ${where} ORDER BY e.created_at DESC LIMIT ? OFFSET ?`
+       ${where} ORDER BY ${order} LIMIT ? OFFSET ?`
     )
     .all(...params, pageSize, (page - 1) * pageSize)
   return { rows, total, page, pageSize }
@@ -876,7 +933,7 @@ export function addLeave(actor: AuthedUser, data: Record<string, unknown>) {
 export function listOpponents(q: ListQuery = {}, actor?: AuthedUser | null) {
   const result = paged(
     'opponents',
-    ['full_name', 'nickname', 'national_id', 'phone', 'lawyer_name', 'poa_number', 'poa_year', 'poa_letter', 'poa_office'],
+    ['full_name', 'nickname', 'national_id', 'phone', 'lawyer_name', 'lawyer_phone', 'poa_number', 'poa_year', 'poa_letter', 'poa_office'],
     q
   )
   return { ...result, rows: maskOpponentContactFields(result.rows, actor) }

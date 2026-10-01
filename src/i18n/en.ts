@@ -513,7 +513,10 @@ const en = {
   cases: {
     searchFirst:
       'Search by a distinctive name or case number. Fill client and opponent together to narrow with AND. Press Search again to open the next case by filing date.',
-    searchCourtHint: 'Court number or \u200F4523 / 2025\u200F'
+    searchCourtHint: 'Court number or \u200F4523 / 2025\u200F',
+    scopeAll: 'All',
+    scopeOpen: 'Open',
+    scopeArchived: 'Archived'
   },
   hearings: {
     autoCreated: 'The next hearing was created automatically from the postponement date.',
@@ -561,6 +564,8 @@ const en = {
   },
   archivePage: {
     appArchived: 'Archived cases in this system',
+    appArchivedCount: '{{count}} archived cases',
+    openInCases: 'Open archived cases on the Cases page',
     noAppArchived: 'No archived cases in the current system.',
     legacyTitle: 'Legacy system archive (view only)',
     legacyHint: 'Flat records from the old system. No editing and no relationship decoding.',

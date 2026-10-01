@@ -10,7 +10,7 @@ import { newId, asIdOrNull, notDeleted } from '../db/ids'
 import { recordLocalChange, softDelete } from '../sync/queue'
 import type { AuthedUser } from '../ipc/helpers'
 import type { ListQuery } from '@shared/types'
-import { clampPageSize, pageKind } from '../db/queryLimits'
+import { clampPageSize, pageKind, applyColumnFilters, orderBySql, programCodeSortSql } from '../db/queryLimits'
 
 export type UploadPage = { name: string; data: Buffer | Uint8Array | number[]; mime?: string }
 
@@ -95,14 +95,44 @@ export function listDocuments(query: ListQuery = {}) {
     where += ' AND d.employee_id = ?'
     params.push(f.employee_id)
   }
-  const total = (db.prepare(`SELECT COUNT(*) as c FROM documents d ${where}`).get(...params) as { c: number }).c
+  where = applyColumnFilters(where, params, query.columnFilters, {
+    title: 'd.title',
+    category: 'd.category',
+    client_name: 'cl.full_name',
+    case_number: 'cs.case_number',
+    file_name: 'd.file_name',
+    current_version: 'd.current_version'
+  })
+  const order = orderBySql(
+    query.sortBy,
+    query.sortDir,
+    {
+      title: 'd.title COLLATE NOCASE',
+      category: 'd.category COLLATE NOCASE',
+      client_name: 'cl.full_name COLLATE NOCASE',
+      case_number: programCodeSortSql('cs.case_number'),
+      file_name: 'd.file_name COLLATE NOCASE',
+      current_version: 'CAST(d.current_version AS INTEGER)'
+    },
+    'd.created_at DESC'
+  )
+  const total = (
+    db
+      .prepare(
+        `SELECT COUNT(*) as c FROM documents d
+         LEFT JOIN clients cl ON cl.id = d.client_id AND ${notDeleted('cl')}
+         LEFT JOIN cases cs ON cs.id = d.case_id AND ${notDeleted('cs')}
+         ${where}`
+      )
+      .get(...params) as { c: number }
+  ).c
   const rows = db
     .prepare(
       `SELECT d.*, cl.full_name as client_name, cs.case_number
        FROM documents d
        LEFT JOIN clients cl ON cl.id = d.client_id AND ${notDeleted('cl')}
        LEFT JOIN cases cs ON cs.id = d.case_id AND ${notDeleted('cs')}
-       ${where} ORDER BY d.created_at DESC LIMIT ? OFFSET ?`
+       ${where} ORDER BY ${order} LIMIT ? OFFSET ?`
     )
     .all(...params, pageSize, (page - 1) * pageSize)
   return { rows, total, page, pageSize }

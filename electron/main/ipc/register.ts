@@ -141,7 +141,12 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
     return ok(true)
   })
 
-  handle(ipc, IPC.cases.list, { permission: 'cases.view' }, (_e, _u, q) => ok(cases.listCases(q as never, Number((q as { archived?: number })?.archived ?? 0))))
+  handle(ipc, IPC.cases.list, { permission: 'cases.view' }, (_e, _u, q) => {
+    const raw = (q as { archived?: unknown })?.archived
+    const archived: number | 'all' =
+      raw === 'all' || raw === -1 || raw === '-1' ? 'all' : Number(raw ?? 0) ? 1 : 0
+    return ok(cases.listCases(q as never, archived))
+  })
   handle(ipc, IPC.cases.get, { permission: 'cases.view' }, (_e, user, id) => ok(cases.getCase(String(id), user)))
   handle(ipc, IPC.cases.create, { permission: 'cases.create', write: true }, (_e, user, data) => ok(cases.createCase(user!, data as never)))
   handle(ipc, IPC.cases.update, { permission: 'cases.update', write: true }, (_e, user, id, data) => ok(cases.updateCase(user!, String(id), data as never)))

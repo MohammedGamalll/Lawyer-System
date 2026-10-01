@@ -8,7 +8,7 @@ import type { ListQuery } from '@shared/types'
 import { shouldMaskClientContact } from '@shared/permissions'
 import { clientSchema, parseSchema, normalizeDigits } from '@shared/schemas'
 import { rememberLookup } from './lookups'
-import { clampPageSize, pageKind, pickSort, sqlDir, includeIds } from '../db/queryLimits'
+import { clampPageSize, pageKind, includeIds, applyColumnFilters, orderBySql, programCodeSortSql } from '../db/queryLimits'
 import { ftsQuery } from '../db/fts'
 import { assertPersonIdentity, findDuplicateNationalId, normalizePersonName, arabicLike, foldedLikeTerm } from './personIdentity'
 import { upsertClientPoa } from './legal'
@@ -42,16 +42,34 @@ export function listClients(query: ListQuery = {}, actor?: AuthedUser | null) {
   }
   const isLookup = pageKind(query) === 'lookup'
   const pinIds = includeIds(query)
-  const total = (db.prepare(`SELECT COUNT(*) as c FROM clients c ${where}`).get(...params) as { c: number }).c
-  const order = pickSort(query.sortBy, {
-    client_number: 'c.client_number',
-    full_name: 'c.full_name',
-    phone: 'c.phone',
-    national_id: 'c.national_id',
-    profession: 'c.profession',
-    governorate: 'c.governorate'
-  }, 'c.created_at DESC')
-  const dir = query.sortBy ? ` ${sqlDir(query.sortDir)}` : ''
+  where = applyColumnFilters(
+    where,
+    params,
+    query.columnFilters,
+    {
+      client_number: 'c.client_number',
+      full_name: 'c.full_name',
+      phone: 'c.phone',
+      national_id: 'c.national_id',
+      profession: 'c.profession',
+      due: 'COALESCE(d.due, 0)'
+    },
+    isLookup ? ['due'] : []
+  )
+  const order = orderBySql(
+    query.sortBy,
+    query.sortDir,
+    {
+      client_number: programCodeSortSql('c.client_number'),
+      full_name: 'c.full_name COLLATE NOCASE',
+      phone: 'c.phone',
+      national_id: 'c.national_id',
+      profession: 'c.profession COLLATE NOCASE',
+      governorate: 'c.governorate COLLATE NOCASE',
+      ...(isLookup ? {} : { due: 'CAST(COALESCE(d.due, 0) AS REAL)' })
+    },
+    'c.created_at DESC'
+  )
   const select = isLookup
     ? `SELECT c.id, c.client_number, c.full_name, c.nickname, c.national_id, c.phone, c.client_type, 0 as due`
     : `SELECT c.id, c.client_number, c.full_name, c.nickname, c.national_id, c.phone, c.phone2, c.whatsapp, c.email,
@@ -65,13 +83,14 @@ export function listClients(query: ListQuery = {}, actor?: AuthedUser | null) {
          WHERE ${notDeleted('cf')} AND ${notDeleted('cs')}
          GROUP BY cs.client_id
        ) d ON d.cid = c.id`
+  const total = (db.prepare(`SELECT COUNT(*) as c FROM clients c ${joinDue} ${where}`).get(...params) as { c: number }).c
   const rows = db
     .prepare(
       `${select}
        FROM clients c
        ${joinDue}
        ${where}
-       ORDER BY ${order}${dir} LIMIT ? OFFSET ?`
+       ORDER BY ${order} LIMIT ? OFFSET ?`
     )
     .all(...params, pageSize, (page - 1) * pageSize) as Record<string, unknown>[]
   if (pinIds.length) {
