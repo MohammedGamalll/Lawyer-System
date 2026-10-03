@@ -168,7 +168,7 @@ export function CaseTypeCombo({
               key={o.id}
               type="button"
               className={cn(
-                'block w-full px-2 py-1.5 text-right text-sm hover:bg-navy-50 dark:hover:bg-navy-800',
+                'block w-full px-2 py-1.5 text-right text-base hover:bg-navy-50 dark:hover:bg-navy-800',
                 i === hi && 'bg-gold-50',
                 o.id === value && 'font-semibold'
               )}

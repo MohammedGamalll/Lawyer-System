@@ -8,6 +8,9 @@ import { Eye, EyeOff, MoreVertical } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { DATE_INPUT_MAX, DATE_INPUT_MIN, formatCell } from '../lib/datetime'
 
+const fieldControlClass =
+  'flex min-h-9 w-full rounded-md border border-navy-200 bg-white px-3 py-1.5 text-base leading-normal text-navy-900 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-gold-400 dark:bg-navy-900 dark:border-navy-700 dark:text-navy-50'
+
 const buttonVariants = cva(
   'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-400 disabled:pointer-events-none disabled:opacity-50',
   {
@@ -55,7 +58,7 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
         {...dateBounds}
         ref={ref}
         className={cn(
-          'flex h-9 w-full rounded-md border border-navy-200 bg-white px-3 py-1 text-sm text-navy-900 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-gold-400 dark:bg-navy-900 dark:border-navy-700 dark:text-navy-50',
+          fieldControlClass,
           props.className
         )}
       />
@@ -97,7 +100,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTML
         {...props}
         ref={ref}
         className={cn(
-          'flex min-h-[88px] w-full rounded-md border border-navy-200 bg-white px-3 py-2 text-sm text-navy-900 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-gold-400 dark:bg-navy-900 dark:border-navy-700 dark:text-navy-50',
+          'flex min-h-[88px] w-full rounded-md border border-navy-200 bg-white px-3 py-2 text-base leading-normal text-navy-900 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-gold-400 dark:bg-navy-900 dark:border-navy-700 dark:text-navy-50',
           props.className
         )}
       />
@@ -110,7 +113,7 @@ export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
     <select
       {...props}
       className={cn(
-        'flex h-9 w-full rounded-md border border-navy-200 bg-white px-3 py-1 text-sm text-navy-900 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-gold-400 dark:bg-navy-900 dark:border-navy-700 dark:text-navy-50',
+        fieldControlClass,
         props.className
       )}
     />

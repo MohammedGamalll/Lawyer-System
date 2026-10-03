@@ -6,6 +6,7 @@ import { Button, Field, Input, Select } from './ui'
 import { AutoFitInput } from './AutoFitInput'
 import { LookupCombo } from './LookupCombo'
 import { AttachDocumentControl, uploadPendingDocs, type PendingDoc } from './DocumentTools'
+import { sendPrint } from '../lib/printKit'
 import { clientBlankFormHtml } from '../lib/clientBlankForm'
 import { FloatingMenu } from './FloatingMenu'
 import { displayClientCode } from '../lib/courtNumber'
@@ -160,7 +161,7 @@ export function PartyForm({ values, onChange, errors, partyId, entity = 'client'
   }, [partyId, entity])
 
   const printBlank = () => {
-    invoke('print:print', 'a4', t('clients.blankForm'), clientBlankFormHtml()).catch((e) =>
+    void sendPrint('a4', t('clients.blankForm'), clientBlankFormHtml()).catch((e) =>
       toast((e as Error).message, 'err')
     )
   }

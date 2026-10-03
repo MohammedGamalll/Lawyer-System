@@ -17,6 +17,7 @@ import {
 } from "../components/ui";
 import { DatePicker } from "../components/DateTimePicker";
 import { LookupCombo, lookupLabel } from "../components/LookupCombo";
+import { EntitySelect } from "../components/EntitySelect";
 import { CrudPage } from "../components/CrudPage";
 import { formatCell } from "../lib/datetime";
 import {
@@ -164,7 +165,7 @@ export function ReportsPage() {
       emptyLabel: t("noData"),
       subtitle: promoted.header,
     });
-    await invoke("print:print", "report", t(`reports.${type}`), body);
+    await sendPrint("report", t(`reports.${type}`), body);
   };
 
   return (
@@ -1698,6 +1699,7 @@ export function SettingsPage() {
             body: (
               <div className="space-y-4">
                 {can("settings.manage") ? (
+                  <>
                   <Card>
                     <div className="flex flex-wrap gap-2">
                       <Button
@@ -1787,6 +1789,8 @@ export function SettingsPage() {
                       {t("settings.wipeDataHint")}
                     </p>
                   </Card>
+                  <DataRepairCard />
+                  </>
                 ) : null}
                 {can("backup.manage") ? <BackupRestore /> : null}
               </div>
@@ -1796,6 +1800,157 @@ export function SettingsPage() {
       />
     </div>
   );
+}
+
+type OfficeAudit = {
+  orphanTitleCases: number
+  orphanTitleHearings: number
+  danglingHearings: number
+  legacyHearingOrphans: number
+  primaryMismatch: number
+  case512: { id: string; case_number: string; is_archived: number; hearing_count: number }[]
+  nameDupes: { name: string; count: number }[]
+}
+
+function DataRepairCard() {
+  const { t } = useTranslation()
+  const { toast } = useApp()
+  const [audit, setAudit] = useState<OfficeAudit | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [ask, setAsk] = useState(false)
+  const [keepId, setKeepId] = useState('')
+  const [dupId, setDupId] = useState('')
+  const [mergeAsk, setMergeAsk] = useState(false)
+
+  const loadAudit = async () => {
+    setBusy(true)
+    try {
+      setAudit(await invoke<OfficeAudit>('dataRepair:audit'))
+    } catch (e) {
+      toast((e as Error).message, 'err')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card>
+      <h3 className="mb-2 font-bold">{t('settings.dataRepair')}</h3>
+      <p className="mb-3 text-sm text-navy-500">{t('settings.dataRepairHint')}</p>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" disabled={busy} onClick={() => void loadAudit()}>
+          {t('settings.dataRepairRun')}
+        </Button>
+        <Button variant="outline" disabled={busy} onClick={() => setAsk(true)}>
+          {t('settings.dataRepairApply')}
+        </Button>
+      </div>
+      {ask ? (
+        <div className="mt-3 rounded border border-navy-200 bg-navy-50 px-3 py-2 dark:border-navy-800 dark:bg-navy-950/40">
+          <p className="text-sm">{t('settings.dataRepairApplyConfirm')}</p>
+          <div className="mt-2 flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setAsk(false)}>
+              {t('cancel')}
+            </Button>
+            <Button
+              onClick={async () => {
+                setBusy(true)
+                try {
+                  const r = await invoke<{
+                    relink: { relinked: number; wouldRelink: number }
+                    parties: { fixed: number; wouldFix: number }
+                  }>('dataRepair:relink', true)
+                  setAsk(false)
+                  toast(
+                    t('settings.dataRepairDone', {
+                      hearings: r.relink.relinked,
+                      parties: r.parties.fixed
+                    })
+                  )
+                  await loadAudit()
+                } catch (e) {
+                  toast((e as Error).message, 'err')
+                } finally {
+                  setBusy(false)
+                }
+              }}
+            >
+              {t('save')}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {audit ? (
+        <ul className="mt-3 space-y-1 text-sm">
+          <li>
+            {t('settings.orphanCases')}: {audit.orphanTitleCases}
+          </li>
+          <li>
+            {t('settings.orphanHearings')}: {audit.orphanTitleHearings}
+          </li>
+          <li>
+            {t('settings.danglingHearings')}: {audit.danglingHearings}
+          </li>
+          <li>
+            {t('settings.legacyOrphans')}: {audit.legacyHearingOrphans}
+          </li>
+          <li>
+            {t('settings.primaryMismatch')}: {audit.primaryMismatch}
+          </li>
+          <li>
+            {t('settings.case512')}:{' '}
+            {audit.case512.length
+              ? audit.case512
+                  .map(
+                    (c) =>
+                      `${c.case_number}${c.is_archived ? ' (archived)' : ''} / ${c.hearing_count}`
+                  )
+                  .join(' — ')
+              : '—'}
+          </li>
+        </ul>
+      ) : null}
+      <h4 className="mb-2 mt-4 font-bold">{t('settings.mergeClients')}</h4>
+      <div className="grid max-w-xl gap-3 md:grid-cols-2">
+        <Field label={t('settings.mergeKeep')}>
+          <EntitySelect kind="clients" value={keepId} onChange={setKeepId} excludeIds={dupId ? [dupId] : []} />
+        </Field>
+        <Field label={t('settings.mergeDup')}>
+          <EntitySelect kind="clients" value={dupId} onChange={setDupId} excludeIds={keepId ? [keepId] : []} />
+        </Field>
+      </div>
+      <Button className="mt-2" variant="outline" disabled={!keepId || !dupId || busy} onClick={() => setMergeAsk(true)}>
+        {t('settings.mergeClients')}
+      </Button>
+      {mergeAsk ? (
+        <div className="mt-3 rounded border border-navy-200 bg-navy-50 px-3 py-2 dark:border-navy-800 dark:bg-navy-950/40">
+          <p className="text-sm">{t('settings.mergeConfirm')}</p>
+          <div className="mt-2 flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setMergeAsk(false)}>
+              {t('cancel')}
+            </Button>
+            <Button
+              onClick={async () => {
+                setBusy(true)
+                try {
+                  await invoke('dataRepair:mergeClients', keepId, dupId)
+                  setMergeAsk(false)
+                  setDupId('')
+                  toast(t('settings.mergeDone'))
+                } catch (e) {
+                  toast((e as Error).message, 'err')
+                } finally {
+                  setBusy(false)
+                }
+              }}
+            >
+              {t('save')}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </Card>
+  )
 }
 
 function BackupRestore() {

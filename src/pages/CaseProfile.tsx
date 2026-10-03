@@ -209,7 +209,7 @@ export function CaseProfilePage() {
           <PrintTemplatePicker
             caseId={id}
             fallback={() => {
-              invoke('print:print', 'a4', t('printKit.caseInterior'), caseInteriorHtml(row, t, i18n.language)).catch((e) =>
+              void sendPrint('a4', t('printKit.caseInterior'), caseInteriorHtml(row, t, i18n.language)).catch((e) =>
                 toast((e as Error).message, 'err')
               )
             }}

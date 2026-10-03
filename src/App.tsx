@@ -12,6 +12,7 @@ import { notifyDataChanged } from './lib/bus'
 import { useSyncStore, type SyncSnapshot } from './store/sync'
 import { useUpdateStore } from './store/updater'
 import { UpdateBanner } from './components/UpdateBanner'
+import { PrintPreviewModal } from './components/PrintPreviewModal'
 
 const AlertsPage = lazy(() => import('./pages/Alerts').then((m) => ({ default: m.AlertsPage })))
 const HomePage = lazy(() => import('./pages/Home').then((m) => ({ default: m.HomePage })))
@@ -175,6 +176,7 @@ export default function App() {
     <>
       <Toaster richColors position="bottom-left" />
       <UpdateBanner />
+      <PrintPreviewModal />
       <AuthLockModal open={reverifyOpen} onVerified={() => setReverifyOpen(false)} />
       <Layout>
         {!allowed ? (

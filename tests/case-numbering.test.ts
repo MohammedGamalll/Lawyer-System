@@ -126,8 +126,21 @@ describe.skipIf(!sqliteAvailable())('allocateCaseNumber', () => {
     insertCase(db, id, 'CS-00010')
     const kept = allocateCaseNumber(db, { numbering_mode: 'auto', case_number: '999' }, id)
     expect(kept.number).toBe('CS-00010')
+    const seventyOne = randomUUID()
+    insertCase(db, seventyOne, 'CS-00071')
+    const kept71 = allocateCaseNumber(db, { numbering_mode: 'auto' }, seventyOne)
+    expect(kept71.number).toBe('CS-00071')
     const changed = allocateCaseNumber(db, { numbering_mode: 'manual', case_number: 'ARC-12' }, id)
     expect(changed.number).toBe('ARC-12')
+    db.close()
+  })
+
+  it('never regenerates CS-00071 on auto update', () => {
+    const db = seed()
+    const id = randomUUID()
+    insertCase(db, id, 'CS-00071')
+    const kept = allocateCaseNumber(db, { numbering_mode: 'auto' }, id)
+    expect(kept.number).toBe('CS-00071')
     db.close()
   })
 

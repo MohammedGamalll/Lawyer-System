@@ -65,7 +65,7 @@ export function ExpertFormExtras({
         <div className="w-[12rem]">
           <Field label={t('fields.expert_office')}>
             <input
-              className="h-9 w-full rounded border px-2 text-sm dark:bg-navy-900"
+              className="min-h-9 w-full rounded border px-2 py-1.5 text-base dark:bg-navy-900"
               value={String(form.expert_office || '')}
               onChange={(e) => setField('expert_office', e.target.value)}
             />
@@ -74,7 +74,7 @@ export function ExpertFormExtras({
         <div className="w-[12rem]">
           <Field label={t('fields.expert_name')}>
             <input
-              className="h-9 w-full rounded border px-2 text-sm dark:bg-navy-900"
+              className="min-h-9 w-full rounded border px-2 py-1.5 text-base dark:bg-navy-900"
               value={String(form.expert_name || '')}
               onChange={(e) => setField('expert_name', e.target.value)}
             />
@@ -83,7 +83,7 @@ export function ExpertFormExtras({
         <div className="w-[6rem]">
           <Field label={t('fields.floor')}>
             <input
-              className="h-9 w-full rounded border px-2 text-sm dark:bg-navy-900"
+              className="min-h-9 w-full rounded border px-2 py-1.5 text-base dark:bg-navy-900"
               value={String(form.floor || '')}
               onChange={(e) => setField('floor', e.target.value)}
             />
@@ -92,7 +92,7 @@ export function ExpertFormExtras({
         <div className="w-[6rem]">
           <Field label={t('fields.hall')}>
             <input
-              className="h-9 w-full rounded border px-2 text-sm dark:bg-navy-900"
+              className="min-h-9 w-full rounded border px-2 py-1.5 text-base dark:bg-navy-900"
               value={String(form.hall || '')}
               onChange={(e) => setField('hall', e.target.value)}
             />

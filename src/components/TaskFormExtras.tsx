@@ -92,7 +92,7 @@ export function TaskFormExtras({
             <div className="w-[10rem]">
               <Field label={t('fields.police_report_no')}>
                 <input
-                  className="h-9 w-full rounded border px-2 text-sm dark:bg-navy-900"
+                  className="min-h-9 w-full rounded border px-2 py-1.5 text-base dark:bg-navy-900"
                   dir="ltr"
                   value={String(form.police_report_no || '')}
                   onChange={(e) => setField('police_report_no', e.target.value)}
@@ -104,7 +104,7 @@ export function TaskFormExtras({
         <div className="w-[10rem]">
           <Field label={t('fields.execution_number')}>
             <input
-              className="h-9 w-full rounded border px-2 text-sm dark:bg-navy-900"
+              className="min-h-9 w-full rounded border px-2 py-1.5 text-base dark:bg-navy-900"
               value={String(form.execution_number || '')}
               onChange={(e) => setField('execution_number', e.target.value)}
             />
@@ -127,7 +127,7 @@ export function TaskFormExtras({
         <div className="w-[12rem]">
           <Field label={t('fields.execution_officer')}>
             <input
-              className="h-9 w-full rounded border px-2 text-sm dark:bg-navy-900"
+              className="min-h-9 w-full rounded border px-2 py-1.5 text-base dark:bg-navy-900"
               value={String(form.execution_officer || '')}
               onChange={(e) => setField('execution_officer', e.target.value)}
             />
@@ -137,13 +137,13 @@ export function TaskFormExtras({
       <div className="flex flex-wrap gap-2">
         <div className="min-w-[12rem] flex-1">
           <Field label={t('fields.opponent_name')}>
-            <input className="h-9 w-full rounded border px-2 text-sm dark:bg-navy-50" readOnly value={opp.name} />
+            <input className="min-h-9 w-full rounded border px-2 py-1.5 text-base dark:bg-navy-50" readOnly value={opp.name} />
           </Field>
         </div>
         <div className="min-w-[12rem] flex-1">
           <Field label={t('fields.address')}>
             <input
-              className="h-9 w-full rounded border px-2 text-sm dark:bg-navy-900"
+              className="min-h-9 w-full rounded border px-2 py-1.5 text-base dark:bg-navy-900"
               value={String(form.opponent_address || '')}
               onChange={(e) => setField('opponent_address', e.target.value)}
             />
@@ -152,7 +152,7 @@ export function TaskFormExtras({
         <div className="w-[12rem]">
           <Field label={t('fields.opponent_phone')}>
             <input
-              className="h-9 w-full rounded border px-2 text-sm dark:bg-navy-900"
+              className="min-h-9 w-full rounded border px-2 py-1.5 text-base dark:bg-navy-900"
               dir="ltr"
               value={String(form.opponent_phone || '')}
               onChange={(e) => setField('opponent_phone', e.target.value)}

@@ -72,7 +72,7 @@ describe('phoneSchema', () => {
 
 describe('defaultWidthCh', () => {
   it('keeps dates and numbers compact and phones near 16ch', () => {
-    expect(defaultWidthCh({ type: 'date' })).toBe(14)
+    expect(defaultWidthCh({ type: 'date' })).toBe(18)
     expect(defaultWidthCh({ type: 'number' })).toBe(12)
     expect(defaultWidthCh({ name: 'phone' })).toBe(16)
     expect(defaultWidthCh({ name: 'full_name' })).toBe(28)

@@ -10,7 +10,7 @@ import { parseSchema, reminderSchema, taskSchema } from '@shared/schemas'
 import { rememberLookup } from './lookups'
 import { clampPageSize, pageKind, applyColumnFilters, orderBySql, programCodeSortSql, courtNumberSortSql } from '../db/queryLimits'
 import { casePrintJoinSql, casePrintSelectSql, enrichPrintRows } from './printCaseFields'
-import { notificationIsVisible } from './alertVisibility'
+import { dedupeNotifications, notificationIsVisible } from './alertVisibility'
 
 function opponentContactFromCase(caseId: string | null) {
   if (!caseId) return { address: '', phone: '' }
@@ -655,6 +655,7 @@ export function listNotifications(userId: string) {
               h.court_decision AS hearing_court_decision,
               h.what_happened AS hearing_what_happened,
               h.status AS hearing_status,
+              h.hearing_type AS hearing_type,
               (SELECT MAX(hx.hearing_date) FROM hearings hx WHERE hx.case_id = h.case_id AND hx.deleted_at IS NULL) AS latest_hearing_date,
               t.due_date AS task_due_date,
               t.status AS task_status,
@@ -663,7 +664,7 @@ export function listNotifications(userId: string) {
        LEFT JOIN tasks t ON n.related_type = 'task' AND t.id = n.related_id AND ${notDeleted('t')}
        LEFT JOIN cases cs_t ON cs_t.id = t.case_id AND ${notDeleted('cs_t')}
        LEFT JOIN clients cl_t ON cl_t.id = COALESCE(t.client_id, cs_t.client_id) AND ${notDeleted('cl_t')}
-       LEFT JOIN hearings h ON n.related_type = 'hearing' AND h.id = n.related_id AND ${notDeleted('h')}
+       LEFT JOIN hearings h ON h.id = n.related_id AND ${notDeleted('h')}
        LEFT JOIN cases cs_h ON cs_h.id = h.case_id AND ${notDeleted('cs_h')}
        LEFT JOIN clients cl_h ON cl_h.id = cs_h.client_id AND ${notDeleted('cl_h')}
        LEFT JOIN cases cs_c ON n.related_type = 'case' AND cs_c.id = n.related_id AND ${notDeleted('cs_c')}
@@ -680,7 +681,7 @@ export function listNotifications(userId: string) {
        LIMIT 500`
     )
     .all(userId) as Record<string, unknown>[]
-  return rows.filter((row) => notificationIsVisible(row, today))
+  return dedupeNotifications(rows.filter((row) => notificationIsVisible(row, today)))
 }
 
 export function markNotificationRead(id: string, isRead = true) {

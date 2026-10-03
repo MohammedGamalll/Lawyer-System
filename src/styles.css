@@ -52,6 +52,17 @@ label {
   font-weight: 500;
 }
 
+input,
+select,
+textarea {
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+select {
+  min-height: 2.25rem;
+}
+
 .dark {
   color-scheme: dark;
   background: #07111c;

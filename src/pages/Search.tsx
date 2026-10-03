@@ -15,6 +15,7 @@ export function SearchPage() {
   const { toast, setPage } = useApp()
   const [filters, setFilters] = useState({
     q: '',
+    program_code: '',
     scope: 'cases',
     office_case_number: '',
     client_name: '',
@@ -31,6 +32,7 @@ export function SearchPage() {
     try {
       const data = await invoke<Record<string, unknown>[]>('search:advanced', {
         q: filters.q || undefined,
+        program_code: filters.program_code || undefined,
         scope: filters.scope || undefined,
         office_case_number: filters.office_case_number || undefined,
         client_name: filters.client_name || undefined,
@@ -63,10 +65,19 @@ export function SearchPage() {
         <div className="grid gap-3 md:grid-cols-4">
           <Field label={t('searchPage.query')}>
             <input
-              className="w-full rounded border px-2 py-2 dark:bg-navy-800"
+              className="w-full rounded border px-2 py-2 text-base dark:bg-navy-800"
               value={filters.q}
               onChange={(e) => setFilters({ ...filters, q: e.target.value })}
               placeholder={t('searchPage.queryHint')}
+            />
+          </Field>
+          <Field label={t('fields.program_code')}>
+            <input
+              className="w-full rounded border px-2 py-2 text-base dark:bg-navy-800"
+              dir="ltr"
+              value={filters.program_code}
+              onChange={(e) => setFilters({ ...filters, program_code: e.target.value })}
+              placeholder={t('fields.program_code')}
             />
           </Field>
           <Field label={t('fields.court_number')}>

@@ -263,7 +263,7 @@ export function CaseFormExtras({
       <div className="space-y-1">
         <Field label={t('caseForm.numberingMode')}>
           <select
-            className="flex h-9 w-full max-w-xs rounded-md border border-navy-200 bg-white px-3 text-sm dark:border-navy-700 dark:bg-navy-900"
+            className="flex min-h-9 w-full max-w-xs rounded-md border border-navy-200 bg-white px-3 py-1.5 text-base dark:border-navy-700 dark:bg-navy-900"
             value={numberingMode}
             onChange={(e) => {
               const mode = e.target.value

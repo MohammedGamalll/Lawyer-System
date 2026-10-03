@@ -5,7 +5,8 @@ import path from 'path'
 import {
   isInactiveCaseForAlerts,
   notificationIsVisible,
-  shouldShowWorkAlert
+  shouldShowWorkAlert,
+  dedupeNotifications
 } from '../electron/main/services/alertVisibility'
 
 function sqliteAvailable() {
@@ -27,6 +28,52 @@ describe('alert visibility', () => {
     expect(isInactiveCaseForAlerts('منتهية')).toBe(true)
     expect(isInactiveCaseForAlerts('open')).toBe(false)
     expect(isInactiveCaseForAlerts('open', 1)).toBe(true)
+  })
+
+  it('keeps the newest notification per related record', () => {
+    const rows = dedupeNotifications([
+      { id: 'n2', related_type: 'hearing', related_id: 'h1', created_at: '2026-10-02' },
+      { id: 'n1', related_type: 'hearing', related_id: 'h1', created_at: '2026-10-01' },
+      { id: 'n3', related_type: 'task', related_id: 't1', created_at: '2026-10-02' }
+    ])
+    expect(rows.map((r) => r.id)).toEqual(['n2', 'n3'])
+  })
+
+  it('hides a hearing alert when related_id is set but the hearing row is missing', () => {
+    expect(
+      notificationIsVisible(
+        {
+          related_type: 'hearing',
+          related_id: 'ghost-h',
+          title: 'جلسة القضية 2 — إتلاف'
+        },
+        '2026-10-03'
+      )
+    ).toBe(false)
+  })
+
+  it('dedupes hearing alerts for the same case digits and date across different ids', () => {
+    const rows = dedupeNotifications([
+      {
+        id: 'n-a',
+        related_type: 'hearing',
+        related_id: 'h-a',
+        case_number: '02',
+        hearing_date: '2026-10-03',
+        hearing_type: 'إتلاف',
+        created_at: '2026-10-03T09:00:00'
+      },
+      {
+        id: 'n-b',
+        related_type: 'hearing',
+        related_id: 'h-b',
+        case_number: '2',
+        hearing_date: '2026-10-03',
+        hearing_type: 'إتلاف',
+        created_at: '2026-10-03T08:00:00'
+      }
+    ])
+    expect(rows.map((r) => r.id)).toEqual(['n-a'])
   })
 
   it('hides a past hearing on a closed case', () => {
@@ -191,6 +238,78 @@ describe.skipIf(!sqliteAvailable())('login usernames, closed-case alerts, and pa
     const { listNotifications } = await import('../electron/main/services/schedule')
     const rows = listNotifications('anyone') as { id: string }[]
     expect(rows.find((r) => r.id === 'n1')).toBeUndefined()
+  })
+
+  it('hides ghost hearing alerts and collapses duplicate case+date hearings', async () => {
+    const db = await boot()
+    const ts = new Date().toISOString()
+    db.prepare(
+      `INSERT INTO clients (id, client_number, full_name, client_type, created_at, updated_at)
+       VALUES ('cl-dup', 'CL-D', 'موكل', 'individual', ?, ?)`
+    ).run(ts, ts)
+    db.prepare(
+      `INSERT INTO cases (id, case_number, title, client_id, status, created_at, updated_at)
+       VALUES ('cs-dup', '6576', 'إتلاف', 'cl-dup', 'open', ?, ?)`
+    ).run(ts, ts)
+    db.prepare(
+      `INSERT INTO hearings (id, case_id, hearing_date, hearing_type, status, created_at, updated_at)
+       VALUES ('h-dup-1', 'cs-dup', '2099-01-15', 'إتلاف', 'upcoming', ?, ?)`
+    ).run(ts, ts)
+    db.prepare(
+      `INSERT INTO hearings (id, case_id, hearing_date, hearing_type, status, created_at, updated_at)
+       VALUES ('h-dup-2', 'cs-dup', '2099-01-15', 'إتلاف', 'upcoming', ?, ?)`
+    ).run(ts, ts)
+    db.prepare(
+      `INSERT INTO notifications (id, title, type, related_type, related_id, is_read, created_at, updated_at)
+       VALUES ('n-dup-1', 'جلسة القضية 6576', 'hearing', 'hearing', 'h-dup-1', 0, ?, ?)`
+    ).run(ts, ts)
+    db.prepare(
+      `INSERT INTO notifications (id, title, type, related_type, related_id, is_read, created_at, updated_at)
+       VALUES ('n-dup-2', 'جلسة القضية 6576', 'hearing', 'hearing', 'h-dup-2', 0, ?, ?)`
+    ).run(ts, ts)
+    db.prepare(
+      `INSERT INTO notifications (id, title, type, related_type, related_id, is_read, created_at, updated_at)
+       VALUES ('n-ghost', 'جلسة مفقودة', 'hearing', 'hearing', 'missing-hearing', 0, ?, ?)`
+    ).run(ts, ts)
+    const { listNotifications } = await import('../electron/main/services/schedule')
+    const rows = listNotifications('anyone') as { id: string }[]
+    expect(rows.find((r) => r.id === 'n-ghost')).toBeUndefined()
+    const dups = rows.filter((r) => r.id === 'n-dup-1' || r.id === 'n-dup-2')
+    expect(dups).toHaveLength(1)
+  })
+
+  it('does not throw when completing a missing hearing and dismisses the alert', async () => {
+    const db = await boot()
+    const ts = new Date().toISOString()
+    const admin = db.prepare(`SELECT id, username, full_name FROM users WHERE username = 'admin'`).get() as {
+      id: string
+      username: string
+      full_name: string
+    }
+    db.prepare(
+      `INSERT INTO notifications (id, title, type, related_type, related_id, is_read, created_at, updated_at)
+       VALUES ('n-miss', 'جلسة غير موجودة', 'hearing', 'hearing', 'missing-h', 0, ?, ?)`
+    ).run(ts, ts)
+    const { completeHearing } = await import('../electron/main/services/hearings')
+    expect(() =>
+      completeHearing(
+        {
+          id: admin.id,
+          username: admin.username,
+          fullName: admin.full_name,
+          roleCode: 'admin',
+          permissions: ['hearings.update']
+        },
+        'missing-h',
+        'n-miss'
+      )
+    ).not.toThrow()
+    const row = db.prepare(`SELECT deleted_at, is_read FROM notifications WHERE id = 'n-miss'`).get() as {
+      deleted_at: string | null
+      is_read: number
+    }
+    expect(row.deleted_at).toBeTruthy()
+    expect(row.is_read).toBe(1)
   })
 
   it('keeps the original client, contacts, links, and documents when copying to opponents', async () => {

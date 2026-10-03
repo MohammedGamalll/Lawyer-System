@@ -54,7 +54,8 @@ export const IPC = {
     create: 'hearings:create',
     update: 'hearings:update',
     remove: 'hearings:remove',
-    postpone: 'hearings:postpone'
+    postpone: 'hearings:postpone',
+    complete: 'hearings:complete'
   },
   experts: {
     list: 'experts:list',
@@ -105,7 +106,13 @@ export const IPC = {
   notifications: { list: 'notifications:list', read: 'notifications:read', readAll: 'notifications:readAll' },
   settings: { get: 'settings:get', set: 'settings:set', saveLogo: 'settings:saveLogo' },
   backup: { create: 'backup:create', createToDir: 'backup:createToDir', restore: 'backup:restore', restoreFromFile: 'backup:restoreFromFile', list: 'backup:list', schedule: 'backup:schedule' },
-  print: { preview: 'print:preview', print: 'print:print', pdf: 'print:pdf', printers: 'print:printers', voucher: 'print:voucher', receipt: 'print:receipt', manual: 'print:manual', backupGuide: 'print:backupGuide' },
+  print: { preview: 'print:preview', html: 'print:html', print: 'print:print', pdf: 'print:pdf', printers: 'print:printers', voucher: 'print:voucher', receipt: 'print:receipt', manual: 'print:manual', backupGuide: 'print:backupGuide' },
+  dataRepair: {
+    audit: 'dataRepair:audit',
+    relink: 'dataRepair:relink',
+    mergeClients: 'dataRepair:mergeClients',
+    normalizeParties: 'dataRepair:normalizeParties'
+  },
   printTemplates: {
     list: 'printTemplates:list',
     get: 'printTemplates:get',

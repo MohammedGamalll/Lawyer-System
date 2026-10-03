@@ -410,8 +410,27 @@ export function postponeHearing(actor: AuthedUser, id: string, nextDate: string,
     ...old,
     postponement_reason: reason || undefined
   })
+  clearHearingNotifications(id)
   audit(actor, 'postpone', 'hearings', id, `تم تأجيل الجلسة وإنشاء جلسة جديدة بتاريخ ${nextDate}`)
   return { autoHearing: Boolean(created) }
+}
+
+export function completeHearing(actor: AuthedUser, id: string, notificationId?: string) {
+  const db = getDb()
+  const old = db
+    .prepare(`SELECT id, case_id, hearing_date, hearing_type FROM hearings WHERE id = ? AND ${notDeleted()}`)
+    .get(id) as { id: string; case_id: string; hearing_date: string | null; hearing_type: string | null } | undefined
+  if (old) {
+    db.prepare(`UPDATE hearings SET status='done', updated_at=? WHERE id=?`).run(nowIso(), id)
+    recordLocalChange('hearings', id, 'UPDATE')
+    clearHearingNotifications(id)
+    completeSiblingHearings(old.case_id, old.hearing_date, old.hearing_type, id)
+    audit(actor, 'update', 'hearings', id, 'تم إنهاء الجلسة من التنبيهات')
+  } else {
+    clearHearingNotifications(id)
+    dismissNotification(notificationId)
+  }
+  return { id }
 }
 
 function ensureNextHearing(
@@ -453,17 +472,62 @@ function normalizeHearingDate(raw: unknown, refDate?: string): string {
   return parsePostponedDate(t, refDate) || ''
 }
 
+function hearingAlertWhere(): string {
+  return `(related_type = 'hearing' OR type = 'hearing') AND related_id = ? AND ${notDeleted()}`
+}
+
 function clearHearingNotifications(hearingId: string): void {
+  const id = String(hearingId || '').trim()
+  if (!id) return
   const db = getDb()
   const ts = nowIso()
-  const rows = db
-    .prepare(`SELECT id FROM notifications WHERE related_type = 'hearing' AND related_id = ? AND ${notDeleted()}`)
-    .all(hearingId) as { id: string }[]
+  const rows = db.prepare(`SELECT id FROM notifications WHERE ${hearingAlertWhere()}`).all(id) as { id: string }[]
   if (!rows.length) return
   db.prepare(
-    `UPDATE notifications SET deleted_at = ?, updated_at = ? WHERE related_type = 'hearing' AND related_id = ? AND deleted_at IS NULL`
-  ).run(ts, ts, hearingId)
+    `UPDATE notifications SET deleted_at = ?, is_read = 1, updated_at = ?
+     WHERE (related_type = 'hearing' OR type = 'hearing') AND related_id = ? AND deleted_at IS NULL`
+  ).run(ts, ts, id)
   for (const r of rows) recordLocalChange('notifications', r.id, 'UPDATE')
+}
+
+function dismissNotification(notificationId?: string): void {
+  const id = String(notificationId || '').trim()
+  if (!id) return
+  const db = getDb()
+  const row = db.prepare(`SELECT id FROM notifications WHERE id = ? AND ${notDeleted()}`).get(id) as { id: string } | undefined
+  if (!row) return
+  const ts = nowIso()
+  db.prepare(`UPDATE notifications SET deleted_at = ?, is_read = 1, updated_at = ? WHERE id = ? AND deleted_at IS NULL`).run(
+    ts,
+    ts,
+    id
+  )
+  recordLocalChange('notifications', id, 'UPDATE')
+}
+
+function completeSiblingHearings(
+  caseId: string,
+  hearingDate: string | null,
+  hearingType: string | null,
+  exceptHearingId: string
+): void {
+  if (!caseId || !hearingDate) return
+  const db = getDb()
+  const day = String(hearingDate).slice(0, 10)
+  const type = String(hearingType || '').trim()
+  const siblings = db
+    .prepare(
+      `SELECT id FROM hearings
+       WHERE case_id = ? AND substr(hearing_date, 1, 10) = ? AND id != ? AND ${notDeleted()}
+         AND IFNULL(trim(hearing_type), '') = ?`
+    )
+    .all(caseId, day, exceptHearingId, type) as { id: string }[]
+  const ts = nowIso()
+  for (const s of siblings) {
+    db.prepare(`UPDATE hearings SET status='done', updated_at=? WHERE id=?`).run(ts, s.id)
+    recordLocalChange('hearings', s.id, 'UPDATE')
+    clearHearingNotifications(s.id)
+  }
 }
 
 function migrateAdminFromHearing(actor: AuthedUser, caseId: string, hearingId: string, data: Record<string, unknown>): number {

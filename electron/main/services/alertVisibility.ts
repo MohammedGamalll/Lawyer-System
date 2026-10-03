@@ -1,3 +1,5 @@
+import { arabicFold } from '@shared/arabic'
+
 const CLOSED_STATUSES = new Set([
   'closed',
   'archived',
@@ -69,6 +71,8 @@ export function shouldShowWorkAlert(input: {
 export function notificationIsVisible(row: Record<string, unknown>, today: string): boolean {
   const kind = String(row.related_type || row.type || '')
   if (kind === 'hearing') {
+    const linked = Boolean(row.hearing_status || row.hearing_date)
+    if (!linked && row.related_id) return false
     return shouldShowWorkAlert({
       caseStatus: row.case_status,
       caseArchived: row.case_archived,
@@ -100,4 +104,30 @@ export function notificationIsVisible(row: Record<string, unknown>, today: strin
     return Boolean(date && date >= today)
   }
   return true
+}
+
+export function notificationDedupeKey(row: Record<string, unknown>): string {
+  const kind = String(row.related_type || row.type || '')
+  const date = dayOf(row.hearing_date || row.task_due_date || row.reminder_at)
+  const digits = String(row.case_number || '').replace(/\D/g, '')
+  const code = digits ? String(Number(digits)) : ''
+  if (kind === 'hearing' && code && date) {
+    return `hearing|${code}|${date}|${arabicFold(row.hearing_type)}`
+  }
+  const rid = String(row.related_id || '')
+  if (kind && rid) return `${kind}:${rid}`
+  if (kind === 'hearing') return `hearing|${arabicFold(row.title)}|${date}`
+  return `id:${row.id}`
+}
+
+export function dedupeNotifications(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  const seen = new Set<string>()
+  const out: Record<string, unknown>[] = []
+  for (const row of rows) {
+    const key = notificationDedupeKey(row)
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(row)
+  }
+  return out
 }

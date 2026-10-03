@@ -11,8 +11,10 @@ import { rememberLookup } from './lookups'
 import { clampPageSize, pageKind, includeIds, applyColumnFilters, orderBySql, programCodeSortSql } from '../db/queryLimits'
 import { ftsQuery } from '../db/fts'
 import { assertPersonIdentity, findDuplicateNationalId, normalizePersonName, arabicLike, foldedLikeTerm } from './personIdentity'
+import { shouldSkipFts } from '@shared/searchQuery'
 import { upsertClientPoa } from './legal'
 import { casePrintJoinSql, casePrintSelectSql, enrichPrintRows } from './printCaseFields'
+import { sqlClientOwnsCase } from './caseLink'
 
 export { normalizePersonName }
 
@@ -23,7 +25,7 @@ export function listClients(query: ListQuery = {}, actor?: AuthedUser | null) {
   const params: unknown[] = []
   let where = `WHERE c.is_archived = 0 AND ${notDeleted('c')}`
   const fts = ftsQuery(String(query.search || ''))
-  if (query.search && fts) {
+  if (query.search && fts && !shouldSkipFts(query.search)) {
     where += ` AND c.rowid IN (SELECT rowid FROM clients_fts WHERE clients_fts MATCH ?)`
     params.push(fts)
   } else if (query.search) {
@@ -118,11 +120,13 @@ export function searchClients(term: string, actor?: AuthedUser | null) {
     .prepare(
       `SELECT DISTINCT c.* FROM clients c
        LEFT JOIN cases cs ON cs.client_id = c.id AND ${notDeleted('cs')}
+       LEFT JOIN case_clients x ON x.client_id = c.id AND ${notDeleted('x')}
+       LEFT JOIN cases cs2 ON cs2.id = x.case_id AND ${notDeleted('cs2')}
        WHERE ${notDeleted('c')} AND (${arabicLike('c.full_name')} OR c.client_number LIKE ? OR c.phone LIKE ? OR c.national_id LIKE ?
-          OR cs.case_number LIKE ? OR c.poa_number LIKE ? OR ${arabicLike('c.poa_office')})
+          OR cs.case_number LIKE ? OR cs2.case_number LIKE ? OR c.poa_number LIKE ? OR ${arabicLike('c.poa_office')})
        LIMIT 50`
     )
-    .all(s, s, s, s, s, s, s)
+    .all(s, s, s, s, s, s, s, s)
   return maskClientRows(rows, actor)
 }
 
@@ -172,19 +176,19 @@ export function clientProfile(id: string, actor?: AuthedUser | null) {
                 )
               ) as last_action
        FROM cases c LEFT JOIN case_fees cf ON cf.case_id = c.id AND ${notDeleted('cf')}
-       WHERE c.client_id = ? AND ${notDeleted('c')} ORDER BY remaining DESC, c.created_at DESC`
+       WHERE ${sqlClientOwnsCase('c')} AND ${notDeleted('c')} ORDER BY remaining DESC, c.created_at DESC`
     )
-    .all(id)
+    .all(id, id)
   const hearings = db
     .prepare(
       `SELECT h.*, cl.full_name as client_name, ${casePrintSelectSql('cs')}
        FROM hearings h
        ${casePrintJoinSql('h.case_id')}
        LEFT JOIN clients cl ON cl.id = cs.client_id AND ${notDeleted('cl')}
-       WHERE cs.client_id = ? AND ${notDeleted('h')}
+       WHERE ${sqlClientOwnsCase('cs')} AND ${notDeleted('h')}
        ORDER BY h.hearing_date DESC`
     )
-    .all(id)
+    .all(id, id)
   const documents = db.prepare(`SELECT * FROM documents WHERE client_id = ? AND ${notDeleted()} ORDER BY created_at DESC`).all(id)
   const contracts = db.prepare(`SELECT * FROM contracts WHERE client_id = ? AND ${notDeleted()} ORDER BY created_at DESC`).all(id)
   const payments = db.prepare(`SELECT * FROM payments WHERE client_id = ? AND ${notDeleted()} ORDER BY created_at DESC`).all(id)
@@ -197,16 +201,16 @@ export function clientProfile(id: string, actor?: AuthedUser | null) {
        ${casePrintJoinSql('t.case_id')}
        LEFT JOIN clients cl ON cl.id = t.client_id AND ${notDeleted('cl')}
        LEFT JOIN clients c2 ON c2.id = cs.client_id AND ${notDeleted('c2')}
-       WHERE ${notDeleted('t')} AND (t.client_id = ? OR cs.client_id = ?)
+       WHERE ${notDeleted('t')} AND (t.client_id = ? OR ${sqlClientOwnsCase('cs')})
        ORDER BY t.due_date IS NULL, t.due_date DESC`
     )
-    .all(id, id)
+    .all(id, id, id)
   const due = db
     .prepare(
       `SELECT COALESCE(SUM(remaining),0) as due FROM case_fees cf
-       JOIN cases c ON c.id = cf.case_id WHERE c.client_id = ? AND ${notDeleted('cf')} AND ${notDeleted('c')}`
+       JOIN cases c ON c.id = cf.case_id WHERE ${sqlClientOwnsCase('c')} AND ${notDeleted('cf')} AND ${notDeleted('c')}`
     )
-    .get(id) as { due: number }
+    .get(id, id) as { due: number }
   return {
     client,
     cases,

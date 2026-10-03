@@ -29,6 +29,7 @@ import { wrapHtml } from '../services/print'
 import * as printTemplates from '../services/printTemplates'
 import * as lookups from '../services/lookups'
 import * as scan from '../services/scan'
+import * as dataRepair from '../services/dataRepair'
 import { getSyncState, runSyncCycle } from '../sync/service'
 import { confirmRemotePassword } from '../sync/authGuard'
 import * as legacyArchive from '../services/archive'
@@ -206,7 +207,10 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
   handle(ipc, IPC.hearings.create, { permission: 'hearings.create', write: true }, (_e, user, data) => ok(hearings.createHearing(user!, data as never)))
   handle(ipc, IPC.hearings.update, { permission: 'hearings.update', write: true }, (_e, user, id, data) => ok(hearings.updateHearing(user!, String(id), data as never)))
   handle(ipc, IPC.hearings.postpone, { permission: 'hearings.update', write: true }, (_e, user, id, date, time, reason) =>
-    ok(hearings.postponeHearing(user!, String(id), String(date), time as string, reason as string))
+    ok(hearings.postponeHearing(user!, String(id), String(date), time ? String(time) : undefined, reason ? String(reason) : undefined))
+  )
+  handle(ipc, IPC.hearings.complete, { permission: 'hearings.update', write: true }, (_e, user, id, notificationId) =>
+    ok(hearings.completeHearing(user!, String(id), notificationId != null && notificationId !== '' ? String(notificationId) : undefined))
   )
   handle(ipc, IPC.hearings.remove, { permission: 'hearings.delete', write: true }, (_e, user, id) => {
     hearings.removeHearing(user!, String(id))
@@ -555,6 +559,10 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
     const html = wrapHtml(String(title), String(body), kind as print.PrintKind)
     return ok(await print.savePdf(html, kind as print.PrintKind, String(name || 'doc.pdf'), getWin()))
   })
+  handle(ipc, IPC.print.html, {}, (_e, _u, kind, title, body, layout) => {
+    const layoutName = layout ? String(layout) : undefined
+    return ok(wrapHtml(String(title), String(body), kind as print.PrintKind, layoutName))
+  })
   handle(ipc, IPC.print.print, {}, async (_e, _u, kind, title, body, layout) => {
     const layoutName = layout ? String(layout) : undefined
     const html = wrapHtml(String(title), String(body), kind as print.PrintKind, layoutName)
@@ -639,6 +647,19 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
     return ok(demo.seedDemoData())
   })
   handle(ipc, IPC.demo.wipe, { permission: 'settings.manage', write: true }, (_e, user) => ok(wipe.wipeBusinessData(user!)))
+  handle(ipc, IPC.dataRepair.audit, { permission: 'settings.manage' }, () => ok(dataRepair.auditOfficeData()))
+  handle(ipc, IPC.dataRepair.relink, { permission: 'settings.manage', write: true }, (_e, user, apply) => {
+    if (apply) backup.createBackup(user!)
+    const relink = dataRepair.relinkOrphanHearings(Boolean(apply))
+    const parties = dataRepair.normalizePrimaryCaseClients(Boolean(apply))
+    return ok({ relink, parties })
+  })
+  handle(ipc, IPC.dataRepair.mergeClients, { permission: 'clients.update', write: true }, (_e, user, keepId, dupId) =>
+    ok(dataRepair.mergeClientsByChoice(user!, String(keepId), String(dupId)))
+  )
+  handle(ipc, IPC.dataRepair.normalizeParties, { permission: 'settings.manage', write: true }, (_e, _u, apply) =>
+    ok(dataRepair.normalizePrimaryCaseClients(Boolean(apply)))
+  )
 
   handle(ipc, IPC.sync.status, {}, () => ok(getSyncState()))
   handle(ipc, IPC.sync.now, { permission: 'settings.manage' }, async () => {

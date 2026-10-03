@@ -11,6 +11,7 @@ import { formatCell, formatDateTime } from '../lib/datetime'
 import { downloadBytes } from '../lib/bytes'
 import { onDataChanged } from '../lib/bus'
 import { UploadSourceMenu, DocumentThumb, DocumentPreviewModal } from '../components/DocumentTools'
+import { sendPrint } from '../lib/printKit'
 
 export function DocumentsPage() {
   const { t, i18n } = useTranslation()
@@ -334,7 +335,7 @@ async function doPrint(channel: string, id: string, pdf: boolean) {
     const r = await invoke<{ canceled?: boolean }>('print:pdf', p.kind, p.title, p.body, p.name || `${p.kind}.pdf`)
     if (r?.canceled) return
   } else {
-    await invoke('print:print', p.kind, p.title, p.body)
+    await sendPrint(p.kind, p.title, p.body)
   }
 }
 
@@ -841,7 +842,7 @@ export function InvoicesPage() {
     if (pdf) {
       const r = await invoke<{ canceled?: boolean }>('print:pdf', p.kind, p.title, p.body, `invoice-${id}.pdf`)
       if (r?.canceled) return
-    } else await invoke('print:print', p.kind, p.title, p.body)
+    } else await sendPrint(p.kind, p.title, p.body)
   }
 
   return (

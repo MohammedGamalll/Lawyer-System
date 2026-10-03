@@ -14,7 +14,7 @@ import { LookupCombo } from './LookupCombo'
 import { CaseTypeCombo } from './CaseTypeCombo'
 import { formatCell } from '../lib/datetime'
 import { formatProgramCode, isManualProgramCode } from '../lib/courtNumber'
-import { applyPrintColFilters, compactTableHtml, escPrint, printVal } from '../lib/printKit'
+import { applyPrintColFilters, compactTableHtml, escPrint, printVal, sendPrint } from '../lib/printKit'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 500, 1000]
 
@@ -377,7 +377,7 @@ export function CrudPage({
         notesLabel: t('printKit.notes'),
         emptyLabel: t('noData')
       })
-      await invoke('print:print', 'report', title, body)
+      await sendPrint('report', title, body)
       if ((res.total || 0) > fetched.length) toast(t('printListCapped', { count: fetched.length }))
     } catch (e) {
       toast((e as Error).message, 'err')

@@ -869,13 +869,55 @@ export function executionBlocksHtml(
   return wrapPrintBlocks(items, opts?.emptyLabel || t('noData'), opts?.subtitle)
 }
 
+export type PrintKindArg = 'report' | 'a4' | 'invoice' | 'receipt' | 'voucher' | string
+export type PrintLayoutArg = 'hearingsRoll' | 'landscape'
+
+export type PendingPrint = {
+  kind: PrintKindArg
+  title: string
+  body: string
+  layout?: PrintLayoutArg
+}
+
+let pendingPrint: PendingPrint | null = null
+const printPreviewListeners = new Set<() => void>()
+
+function notifyPrintPreview() {
+  for (const fn of printPreviewListeners) fn()
+}
+
+export function getPendingPrint(): PendingPrint | null {
+  return pendingPrint
+}
+
+export function subscribePrintPreview(fn: () => void): () => void {
+  printPreviewListeners.add(fn)
+  return () => {
+    printPreviewListeners.delete(fn)
+  }
+}
+
+export function cancelPendingPrint() {
+  pendingPrint = null
+  notifyPrintPreview()
+}
+
+export async function confirmPendingPrint() {
+  const job = pendingPrint
+  if (!job) return
+  await invoke('print:print', job.kind, job.title, job.body, job.layout)
+  pendingPrint = null
+  notifyPrintPreview()
+}
+
 export async function sendPrint(
-  kind: 'report' | 'a4',
+  kind: PrintKindArg,
   title: string,
   body: string,
-  layout?: 'hearingsRoll' | 'landscape'
+  layout?: PrintLayoutArg
 ) {
-  await invoke('print:print', kind, title, body, layout)
+  pendingPrint = { kind, title, body, layout }
+  notifyPrintPreview()
 }
 
 export type PrintFieldOpt = { id: string; label: string; defaultOn?: boolean }

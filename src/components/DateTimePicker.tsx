@@ -80,7 +80,7 @@ export function DatePicker({
   return (
     <OpenOnLabel>
     <div className="flex flex-wrap items-center gap-1.5">
-      <Select className="w-[80px]" value={empty ? '' : String(day)} onChange={(e) => set(y, m, Number(e.target.value))}>
+      <Select className="w-[5.5rem] min-w-[5.5rem]" value={empty ? '' : String(day)} onChange={(e) => set(y, m, Number(e.target.value))}>
         {empty && <option value="">{t('cal.pickDay')}</option>}
         {Array.from({ length: dim }, (_, i) => i + 1).map((n) => (
           <option key={n} value={n}>
@@ -96,7 +96,7 @@ export function DatePicker({
           </option>
         ))}
       </Select>
-      <Select className="w-[100px]" value={empty ? '' : String(y)} onChange={(e) => set(Number(e.target.value), m, day)}>
+      <Select className="w-[7.5rem] min-w-[7.5rem]" value={empty ? '' : String(y)} onChange={(e) => set(Number(e.target.value), m, day)}>
         {empty && <option value="">{t('cal.pickYear')}</option>}
         {years.map((n) => (
           <option key={n} value={n}>

@@ -146,7 +146,7 @@ export function LookupCombo({
     }
   }
 
-  const fieldClass = cn('w-full', value.trim() ? 'pe-8' : '')
+  const fieldClass = cn('w-full', value.trim() ? 'pe-9' : '')
   const fieldProps = {
     id: inputId,
     value: display,
@@ -231,7 +231,7 @@ export function LookupCombo({
               </button>
               <button
                 type="button"
-                className="min-w-0 flex-1 px-2 py-1.5 text-right text-sm"
+                className="min-w-0 flex-1 px-2 py-1.5 text-right text-base leading-normal"
                 onMouseDown={(e) => e.preventDefault()}
                 onPointerDown={(e) => {
                   e.stopPropagation()

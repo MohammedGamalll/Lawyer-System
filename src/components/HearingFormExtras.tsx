@@ -95,7 +95,7 @@ export function HearingFormExtras({
         <div className="w-[5.5rem]">
           <Field label={t('fields.hall')}>
             <input
-              className="h-9 w-full rounded border px-2 text-sm dark:bg-navy-900"
+              className="min-h-9 w-full rounded border px-2 py-1.5 text-base dark:bg-navy-900"
               value={String(form.hall || '')}
               onChange={(e) => setField('hall', e.target.value)}
             />
@@ -104,7 +104,7 @@ export function HearingFormExtras({
         <div className="w-[5.5rem]">
           <Field label={t('fields.floor')}>
             <input
-              className="h-9 w-full rounded border px-2 text-sm dark:bg-navy-900"
+              className="min-h-9 w-full rounded border px-2 py-1.5 text-base dark:bg-navy-900"
               value={String(form.floor || '')}
               onChange={(e) => setField('floor', e.target.value)}
             />

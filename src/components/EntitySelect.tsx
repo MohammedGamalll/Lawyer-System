@@ -123,7 +123,7 @@ export function EntitySelect({
         ref={triggerRef}
         id={triggerId}
         type="button"
-        className="flex h-9 w-full items-center justify-between gap-1 rounded-md border border-navy-200 bg-white px-3 text-sm text-navy-900 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-gold-400 dark:bg-navy-900 dark:border-navy-700 dark:text-navy-50"
+        className="flex min-h-9 w-full items-center justify-between gap-1 rounded-md border border-navy-200 bg-white px-3 py-1.5 text-base leading-normal text-navy-900 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-gold-400 dark:bg-navy-900 dark:border-navy-700 dark:text-navy-50"
         aria-expanded={open}
         onClick={openMenu}
         onFocus={() => setOpen(true)}
@@ -155,7 +155,7 @@ export function EntitySelect({
         <div className="p-1">
           <input
             ref={searchRef}
-            className="mb-2 h-8 w-full rounded border border-navy-200 px-2 text-sm outline-none focus:ring-2 focus:ring-gold-400 dark:bg-navy-950 dark:border-navy-700"
+            className="mb-2 min-h-8 w-full rounded border border-navy-200 px-2 py-1 text-base outline-none focus:ring-2 focus:ring-gold-400 dark:bg-navy-950 dark:border-navy-700"
             placeholder={t('typeToFilter')}
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -164,7 +164,7 @@ export function EntitySelect({
           <div className="max-h-64 overflow-y-auto overscroll-contain" onWheel={(e) => e.stopPropagation()}>
             <button
               type="button"
-              className="block w-full px-2 py-1.5 text-right text-sm text-navy-400 hover:bg-navy-50 dark:hover:bg-navy-800"
+              className="block w-full px-2 py-1.5 text-right text-base text-navy-400 hover:bg-navy-50 dark:hover:bg-navy-800"
               onMouseDown={(e) => e.preventDefault()}
               onPointerDown={(e) => {
                 e.stopPropagation()
@@ -181,7 +181,7 @@ export function EntitySelect({
                 type="button"
                 key={String(o.value)}
                 className={cn(
-                  'block w-full px-2 py-1.5 text-right text-sm hover:bg-navy-50 dark:hover:bg-navy-800',
+                  'block w-full px-2 py-1.5 text-right text-base hover:bg-navy-50 dark:hover:bg-navy-800',
                   String(o.value) === String(value) && 'bg-gold-50 font-semibold'
                 )}
                 onMouseDown={(e) => e.preventDefault()}

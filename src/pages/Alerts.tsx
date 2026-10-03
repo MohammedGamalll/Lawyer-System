@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { invoke } from '../lib/api'
 import { useApp } from '../store'
 import { Button, Card, Field, Modal, PageHeader, Select, Textarea } from '../components/ui'
-import { formatCell, formatDateTime } from '../lib/datetime'
+import { formatCell, formatDate, formatDateTime } from '../lib/datetime'
 import { formatProgramCode, courtParts } from '../lib/courtNumber'
 import { CourtNumberText } from '../components/CourtNumberText'
 import { onDataChanged } from '../lib/bus'
@@ -32,12 +32,23 @@ type Note = {
   appeal_year?: string | null
   cassation_number?: string | null
   cassation_year?: string | null
+  hearing_date?: string | null
+  task_due_date?: string | null
+  reminder_at?: string | null
 }
 
 type TaskRow = Record<string, unknown>
 
 function isTaskNote(n: Note) {
   return String(n.related_type || n.type || '') === 'task' && Boolean(n.related_id)
+}
+
+function isHearingNote(n: Note) {
+  return String(n.related_type || n.type || '') === 'hearing' && Boolean(n.related_id)
+}
+
+function alertEventDate(n: Note) {
+  return String(n.hearing_date || n.task_due_date || n.reminder_at || n.created_at || '').slice(0, 10)
 }
 
 function openRelated(n: Note, setPage: (p: string, m?: Record<string, unknown>) => void) {
@@ -142,13 +153,13 @@ export function AlertsPage() {
   useEffect(() => {
     load()
   }, [])
-  useEffect(() => onDataChanged(() => load(), ['notifications', 'tasks']), [])
+  useEffect(() => onDataChanged(() => load(), ['notifications', 'tasks', 'hearings']), [])
 
   const visible = useMemo(() => {
     return rows.filter((n) => {
       if (hideDone && n.is_read) return false
       if (typeFilter && alertKind(n) !== typeFilter && String(n.type || '') !== typeFilter) return false
-      const day = String(n.created_at || '').slice(0, 10)
+      const day = alertEventDate(n)
       if (from && day && day < from) return false
       if (to && day && day > to) return false
       return true
@@ -187,7 +198,7 @@ export function AlertsPage() {
         escPrint(n.opponent_name || ''),
         courtNumberPrint(n),
         escPrint(alertKindLabel(n, t)),
-        escPrint(formatDateTime(n.created_at, i18n.language))
+        escPrint(formatDate(alertEventDate(n), i18n.language) || formatDateTime(n.created_at, i18n.language))
       ]),
       notesLabel: t('fields.notes'),
       emptyLabel: t('noData'),
@@ -264,10 +275,27 @@ export function AlertsPage() {
     }
   }
 
+  const completeHearingRow = async (n: Note) => {
+    setBusy(true)
+    try {
+      if (n.related_id) {
+        await invoke('hearings:complete', String(n.related_id), n.id)
+      } else {
+        await invoke('notifications:read', n.id, true)
+      }
+      toast(t('savedOk'))
+      load()
+    } catch (e) {
+      toast((e as Error).message, 'err')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <PageHeader
-        title={t('nav.alerts')}
+        title={`${t('nav.alerts')} — ${t('alerts.today')}: ${formatDate(cairoTodayIso(), i18n.language)}`}
         actions={
           <span className="flex flex-wrap gap-2">
             <Button variant={hideDone ? 'primary' : 'outline'} onClick={() => setHideDone(true)}>
@@ -353,7 +381,9 @@ export function AlertsPage() {
                   </div>
                 ) : null}
                 {n.body ? <AlertBodyText text={n.body} /> : null}
-                <div className="text-xs text-navy-400">{formatDateTime(n.created_at, i18n.language)}</div>
+                <div className="text-xs text-navy-400">
+                  {formatDate(alertEventDate(n), i18n.language) || formatDateTime(n.created_at, i18n.language)}
+                </div>
               </button>
               {isTaskNote(n) ? (
                 <TaskAlertActions
@@ -362,6 +392,17 @@ export function AlertsPage() {
                   onEdit={() => void actFromRow(n, 'edit')}
                   onComplete={() => void actFromRow(n, 'complete')}
                 />
+              ) : isHearingNote(n) ? (
+                <div className="flex flex-wrap gap-1" onClick={(e) => e.stopPropagation()}>
+                  <Button
+                    type="button"
+                    className="h-8 px-2 text-xs"
+                    disabled={busy}
+                    onClick={() => void completeHearingRow(n)}
+                  >
+                    {t('alerts.hearingDone')}
+                  </Button>
+                </div>
               ) : null}
             </li>
           ))}

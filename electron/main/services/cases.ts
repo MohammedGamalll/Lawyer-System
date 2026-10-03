@@ -12,6 +12,8 @@ import { maskOpponentContactFields } from './people'
 import { clampPageSize, pageKind, includeIds, applyColumnFilters, orderBySql, programCodeSortSql, courtNumberSortSql } from '../db/queryLimits'
 import { ftsQuery } from '../db/fts'
 import { arabicLike, arabicFold, foldedLikeTerm } from '@shared/arabic'
+import { isProgramCodeQuery, shouldSkipFts } from '@shared/searchQuery'
+import { sqlClientOwnsCase } from './caseLink'
 
 function splitCourtQuery(raw: string): { number: string; year: string } {
   const t = String(raw ?? '').trim()
@@ -67,40 +69,40 @@ function applyNameAnd(
   return where
 }
 
-function applyProgramCodeFilter(where: string, params: unknown[], raw: string): string {
+export function applyProgramCodeFilter(where: string, params: unknown[], raw: string, alias = 'c'): string {
   const t = String(raw || '').trim()
   if (!t) return where
   const digits = t.replace(/\D/g, '')
-  where += ' AND (c.case_number LIKE ? OR IFNULL(c.internal_file_number, \'\') LIKE ?'
+  where += ` AND (${alias}.case_number LIKE ? OR IFNULL(${alias}.internal_file_number, '') LIKE ?`
   params.push(`%${t}%`, `%${t}%`)
   if (digits) {
-    where += ` OR CAST(REPLACE(REPLACE(c.case_number, 'CS-', ''), 'cs-', '') AS INTEGER) = ?`
+    where += ` OR CAST(REPLACE(REPLACE(${alias}.case_number, 'CS-', ''), 'cs-', '') AS INTEGER) = ?`
     params.push(Number(digits))
   }
   where += ')'
   return where
 }
 
-function applyCourtNumberFilter(where: string, params: unknown[], raw: string): string {
+export function applyCourtNumberFilter(where: string, params: unknown[], raw: string, alias = 'c'): string {
   const courtQ = splitCourtQuery(raw)
   if (!courtQ.number) return where
   if (courtQ.year) {
     where += ` AND (
-      (IFNULL(c.first_instance_number,'') LIKE ? AND IFNULL(c.first_instance_year,'') LIKE ?)
-      OR (IFNULL(c.office_case_number,'') LIKE ? AND IFNULL(c.case_year,'') LIKE ?)
-      OR (IFNULL(c.appeal_number,'') LIKE ? AND IFNULL(c.appeal_year,'') LIKE ?)
-      OR (IFNULL(c.cassation_number,'') LIKE ? AND IFNULL(c.cassation_year,'') LIKE ?)
+      (IFNULL(${alias}.first_instance_number,'') LIKE ? AND IFNULL(${alias}.first_instance_year,'') LIKE ?)
+      OR (IFNULL(${alias}.office_case_number,'') LIKE ? AND IFNULL(${alias}.case_year,'') LIKE ?)
+      OR (IFNULL(${alias}.appeal_number,'') LIKE ? AND IFNULL(${alias}.appeal_year,'') LIKE ?)
+      OR (IFNULL(${alias}.cassation_number,'') LIKE ? AND IFNULL(${alias}.cassation_year,'') LIKE ?)
     )`
     const n = `%${courtQ.number}%`
     const y = `%${courtQ.year}%`
     params.push(n, y, n, y, n, y, n, y)
   } else {
     where += ` AND (
-      IFNULL(c.first_instance_number,'') LIKE ?
-      OR IFNULL(c.office_case_number,'') LIKE ?
-      OR IFNULL(c.appeal_number,'') LIKE ?
-      OR IFNULL(c.cassation_number,'') LIKE ?
-      OR IFNULL(c.case_number,'') LIKE ?
+      IFNULL(${alias}.first_instance_number,'') LIKE ?
+      OR IFNULL(${alias}.office_case_number,'') LIKE ?
+      OR IFNULL(${alias}.appeal_number,'') LIKE ?
+      OR IFNULL(${alias}.cassation_number,'') LIKE ?
+      OR IFNULL(${alias}.case_number,'') LIKE ?
     )`
     const s = `%${courtQ.number}%`
     params.push(s, s, s, s, s)
@@ -122,8 +124,15 @@ export function listCases(query: ListQuery = {}, archived: number | 'all' = 0) {
   const f = query.filters ?? {}
   const params: unknown[] = []
   const scope = String(f.archive_scope ?? '')
+  const rawSearch = String(query.search || '')
+  const courtFromSearch = rawSearch ? splitCourtQuery(rawSearch) : { number: '', year: '' }
+  const codeOrCourt =
+    Boolean(f.program_code) ||
+    Boolean(f.office_case_number) ||
+    isProgramCodeQuery(rawSearch) ||
+    Boolean(courtFromSearch.year)
   let archivedSql = ''
-  if (scope === 'all' || archived === 'all') {
+  if (scope === 'all' || archived === 'all' || (codeOrCourt && !scope)) {
     archivedSql = ''
   } else if (scope === 'archived' || archived === 1) {
     archivedSql = 'c.is_archived = 1 AND '
@@ -131,22 +140,25 @@ export function listCases(query: ListQuery = {}, archived: number | 'all' = 0) {
     archivedSql = 'c.is_archived = 0 AND '
   }
   let where = `WHERE ${archivedSql}${notDeleted('c')} AND ${notDeleted('cl')}`
-  const fts = ftsQuery(String(query.search || ''))
-  const courtFromSearch = query.search ? splitCourtQuery(String(query.search)) : { number: '', year: '' }
-  if (query.search && fts && !courtFromSearch.year) {
+  const fts = ftsQuery(rawSearch)
+  if (rawSearch && courtFromSearch.year) {
+    where = applyCourtNumberFilter(where, params, rawSearch)
+  } else if (rawSearch && isProgramCodeQuery(rawSearch)) {
+    where = applyProgramCodeFilter(where, params, rawSearch)
+  } else if (rawSearch && fts && !shouldSkipFts(rawSearch)) {
     where += ` AND c.rowid IN (SELECT rowid FROM cases_fts WHERE cases_fts MATCH ?)`
     params.push(fts)
-  } else if (query.search && !courtFromSearch.year) {
-    where += ` AND (${arabicLike('c.title')} OR c.case_number LIKE ? OR c.office_case_number LIKE ? OR c.case_year LIKE ? OR c.first_instance_number LIKE ? OR c.first_instance_year LIKE ? OR c.appeal_number LIKE ? OR c.appeal_year LIKE ? OR c.cassation_number LIKE ? OR c.cassation_year LIKE ? OR c.internal_file_number LIKE ? OR ${arabicLike('cl.full_name')} OR ${arabicLike('c.category')} OR ${arabicLike('c.opponent_name')})`
-    const s = foldedLikeTerm(query.search)
-    params.push(s, s, s, s, s, s, s, s, s, s, s, s, s, s)
+  } else if (rawSearch) {
+    where += ` AND (${arabicLike('c.title')} OR c.case_number LIKE ? OR c.office_case_number LIKE ? OR c.case_year LIKE ? OR c.first_instance_number LIKE ? OR c.first_instance_year LIKE ? OR c.appeal_number LIKE ? OR c.appeal_year LIKE ? OR c.cassation_number LIKE ? OR c.cassation_year LIKE ? OR c.internal_file_number LIKE ? OR ${arabicLike('cl.full_name')} OR ${arabicLike('c.category')} OR ${arabicLike('c.opponent_name')} OR EXISTS (
+          SELECT 1 FROM case_clients x JOIN clients cx ON cx.id = x.client_id
+          WHERE x.case_id = c.id AND ${notDeleted('x')} AND ${notDeleted('cx')} AND ${arabicLike('cx.full_name')}
+        ))`
+    const s = foldedLikeTerm(rawSearch)
+    params.push(s, s, s, s, s, s, s, s, s, s, s, s, s, s, s)
   }
   const courtRaw = String(f.office_case_number ?? '')
   if (courtRaw) {
     where = applyCourtNumberFilter(where, params, courtRaw)
-  } else if (query.search) {
-    const courtQ = splitCourtQuery(String(query.search))
-    if (courtQ.year) where = applyCourtNumberFilter(where, params, String(query.search))
   }
   if (f.program_code) where = applyProgramCodeFilter(where, params, String(f.program_code))
   const parties = parsePartyFilters(String(f.client_name ?? ''), String(f.opponent_name ?? ''))
@@ -202,8 +214,8 @@ export function listCases(query: ListQuery = {}, archived: number | 'all' = 0) {
     params.push(f.primary_lawyer_id)
   }
   if (f.client_id) {
-    where += ' AND c.client_id = ?'
-    params.push(f.client_id)
+    where += ` AND ${sqlClientOwnsCase('c')}`
+    params.push(f.client_id, f.client_id)
   }
   if (f.upcoming) {
     where += ` AND EXISTS (SELECT 1 FROM hearings h WHERE h.case_id = c.id AND ${notDeleted('h')} AND date(h.hearing_date) >= date(?))`
@@ -848,14 +860,23 @@ export function allocateCaseNumber(
   const mode = String(data.numbering_mode ?? '').trim() === 'manual' ? 'manual' : 'auto'
   const typed = String(data.case_number ?? '').trim()
   let number = ''
-  if (mode === 'manual') {
+  if (excludeId) {
+    const old = db.prepare(`SELECT case_number FROM cases WHERE id = ?`).get(excludeId) as { case_number?: string } | undefined
+    const kept = String(old?.case_number || '')
+    if (mode === 'manual' && typed) {
+      assertUniqueProgramCode(db, typed, excludeId)
+      bumpCaseSequenceIfNeeded(db, typed)
+      number = typed
+    } else if (kept) {
+      number = kept
+    } else {
+      throw new Error('كود القضية غير موجود')
+    }
+  } else if (mode === 'manual') {
     if (!typed) throw new Error('أدخل كود القضية')
     assertUniqueProgramCode(db, typed, excludeId)
     bumpCaseSequenceIfNeeded(db, typed)
     number = typed
-  } else if (excludeId) {
-    const old = db.prepare(`SELECT case_number FROM cases WHERE id = ?`).get(excludeId) as { case_number: string }
-    number = old.case_number
   } else {
     let next = nextNumber(db, 'case')
     for (let i = 0; i < 50; i++) {

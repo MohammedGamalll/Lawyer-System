@@ -191,7 +191,7 @@ export function ClientsPage() {
           <Button
             variant="outline"
             onClick={() =>
-              invoke('print:print', 'a4', t('clients.blankForm'), clientBlankFormHtml()).catch((e) =>
+              void sendPrint('a4', t('clients.blankForm'), clientBlankFormHtml()).catch((e) =>
                 toast((e as Error).message, 'err')
               )
             }
