@@ -17,7 +17,7 @@ export function dashboardStats(actor?: AuthedUser | null) {
     `SELECT COUNT(*) as c FROM clients WHERE is_archived = 0 AND date(created_at) >= ? AND ${notDeleted()}`,
     monthStart
   )
-  const cases = scalar(`SELECT COUNT(*) as c FROM cases WHERE is_archived = 0 AND ${notDeleted()}`)
+  const cases = scalar(`SELECT COUNT(*) as c FROM cases WHERE ${notDeleted()}`)
   const openCases = scalar(
     `SELECT COUNT(*) as c FROM cases WHERE is_archived = 0 AND status NOT IN ('closed','archived') AND ${notDeleted()}`
   )

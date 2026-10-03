@@ -82,6 +82,10 @@ export function DashboardPage() {
               className={`min-h-[92px] cursor-pointer ${theme.wrap}`}
               onClick={() => {
                 if (!c.page) return
+                if (c.key === 'cases') {
+                  setPage('cases', { archive_scope: 'all' })
+                  return
+                }
                 if (c.key === 'actionCases') {
                   setPage('cases', { status_in: 'new,under_review,for_judgment,execution' })
                   return
