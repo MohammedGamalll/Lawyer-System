@@ -257,6 +257,11 @@ export async function pushQueue(): Promise<string> {
           emitSyncStatus('syncing', lastError)
           return lastError
         }
+        if (item.table_name === 'audit_logs') {
+          removeQueueItem(item.id)
+          progressed = true
+          continue
+        }
         let queuedParent = false
         try {
           const payload = JSON.parse(item.payload) as Record<string, unknown>

@@ -70,6 +70,8 @@ export function wipeBusinessData(actor: AuthedUser): { tables: number } {
   getDb().exec('DELETE FROM local_sync_queue')
   setSettingSilent('sync_last_pulled_at', '1970-01-01T00:00:00.000Z')
   setSettingSilent('sync_parents_bootstrapped', '0')
+  setSettingSilent('sync_pull_checkpoint', '')
+  setSettingSilent('sync_full_pull_v124', '')
   try {
     ensureFts(getDb(), { forceRebuild: true })
   } catch {

@@ -8,7 +8,7 @@ import { isSyncConfigured } from './client'
 import { guardAbortError, isSyncPaused, runPrePushGuard, setAuthGuardWindow } from './authGuard'
 import { mapSyncError } from './errors'
 import { pushQueue } from './push'
-import { pullChanges } from './pull'
+import { pullChanges, hasIncompletePull } from './pull'
 import { startRealtime, stopRealtime } from './realtime'
 import { emitSyncStatus, getSyncSnapshot, onSyncStatus } from './status'
 import { CYCLE_TIMEOUT_MS, TIMEOUT_MESSAGE, withTimeout } from './timeout'
@@ -42,6 +42,9 @@ export function getSyncState() {
   }
   const snap = getSyncSnapshot()
   if (!isSyncConfigured()) return { ...snap, status: 'offline' as const, pendingCount: pending }
+  if (hasIncompletePull()) {
+    return { ...snap, pendingCount: pending, status: 'syncing' as const, error: snap.error || 'جاري استكمال سحب البيانات…' }
+  }
   const pauseErr = guardAbortError()
   if (isSyncPaused() && pauseErr) {
     return { ...snap, pendingCount: pending, status: 'syncing' as const, error: pauseErr }
@@ -69,11 +72,13 @@ export async function runSyncCycle(): Promise<void> {
       emitSyncStatus('syncing', 'جاري رفع البيانات…')
       const pushError = mapSyncError(await pushQueue())
       emitSyncStatus('syncing', 'جاري سحب البيانات…')
-      await pullChanges()
+      const pulled = await pullChanges()
       startRealtime(getWin)
       const pending = pendingCount()
-      if (pending > 0) emitSyncStatus('syncing', pushError)
-      else emitSyncStatus('synced')
+      if (!pulled.done || pending > 0 || hasIncompletePull()) {
+        emitSyncStatus('syncing', pushError || 'جاري استكمال سحب البيانات…')
+        scheduleSyncSoon()
+      } else emitSyncStatus('synced')
       getWin()?.webContents.send('sync:changed', { table: '*' })
     } catch (err) {
       log.warn('sync cycle', err)
@@ -86,8 +91,10 @@ export async function runSyncCycle(): Promise<void> {
       }
       const message = mapSyncError(String((err as Error).message || err))
       try {
-        if (pendingCount() > 0) emitSyncStatus('syncing', message)
-        else emitSyncStatus('offline', message)
+        if (hasIncompletePull() || pendingCount() > 0) {
+          emitSyncStatus('syncing', message)
+          scheduleSyncSoon()
+        } else emitSyncStatus('offline', message)
       } catch {
         emitSyncStatus('offline', message)
       }
@@ -97,7 +104,10 @@ export async function runSyncCycle(): Promise<void> {
     .catch((err) => {
       const message = mapSyncError(String((err as Error).message || err))
       try {
-        emitSyncStatus(pendingCount() > 0 ? 'syncing' : 'offline', message)
+        if (hasIncompletePull() || pendingCount() > 0) {
+          emitSyncStatus('syncing', message)
+          scheduleSyncSoon()
+        } else emitSyncStatus('offline', message)
       } catch {
         emitSyncStatus('offline', message)
       }
