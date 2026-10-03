@@ -26,7 +26,8 @@ const EXTRA_SCOPES: Record<string, string[]> = {
   'dues:remove': ['case_dues', 'cases'],
   'notifications:read': ['notifications'],
   'notifications:readAll': ['notifications'],
-  'hearings:complete': ['hearings', 'notifications']
+  'hearings:complete': ['hearings', 'notifications'],
+  'clients:merge': ['clients', 'cases']
 }
 
 function scopesFromChannel(channel: string): string[] {
@@ -54,7 +55,8 @@ export async function invoke<T>(channel: string, ...args: unknown[]): Promise<T>
     /^notifications:(read|readAll)$/.test(channel) ||
     channel === 'auth:resetPassword' ||
     channel === 'caseTypes:findOrCreate' ||
-    channel === 'hearings:complete'
+    channel === 'hearings:complete' ||
+    channel === 'clients:merge'
   ) {
     notifyDataChanged(scopesFromChannel(channel))
   }

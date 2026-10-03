@@ -52,10 +52,11 @@ describe.skipIf(!sqliteAvailable())('office search, extra parties, archived code
               ('cl2', 'CL-2', 'موكل إضافي', 'individual', ?, ?)`
     ).run(ts, ts, ts, ts)
     db.prepare(
-      `INSERT INTO cases (id, case_number, title, client_id, status, is_archived, created_at, updated_at)
-       VALUES ('cs512', 'CS-00512', 'قضية مؤرشفة', 'cl1', 'closed', 1, ?, ?),
-              ('cs-extra', 'CS-00090', 'قضية طرف إضافي', 'cl1', 'open', 0, ?, ?)`
-    ).run(ts, ts, ts, ts)
+      `INSERT INTO cases (id, case_number, title, client_id, status, is_archived, internal_file_number, created_at, updated_at)
+       VALUES ('cs512', 'CS-00512', 'قضية مؤرشفة', 'cl1', 'closed', 1, NULL, ?, ?),
+              ('cs-extra', 'CS-00090', 'قضية طرف إضافي', 'cl1', 'open', 0, NULL, ?, ?),
+              ('cs-rec', 'CS-00091', 'قضية برقم أرشيف', 'cl1', 'open', 0, '777', ?, ?)`
+    ).run(ts, ts, ts, ts, ts, ts)
     db.prepare(
       `INSERT INTO case_clients (id, case_id, client_id, is_primary, sort_order, created_at, updated_at)
        VALUES ('cc1', 'cs-extra', 'cl2', 0, 1, ?, ?)`
@@ -88,6 +89,13 @@ describe.skipIf(!sqliteAvailable())('office search, extra parties, archived code
 
     const adv = advancedSearch({ program_code: '512' }) as { id: string }[]
     expect(adv.some((r) => r.id === 'cs512')).toBe(true)
+
+    const byRecno = listCases({ page: 1, pageSize: 50, search: '777' }, 0)
+    expect(byRecno.rows.some((r) => String(r.id) === 'cs-rec')).toBe(true)
+    const globalRecno = globalSearch('777', actor) as { cases?: { id: string }[] }
+    expect((globalRecno.cases || []).some((r) => r.id === 'cs-rec')).toBe(true)
+    const advRecno = advancedSearch({ program_code: '777' }) as { id: string }[]
+    expect(advRecno.some((r) => r.id === 'cs-rec')).toBe(true)
     },
     20000
   )

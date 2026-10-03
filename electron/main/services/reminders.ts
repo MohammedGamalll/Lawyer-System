@@ -62,6 +62,23 @@ function alreadyNotifiedToday(type: string, relatedId?: string): boolean {
   return Boolean(row)
 }
 
+function alreadyNotifiedHearingCaseDate(caseId: string, hearingDate: string): boolean {
+  if (!caseId || !hearingDate) return false
+  const today = todayIso()
+  const day = hearingDate.slice(0, 10)
+  const row = getDb()
+    .prepare(
+      `SELECT 1 as x FROM notifications n
+       JOIN hearings h ON h.id = n.related_id AND h.deleted_at IS NULL
+       WHERE n.type = 'hearing' AND n.deleted_at IS NULL
+         AND substr(n.created_at, 1, 10) = ?
+         AND h.case_id = ?
+         AND substr(h.hearing_date, 1, 10) = ?`
+    )
+    .get(today, caseId, day) as { x: number } | undefined
+  return Boolean(row)
+}
+
 export function notifyUser(
   userId: string | null,
   title: string,
@@ -112,7 +129,7 @@ export function generateDailyNotifications(): void {
   const today = todayIso()
   const tomorrow = addDays(today, 1).slice(0, 10)
 
-  const hearingSelect = `SELECT h.id, h.hearing_date, h.next_hearing_date, h.result, h.court_decision, h.what_happened,
+  const hearingSelect = `SELECT h.id, h.case_id, h.hearing_date, h.next_hearing_date, h.result, h.court_decision, h.what_happened,
               cs.title, cs.case_number, cs.office_case_number, cs.case_year, cs.status as case_status, cs.is_archived,
               cs.first_instance_number, cs.first_instance_year, cs.appeal_number, cs.appeal_year,
               cs.cassation_number, cs.cassation_year, cs.opponent_name, cl.full_name as client_name
@@ -122,6 +139,7 @@ export function generateDailyNotifications(): void {
        WHERE h.hearing_date = ? AND h.status = 'upcoming' AND ${notDeleted('h')} AND ${notDeleted('cs')}`
   type HearingAlert = {
     id: string
+    case_id: string
     title: string
     hearing_date?: string
     next_hearing_date?: string
@@ -149,6 +167,19 @@ export function generateDailyNotifications(): void {
     return [code, court, parties, h.title].filter(Boolean).join(' — ')
   }
 
+  const notifiedCaseDays = new Set<string>()
+  const notifyHearingOnce = (h: HearingAlert, title: string, fallbackDate: string) => {
+    const day = String(h.hearing_date || fallbackDate).slice(0, 10)
+    const key = `${h.case_id}|${day}`
+    if (notifiedCaseDays.has(key)) return
+    if (alreadyNotifiedHearingCaseDate(h.case_id, day)) {
+      notifiedCaseDays.add(key)
+      return
+    }
+    notifiedCaseDays.add(key)
+    notifyUser(null, title, hearingBody(h), 'hearing', 'hearing', h.id)
+  }
+
   const todayHearings = db.prepare(hearingSelect).all(today) as HearingAlert[]
   for (const h of todayHearings) {
     if (
@@ -167,7 +198,7 @@ export function generateDailyNotifications(): void {
     ) {
       continue
     }
-    notifyUser(null, 'جلسة اليوم', hearingBody(h), 'hearing', 'hearing', h.id)
+    notifyHearingOnce(h, 'جلسة اليوم', today)
   }
 
   const tomorrowHearings = db.prepare(hearingSelect).all(tomorrow) as HearingAlert[]
@@ -188,7 +219,7 @@ export function generateDailyNotifications(): void {
     ) {
       continue
     }
-    notifyUser(null, 'جلسة الغد', hearingBody(h), 'hearing', 'hearing', h.id)
+    notifyHearingOnce(h, 'جلسة الغد', tomorrow)
   }
 
   const overdue = db

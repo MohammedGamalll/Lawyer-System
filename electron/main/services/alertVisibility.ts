@@ -112,7 +112,7 @@ export function notificationDedupeKey(row: Record<string, unknown>): string {
   const digits = String(row.case_number || '').replace(/\D/g, '')
   const code = digits ? String(Number(digits)) : ''
   if (kind === 'hearing' && code && date) {
-    return `hearing|${code}|${date}|${arabicFold(row.hearing_type)}`
+    return `hearing|${code}|${date}`
   }
   const rid = String(row.related_id || '')
   if (kind && rid) return `${kind}:${rid}`

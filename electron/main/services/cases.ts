@@ -77,7 +77,8 @@ export function applyProgramCodeFilter(where: string, params: unknown[], raw: st
   params.push(`%${t}%`, `%${t}%`)
   if (digits) {
     where += ` OR CAST(REPLACE(REPLACE(${alias}.case_number, 'CS-', ''), 'cs-', '') AS INTEGER) = ?`
-    params.push(Number(digits))
+    where += ` OR CAST(IFNULL(${alias}.internal_file_number,'') AS INTEGER) = ?`
+    params.push(Number(digits), Number(digits))
   }
   where += ')'
   return where

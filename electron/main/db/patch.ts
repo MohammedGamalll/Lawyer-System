@@ -116,7 +116,7 @@ export function patchSchema(db: Db): void {
   addColumn(db, 'case_opponents', 'capacity_appeal', 'TEXT')
   addColumn(db, 'case_opponents', 'capacity_cassation', 'TEXT')
   addColumn(db, 'case_opponents', 'sort_order', 'INTEGER NOT NULL DEFAULT 0')
-  ensureCaseSequenceFrom(db, 7000)
+  ensureCaseSequenceFrom(db, 0)
   try {
     extractCourtNumbers(db)
   } catch (err) {

@@ -32,6 +32,7 @@ function wipeExceptAdminTx(): number {
   let n = 0
   for (const t of tables) {
     if (KEEP.has(t.name)) continue
+    if (t.name.includes('_fts')) continue
     db.exec(`DELETE FROM "${t.name}"`)
     n++
   }

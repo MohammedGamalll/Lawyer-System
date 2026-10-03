@@ -30,7 +30,6 @@ import {
 
 const BUSY_MSG = 'أغلق برنامج المكتب ثم أعد التشغيل'
 const SYNC_SET = new Set<string>(SYNC_TABLES)
-const CASE_SEQ_FLOOR = 7000
 
 export type MigrateOptions = {
   archivePath?: string
@@ -295,6 +294,8 @@ export function migrateArchive(opts: MigrateOptions = {}): MigrateReport {
     const lawyerByName = new Map<string, string>()
     const lawyerBySaljas = new Map<string, string>()
     const caseByKey = new Map<string, string>()
+    const caseByRecno = new Map<string, string>()
+    const caseByAllocatedN = new Map<string, string>()
     const courtToCases = new Map<string, string[]>()
     const adoptedLiveCases = new Set<string>()
     const liveParties = new Map<string, { clients: string[]; opponents: string[] }>()
@@ -306,6 +307,7 @@ export function migrateArchive(opts: MigrateOptions = {}): MigrateReport {
     const countedClients = new Set<string>()
     const countedOpponents = new Set<string>()
     const nidByFold = new Map<string, string>()
+    const archiveRecnos = new Set<string>()
 
     for (const r of live.prepare(`SELECT id, full_name, national_id FROM clients WHERE deleted_at IS NULL`).all() as {
       id: string
@@ -416,7 +418,15 @@ export function migrateArchive(opts: MigrateOptions = {}): MigrateReport {
           const hit = live.prepare(`SELECT id FROM cases WHERE id=? AND deleted_at IS NULL`).get(r.live_id) as
             | { id: string }
             | undefined
-          if (hit) caseByKey.set(r.archive_key, hit.id)
+          if (hit) {
+            caseByKey.set(r.archive_key, hit.id)
+            const recno = Number(String(r.archive_key).split(':').pop())
+            if (Number.isFinite(recno) && recno > 0) {
+              const n = String(Math.trunc(recno))
+              if (r.archive_key.startsWith('cs:')) caseByAllocatedN.set(n, hit.id)
+              else caseByRecno.set(n, hit.id)
+            }
+          }
         }
         if (r.live_table === 'clients') {
           const hit = live.prepare(`SELECT id FROM clients WHERE id=? AND deleted_at IS NULL`).get(r.live_id) as
@@ -453,11 +463,37 @@ export function migrateArchive(opts: MigrateOptions = {}): MigrateReport {
       maxClientN = Math.max(maxClientN, next.n)
       return next.code
     }
-    const allocCaseCode = () => {
-      const next = nextFreeProgramNumber(occupiedCaseCodes, 1, casePrefix, casePad)
+    const peekCaseCode = () => nextFreeProgramNumber(occupiedCaseCodes, 1, casePrefix, casePad)
+    const commitCaseCode = (next: { n: number; code: string }) => {
       occupiedCaseCodes.add(programCodeKey(next.code))
       maxCaseN = Math.max(maxCaseN, next.n)
-      return next.code
+    }
+    const recnoFromArchiveKey = (key: string): string => {
+      const n = Number(String(key).split(':').pop())
+      return Number.isFinite(n) && n > 0 ? String(Math.trunc(n)) : ''
+    }
+    const rememberCase = (archiveKey: string, caseId: string, allocatedN?: number) => {
+      caseByKey.set(archiveKey, caseId)
+      const recno = archiveKey.startsWith('cs:') ? '' : recnoFromArchiveKey(archiveKey)
+      if (recno) {
+        caseByRecno.set(recno, caseId)
+        saveMap(`recno:${recno}`, 'cases', caseId)
+      }
+      if (allocatedN && allocatedN > 0) {
+        caseByAllocatedN.set(String(allocatedN), caseId)
+        saveMap(`cs:${allocatedN}`, 'cases', caseId)
+      }
+      saveMap(archiveKey, 'cases', caseId)
+    }
+    const resolveMigratedCase = (office: string, recno: number): string | undefined => {
+      const n = String(recno)
+      return (
+        caseByKey.get(`${office}:${recno}`) ||
+        caseByRecno.get(n) ||
+        caseByKey.get(`Mas002:${recno}`) ||
+        caseByKey.get(`Mas001:${recno}`) ||
+        (archiveRecnos.has(n) ? undefined : caseByAllocatedN.get(n))
+      )
     }
 
     const noteClient = (id: string, created: boolean) => {
@@ -671,6 +707,7 @@ export function migrateArchive(opts: MigrateOptions = {}): MigrateReport {
       const office = str(row, 'المكتب') || 'Mas002'
       const recno = str(row, 'رقم_السجل')
       const archiveKey = `${office}:${recno}`
+      if (recno) archiveRecnos.add(String(Number(recno) || recno))
       if (isEmptyArchiveCase(row)) {
         report.casesSkippedEmpty += 1
         continue
@@ -702,34 +739,34 @@ export function migrateArchive(opts: MigrateOptions = {}): MigrateReport {
       if (caseId) {
         report.casesReused += 1
         adoptedLiveCases.add(caseId)
-        caseByKey.set(archiveKey, caseId)
-        saveMap(archiveKey, 'cases', caseId)
+        rememberCase(archiveKey, caseId)
       } else {
         caseId = randomUUID()
         const degrees = caseDegreeFields(row)
         const title = str(row, 'موضوع الدعوى') || (str(row, 'المحكمة') ? `قضية ${str(row, 'المحكمة')}` : `قضية ${archiveKey}`)
         const { status, archived } = mapCaseStatus(str(row, 'وضع الملف'))
         const typeId = findOrCreateType(str(row, 'نوع القضية'))
-        const code = allocCaseCode()
+        const next = peekCaseCode()
+        const archiveRecno = recnoFromArchiveKey(archiveKey)
         report.casesInserted += 1
-        caseByKey.set(archiveKey, caseId)
         if (apply) {
           live!
             .prepare(
               `INSERT INTO cases (
-                 id, case_number, office_case_number, case_year, title, client_id,
+                 id, case_number, office_case_number, case_year, internal_file_number, title, client_id,
                  primary_lawyer_id, assistant_lawyer_id, case_type_id, category, court, circuit,
                  first_instance_number, first_instance_year, appeal_number, appeal_year,
                  cassation_number, cassation_year, session_place,
                  filing_date, received_date, status, opponent_name, description,
                  is_archived, created_at, updated_at
-               ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+               ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
             )
             .run(
               caseId,
-              code,
+              next.code,
               degrees.office_case_number,
               degrees.case_year,
+              archiveRecno || null,
               title,
               clientId,
               matchLawyer(str(row, 'محامي أول')),
@@ -756,8 +793,9 @@ export function migrateArchive(opts: MigrateOptions = {}): MigrateReport {
             )
           chunk.tick()
         }
+        commitCaseCode(next)
+        rememberCase(archiveKey, caseId, next.n)
         enqueue('cases', caseId, 'INSERT')
-        saveMap(archiveKey, 'cases', caseId)
       }
 
       linkCaseClient(caseId, clientId, {
@@ -790,11 +828,12 @@ export function migrateArchive(opts: MigrateOptions = {}): MigrateReport {
         report.hearingsOrphan += 1
         continue
       }
-      const caseId = caseByKey.get(`${office}:${caseRecno}`)
+      const caseId = resolveMigratedCase(office, caseRecno)
       if (!caseId) {
         report.hearingsOrphan += 1
         continue
       }
+      rememberCase(`${office}:${caseRecno}`, caseId)
       const date = parseLegacyDate(row['تاريخ_الجلسة'])
       if (!date) {
         report.hearingsOrphan += 1
@@ -850,7 +889,7 @@ export function migrateArchive(opts: MigrateOptions = {}): MigrateReport {
       }
       enqueue('number_sequences', name, 'UPDATE')
     }
-    bumpSeq('case', maxCaseN, CASE_SEQ_FLOOR)
+    bumpSeq('case', maxCaseN, 0)
     bumpSeq('client', maxClientN, 0)
 
     chunk.commit(false)

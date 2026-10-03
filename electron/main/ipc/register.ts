@@ -121,6 +121,9 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
   )
   handle(ipc, IPC.clients.create, { permission: 'clients.create', write: true }, (_e, user, data) => ok(clients.createClient(user!, data as never)))
   handle(ipc, IPC.clients.update, { permission: 'clients.update', write: true }, (_e, user, id, data) => ok(clients.updateClient(user!, String(id), data as never)))
+  handle(ipc, IPC.clients.merge, { permission: 'clients.update', write: true }, (_e, user, keepId, dupId) =>
+    ok(dataRepair.mergeClientsByChoice(user!, String(keepId), String(dupId)))
+  )
   handle(ipc, IPC.clients.remove, { permission: 'clients.delete', write: true }, (_e, user, id) => {
     clients.removeClient(user!, String(id))
     return ok(true)

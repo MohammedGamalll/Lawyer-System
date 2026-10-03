@@ -31,6 +31,7 @@ export const IPC = {
     importPreview: 'clients:importPreview',
     importCommit: 'clients:importCommit',
     importTemplate: 'clients:importTemplate',
+    merge: 'clients:merge',
     addContact: 'clients:addContact',
     removeContact: 'clients:removeContact'
   },

@@ -5,7 +5,7 @@ import { CaseFormExtras } from '../components/CaseFormExtras'
 import { PrintFieldPicker } from '../components/PrintFieldPicker'
 import { ContactActions } from '../components/ContactActions'
 import { AndOthers } from '../components/AndOthers'
-import { Button, Input, Select } from '../components/ui'
+import { Button, Field, Input, Select } from '../components/ui'
 import { EntitySelect } from '../components/EntitySelect'
 import { LookupCombo } from '../components/LookupCombo'
 import { DatePicker } from '../components/DateTimePicker'
@@ -124,6 +124,11 @@ export function ClientsPage() {
   const showContact = can('clients.unmask_contact')
   const listFilters: Record<string, unknown> = {}
   if (pageMeta.created_from) listFilters.created_from = String(pageMeta.created_from)
+  const [mergeOpen, setMergeOpen] = useState(false)
+  const [keepId, setKeepId] = useState('')
+  const [dupId, setDupId] = useState('')
+  const [mergeAsk, setMergeAsk] = useState(false)
+  const [mergeBusy, setMergeBusy] = useState(false)
   return (
     <CrudPage
       title={t('nav.clients')}
@@ -199,6 +204,66 @@ export function ClientsPage() {
             {t('clients.printBlank')}
           </Button>
           <ImportButton kind="clients" />
+          {can('clients.update') ? (
+            <Button type="button" variant="outline" onClick={() => setMergeOpen((v) => !v)}>
+              {t('clients.merge')}
+            </Button>
+          ) : null}
+          {mergeOpen ? (
+            <div className="w-full basis-full rounded border border-navy-200 bg-navy-50 px-3 py-3 dark:border-navy-800 dark:bg-navy-950/40">
+              <div className="grid max-w-3xl gap-3 md:grid-cols-2">
+                <Field label={t('clients.mergeKeep')}>
+                  <EntitySelect kind="clients" value={keepId} onChange={setKeepId} excludeIds={dupId ? [dupId] : []} />
+                </Field>
+                <Field label={t('clients.mergeDup')}>
+                  <EntitySelect kind="clients" value={dupId} onChange={setDupId} excludeIds={keepId ? [keepId] : []} />
+                </Field>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!keepId || !dupId || mergeBusy}
+                  onClick={() => setMergeAsk(true)}
+                >
+                  {t('clients.merge')}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setMergeOpen(false)}>
+                  {t('cancel')}
+                </Button>
+              </div>
+              {mergeAsk ? (
+                <div className="mt-3">
+                  <p className="text-sm">{t('clients.mergeConfirm')}</p>
+                  <div className="mt-2 flex justify-end gap-2">
+                    <Button type="button" variant="outline" onClick={() => setMergeAsk(false)}>
+                      {t('cancel')}
+                    </Button>
+                    <Button
+                      type="button"
+                      disabled={mergeBusy}
+                      onClick={async () => {
+                        setMergeBusy(true)
+                        try {
+                          await invoke('clients:merge', keepId, dupId)
+                          setMergeAsk(false)
+                          setDupId('')
+                          setMergeOpen(false)
+                          toast(t('clients.mergeDone'))
+                        } catch (e) {
+                          toast((e as Error).message, 'err')
+                        } finally {
+                          setMergeBusy(false)
+                        }
+                      }}
+                    >
+                      {t('save')}
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </>
       }
       onRowOpen={(r) => setPage('clientProfile', { id: r.id })}

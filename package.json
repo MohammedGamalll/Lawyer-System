@@ -1,6 +1,6 @@
 {
   "name": "law-office-management",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Law Office Management System",
   "main": "./out/main/index.js",
   "author": "Law Office Management",
@@ -25,7 +25,8 @@
     "db:clean": "python scripts/clean-test-data.py",
     "import:saljas": "python scripts/import_saljas.py",
     "archive:build": "python scripts/build-archive-db.py",
-    "migrate:archive": "npx esbuild scripts/migrate-archive.ts --bundle --platform=node --format=cjs --external:better-sqlite3 --outfile=scripts/migrate-archive.cjs && node scripts/electron-node.js scripts/migrate-archive.cjs",
+    "migrate:archive": "npx esbuild scripts/migrate-archive.ts --bundle --platform=node --format=cjs --external:better-sqlite3 --external:electron --alias:@shared=./shared --outfile=scripts/migrate-archive.cjs && node scripts/electron-node.js scripts/migrate-archive.cjs",
+    "wipe:data": "npx esbuild scripts/wipe-data.ts --bundle --platform=node --format=cjs --external:better-sqlite3 --external:electron --alias:@shared=./shared --outfile=scripts/wipe-data.cjs && node scripts/electron-node.js scripts/wipe-data.cjs",
     "upload:saljas": "esbuild scripts/bulk-upload-saljas.ts --bundle --platform=node --format=cjs --external:better-sqlite3 --external:@supabase/supabase-js --outfile=scripts/bulk-upload-saljas.cjs"
   },
   "dependencies": {

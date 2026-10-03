@@ -278,7 +278,11 @@ describe.skipIf(!sqliteAvailable())('archive migrate sqlite', () => {
     expect(queued.filter((q) => q.table_name === 'clients' && q.operation === 'INSERT').length).toBe(1)
 
     const seq = db.prepare(`SELECT current_value FROM number_sequences WHERE name='case'`).get() as { current_value: number }
-    expect(seq.current_value).toBeGreaterThanOrEqual(7000)
+    expect(seq.current_value).toBe(3)
+    const migrated = db
+      .prepare(`SELECT internal_file_number FROM cases WHERE id NOT IN ('cs-live','cs-one') ORDER BY internal_file_number`)
+      .all() as { internal_file_number: string | null }[]
+    expect(migrated.map((c) => c.internal_file_number)).toEqual(['3', '4'])
 
     db.close()
 
@@ -286,6 +290,54 @@ describe.skipIf(!sqliteAvailable())('archive migrate sqlite', () => {
     expect(second.casesInserted).toBe(0)
     expect(second.hearingsInserted).toBe(0)
     expect(second.clientsInserted).toBe(0)
+  })
+
+  it('stores archive recno and attaches a Hex hearing via allocated CS alias', () => {
+    const { archivePath, dbPath, archive, live, ts } = makePair()
+    live
+      .prepare(
+        `INSERT INTO clients (id, client_number, full_name, client_type, created_at, updated_at)
+         VALUES (?,?,?,?,?,?)`
+      )
+      .run('c1', 'CL-0001', 'احمد علي', 'individual', ts, ts)
+    live
+      .prepare(`INSERT INTO cases (id, case_number, title, client_id, created_at, updated_at) VALUES (?,?,?,?,?,?)`)
+      .run('cs-one', 'CS-00001', 'occupied one', 'c1', ts, ts)
+    const hex = hexFor(2, 99)
+    expect(archiveCaseRecnoFromHex(hex, 99)).toBe(2)
+    archive.exec(`
+      INSERT INTO "الموكلين" VALUES ('أحمد علي', '', 'Mas002', '8');
+      INSERT INTO "القضايا"
+        ("المكتب","رقم_السجل","نوع القضية","وردت للمكتب","الجهة_الموكل","إسم الخصم","موضوع الدعوى","رقم أول درجة","المحكمة","بيانات الجهة")
+      VALUES
+        ('Mas002','8','مدني','01-01-1994','أحمد علي','خصم','موضوع','100/1994','جنوب','');
+      INSERT INTO "الجلسات" VALUES ('Mas002','99','10-01-1994','اول جلسه','1','${hex}');
+    `)
+    archive.close()
+    live.close()
+    const dry = migrateArchive({ archivePath, dbPath, apply: false, today: '2026-10-01' })
+    expect(dry.casesInserted).toBe(1)
+    expect(dry.hearingsInserted).toBe(1)
+    expect(dry.hearingsOrphan).toBe(0)
+    const liveCheck = openDb(dbPath)
+    expect((liveCheck.prepare(`SELECT current_value FROM number_sequences WHERE name='case'`).get() as { current_value: number }).current_value).toBe(0)
+    liveCheck.close()
+
+    const applied = migrateArchive({ archivePath, dbPath, apply: true, today: '2026-10-01' })
+    expect(applied.hearingsInserted).toBe(1)
+    expect(applied.hearingsOrphan).toBe(0)
+    const db = openDb(dbPath)
+    const created = db
+      .prepare(`SELECT id, case_number, internal_file_number FROM cases WHERE id != 'cs-one'`)
+      .get() as { id: string; case_number: string; internal_file_number: string }
+    expect(created.internal_file_number).toBe('8')
+    expect(programCodeKey(created.case_number)).toBe('2')
+    const hearing = db.prepare(`SELECT case_id FROM hearings`).get() as { case_id: string }
+    expect(hearing.case_id).toBe(created.id)
+    const seq = db.prepare(`SELECT current_value FROM number_sequences WHERE name='case'`).get() as { current_value: number }
+    expect(seq.current_value).toBe(2)
+    expect(seq.current_value).toBeLessThan(7000)
+    db.close()
   })
 
   it('reuses a live case at most once and keeps the second archive row separate', () => {

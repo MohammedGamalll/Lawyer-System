@@ -15,5 +15,5 @@
       "@shared/*": ["shared/*"]
     }
   },
-    "include": ["electron/**/*", "shared/**/*", "electron.vite.config.ts", "vitest.config.ts", "scripts/migrate-archive.ts"]
+    "include": ["electron/**/*", "shared/**/*", "electron.vite.config.ts", "vitest.config.ts", "scripts/migrate-archive.ts", "scripts/wipe-data.ts"]
 }

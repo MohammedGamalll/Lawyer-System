@@ -4,6 +4,7 @@ import os from 'os'
 import path from 'path'
 import { archiveCaseRecnoFromHex } from '../shared/archiveMigrate'
 import { extractHexFromPayload } from '../electron/main/services/dataRepair'
+import { IPC } from '../shared/ipc'
 
 function sqliteAvailable() {
   try {
@@ -17,6 +18,10 @@ function sqliteAvailable() {
 }
 
 describe('extractHexFromPayload', () => {
+  it('exposes clients:merge for the Clients page action', () => {
+    expect(IPC.clients.merge).toBe('clients:merge')
+  })
+
   it('prefers a Hex column and decodes the case recno', () => {
     expect(extractHexFromPayload({ Hex: '99     5F5', 'نوع الجلسة': 'موضوع' })).toBe('99     5F5')
     expect(archiveCaseRecnoFromHex('5F5', 1)).toBe(512)

@@ -505,7 +505,12 @@ const en = {
     copyToOpponent: 'Copy to opponents',
     copyToClient: 'Copy to clients',
     copied: 'Copied to the other list. The original record is still there',
-    copiedExists: 'Already in the other list; linked without deleting the original'
+    copiedExists: 'Already in the other list; linked without deleting the original',
+    merge: 'Merge clients',
+    mergeKeep: 'Primary client (keep)',
+    mergeDup: 'Duplicate client (hide)',
+    mergeConfirm: 'Cases and links will move to the primary client and the duplicate will be hidden. Continue?',
+    mergeDone: 'Clients merged'
   },
   party: {
     rating: 'Dealings rating',
