@@ -1,7 +1,6 @@
 import { getDb } from '../db/database'
 import { garbageCollectOrphans } from './documents'
 import { audit } from './audit'
-import { nowIso } from '../utils/time'
 import type { AuthedUser } from '../ipc/helpers'
 import { getSetting, setSettingSilent } from './settings'
 import { SYNC_TABLES } from '../db/schema'
@@ -46,7 +45,7 @@ function wipeExceptAdminTx(): number {
   db.prepare(`UPDATE number_sequences SET current_value = 7000 WHERE name = 'case'`).run()
   db.prepare(`DELETE FROM settings WHERE key = 'sync_disabled'`).run()
   db.prepare('UPDATE cashboxes SET current_balance = 0').run()
-  setSettingSilent('sync_last_pulled_at', nowIso())
+  setSettingSilent('sync_last_pulled_at', '1970-01-01T00:00:00.000Z')
   try {
     db.exec(
       `DELETE FROM sqlite_sequence WHERE name NOT IN (${[...KEEP].map((x) => `'${x}'`).join(',')})`
@@ -69,7 +68,7 @@ export function wipeBusinessData(actor: AuthedUser): { tables: number } {
   garbageCollectOrphans(actor)
   audit(actor, 'wipe', 'system', null, 'تم مسح بيانات العمل مع الإبقاء على حساب الأدمن والإعدادات')
   getDb().exec('DELETE FROM local_sync_queue')
-  setSettingSilent('sync_last_pulled_at', nowIso())
+  setSettingSilent('sync_last_pulled_at', '1970-01-01T00:00:00.000Z')
   setSettingSilent('sync_parents_bootstrapped', '0')
   try {
     ensureFts(getDb(), { forceRebuild: true })
