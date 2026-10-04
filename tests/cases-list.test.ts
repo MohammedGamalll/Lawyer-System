@@ -139,4 +139,50 @@ describe.skipIf(!sqliteAvailable())('listCases court search and column filters',
     )
     expect(court.rows.map((r) => String(r.id))).toEqual(['cs-e', 'cs-c', 'cs-b', 'cs-a', 'cs-d'])
   })
+
+  it('lists a case even when its client row is missing', async () => {
+    const db = await boot()
+    const ts = '2026-01-01T00:00:00.000Z'
+    db.exec('PRAGMA foreign_keys = OFF')
+    db.prepare(
+      `INSERT INTO cases (id, case_number, title, client_id, status, is_archived, created_at, updated_at)
+       VALUES ('cs-orphan', 'CS-00999', 'قضية بدون موكل', 'missing-client', 'open', 0, ?, ?)`
+    ).run(ts, ts)
+    db.exec('PRAGMA foreign_keys = ON')
+    const { listCases } = await import('../electron/main/services/cases')
+    const rows = listCases({ page: 1, pageSize: 50 }, 0)
+    expect(rows.total).toBe(1)
+    expect(rows.rows.some((r) => String(r.id) === 'cs-orphan')).toBe(true)
+  })
+
+  it('saves a case without a client onto the unnamed system client', async () => {
+    const db = await boot()
+    const admin = db.prepare(`SELECT id, username, full_name FROM users WHERE lower(username)='admin'`).get() as {
+      id: string
+      username: string
+      full_name: string
+    }
+    const { createCase } = await import('../electron/main/services/cases')
+    const { UNNAMED_CLIENT_NAME, UNNAMED_CLIENT_NUMBER } = await import('../shared/unnamedClient')
+    const created = createCase(
+      {
+        id: admin.id,
+        username: admin.username,
+        fullName: admin.full_name,
+        roleCode: 'admin',
+        permissions: []
+      },
+      { title: 'قضية ناقصة', numbering_mode: 'auto', opponent_name: 'خصم' }
+    )
+    const row = db
+      .prepare(
+        `SELECT c.client_id, cl.full_name, cl.client_number FROM cases c JOIN clients cl ON cl.id = c.client_id WHERE c.id = ?`
+      )
+      .get(created.id) as { client_id: string; full_name: string; client_number: string }
+    expect(row.full_name).toBe(UNNAMED_CLIENT_NAME)
+    expect(row.client_number).toBe(UNNAMED_CLIENT_NUMBER)
+    const { listClients } = await import('../electron/main/services/clients')
+    const listed = listClients({ page: 1, pageSize: 50 })
+    expect(listed.rows.some((r) => String(r.id) === row.client_id)).toBe(false)
+  })
 })

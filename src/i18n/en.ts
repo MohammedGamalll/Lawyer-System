@@ -192,7 +192,8 @@ const en = {
     numberingAutoHint: 'Program code is generated from the admin sequence in settings (e.g. CS-7001).',
     numberingManualHint: 'Enter the case code yourself. This is the program code shown in lists, not the court number.',
     duplicateCaseCode: 'This code is already in use. Please enter a unique code.',
-    enterCaseCode: 'Enter the case code'
+    enterCaseCode: 'Enter the case code',
+    clientOptional: 'You can save without a client; the case is linked to “بدون موكل”.'
   },
   printDesigner: {
     template: 'Template',
@@ -868,9 +869,9 @@ const en = {
     downloadManual: 'Download user manual PDF',
     downloadBackupGuide: 'Download backup guide PDF',
     wipeData: 'Wipe all data',
-    wipeDataHint: 'Deletes clients, cases, finance and documents, and keeps user accounts and settings.',
-    wipeConfirm: 'All business data will be deleted (clients, cases, finance, documents...) while accounts are kept. This cannot be undone. Continue?',
-    wiped: 'Data wiped. User accounts remain.',
+    wipeDataHint: 'Deletes clients, cases, finance and documents on this PC and in the cloud. User accounts and settings stay.',
+    wipeConfirm: 'All business data will be deleted on this PC and in the cloud (clients, cases, finance, documents...) while accounts are kept. This cannot be undone. Continue?',
+    wiped: 'Data wiped on this PC and in the cloud. User accounts remain.',
     a4Printer: 'A4 printer',
     thermalPrinter: 'Receipt printer',
     defaultPrinter: 'System default printer',

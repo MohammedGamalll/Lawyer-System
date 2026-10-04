@@ -340,7 +340,7 @@ export function CaseFormExtras({
         <div className="space-y-1.5">
           <div className="flex flex-wrap items-end gap-1.5">
             <div className="min-w-[12rem] flex-1">
-              <Field label={t('fields.client_id')} required>
+              <Field label={t('fields.client_id')}>
                 <div className="flex items-center gap-1">
                   <div className="min-w-0 flex-1">
                     <EntitySelect
@@ -363,6 +363,7 @@ export function CaseFormExtras({
                     {t('caseForm.newClientInline')}
                   </Button>
                 </div>
+                <p className="mt-1 text-xs text-navy-500">{t('caseForm.clientOptional')}</p>
               </Field>
             </div>
             <CapsInline

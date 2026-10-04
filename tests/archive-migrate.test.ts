@@ -5,6 +5,7 @@ import path from 'path'
 import { arabicFold } from '../shared/arabic'
 import {
   archiveCaseRecnoFromHex,
+  archiveProgramCode,
   archiveCourtKeys,
   extractNationalId,
   hearingStatusForDate,
@@ -81,6 +82,8 @@ describe('archive migrate matchers', () => {
     const next = nextFreeProgramNumber(occupied, 1, 'CS-', 5)
     expect(next.code).toBe('CS-00002')
     expect(programCodeKey(next.code)).not.toBe('245')
+    expect(archiveProgramCode(200, 'CS-', 5)).toBe('CS-00200')
+    expect(archiveProgramCode(8, 'CS-', 5)).toBe('CS-00008')
   })
 
   it('matches parties only when a folded client or opponent name aligns', () => {
@@ -203,14 +206,14 @@ describe.skipIf(!sqliteAvailable())('archive migrate sqlite', () => {
 
     const dry = migrateArchive({ archivePath, dbPath, apply: false, today: '2026-10-01' })
     expect(dry.dryRun).toBe(true)
-    expect(dry.casesSkippedEmpty).toBe(1)
+    expect(dry.casesSkippedEmpty).toBe(0)
     expect(dry.casesReused).toBe(1)
-    expect(dry.casesInserted).toBe(2)
+    expect(dry.casesInserted).toBe(3)
     expect(dry.clientsReused).toBe(2)
-    expect(dry.clientsInserted).toBe(1)
+    expect(dry.clientsInserted).toBe(2)
     expect(dry.hearingsSkippedDedupe).toBe(1)
-    expect(dry.hearingsOrphan).toBe(1)
-    expect(dry.hearingsInserted).toBe(2)
+    expect(dry.hearingsOrphan).toBe(0)
+    expect(dry.hearingsInserted).toBe(3)
 
     const liveCheck = openDb(dbPath)
     expect((liveCheck.prepare(`SELECT COUNT(*) AS c FROM cases`).get() as { c: number }).c).toBe(2)
@@ -221,12 +224,12 @@ describe.skipIf(!sqliteAvailable())('archive migrate sqlite', () => {
     expect(applied.dryRun).toBe(false)
     expect(applied.backupPath).toBeTruthy()
     expect(applied.casesReused).toBe(1)
-    expect(applied.casesInserted).toBe(2)
+    expect(applied.casesInserted).toBe(3)
     expect(applied.clientsReused).toBe(2)
-    expect(applied.clientsInserted).toBe(1)
-    expect(applied.hearingsInserted).toBe(2)
+    expect(applied.clientsInserted).toBe(2)
+    expect(applied.hearingsInserted).toBe(3)
     expect(applied.hearingsSkippedDedupe).toBe(1)
-    expect(applied.hearingsOrphan).toBe(1)
+    expect(applied.hearingsOrphan).toBe(0)
 
     const db = openDb(dbPath)
     const liveCase = db.prepare(`SELECT title, case_number FROM cases WHERE id='cs-live'`).get() as {
@@ -242,12 +245,12 @@ describe.skipIf(!sqliteAvailable())('archive migrate sqlite', () => {
       title: string
       client_id: string
     }[]
-    expect(allCases).toHaveLength(4)
+    expect(allCases).toHaveLength(5)
     const created = allCases.filter((c) => c.id !== 'cs-live' && c.id !== 'cs-one')
     expect(created.every((c) => programCodeKey(c.case_number) !== '245')).toBe(true)
     expect(created.some((c) => programCodeKey(c.case_number) === '1')).toBe(false)
 
-    expect((db.prepare(`SELECT COUNT(*) AS c FROM clients`).get() as { c: number }).c).toBe(3)
+    expect((db.prepare(`SELECT COUNT(*) AS c FROM clients`).get() as { c: number }).c).toBe(4)
     const nidClient = db.prepare(`SELECT full_name FROM clients WHERE id='c-nid'`).get() as { full_name: string }
     expect(nidClient.full_name).toBe('اسم حي')
 
@@ -259,7 +262,7 @@ describe.skipIf(!sqliteAvailable())('archive migrate sqlite', () => {
       status: string
       court_decision: string
     }[]
-    expect(hearings).toHaveLength(2)
+    expect(hearings).toHaveLength(3)
     expect(hearings.filter((h) => h.case_id === 'cs-live')).toHaveLength(1)
     expect(hearings.find((h) => h.hearing_date === '1994-01-10')?.status).toBe('done')
     expect(hearings.find((h) => h.hearing_date === '2026-09-29')?.status).toBe('done')
@@ -273,16 +276,17 @@ describe.skipIf(!sqliteAvailable())('archive migrate sqlite', () => {
     expect(queued.some((q) => q.table_name === 'clients' && q.record_id === 'c-fold')).toBe(false)
     expect(queued.some((q) => q.table_name === 'clients' && q.record_id === 'c-nid')).toBe(false)
     expect(queued.some((q) => q.table_name === 'cases' && q.record_id === 'cs-live')).toBe(false)
-    expect(queued.filter((q) => q.table_name === 'cases' && q.operation === 'INSERT').length).toBe(2)
-    expect(queued.filter((q) => q.table_name === 'hearings').length).toBe(2)
-    expect(queued.filter((q) => q.table_name === 'clients' && q.operation === 'INSERT').length).toBe(1)
+    expect(queued.filter((q) => q.table_name === 'cases' && q.operation === 'INSERT').length).toBe(3)
+    expect(queued.filter((q) => q.table_name === 'hearings').length).toBe(3)
+    expect(queued.filter((q) => q.table_name === 'clients' && q.operation === 'INSERT').length).toBe(2)
 
     const seq = db.prepare(`SELECT current_value FROM number_sequences WHERE name='case'`).get() as { current_value: number }
-    expect(seq.current_value).toBe(3)
+    expect(seq.current_value).toBe(4)
     const migrated = db
-      .prepare(`SELECT internal_file_number FROM cases WHERE id NOT IN ('cs-live','cs-one') ORDER BY internal_file_number`)
-      .all() as { internal_file_number: string | null }[]
-    expect(migrated.map((c) => c.internal_file_number)).toEqual(['3', '4'])
+      .prepare(`SELECT case_number, internal_file_number FROM cases WHERE id NOT IN ('cs-live','cs-one') ORDER BY CAST(internal_file_number AS INTEGER)`)
+      .all() as { case_number: string; internal_file_number: string | null }[]
+    expect(migrated.map((c) => c.internal_file_number)).toEqual(['2', '3', '4'])
+    expect(migrated.map((c) => c.case_number)).toEqual(['CS-00002', 'CS-00003', 'CS-00004'])
 
     db.close()
 
@@ -303,8 +307,8 @@ describe.skipIf(!sqliteAvailable())('archive migrate sqlite', () => {
     live
       .prepare(`INSERT INTO cases (id, case_number, title, client_id, created_at, updated_at) VALUES (?,?,?,?,?,?)`)
       .run('cs-one', 'CS-00001', 'occupied one', 'c1', ts, ts)
-    const hex = hexFor(2, 99)
-    expect(archiveCaseRecnoFromHex(hex, 99)).toBe(2)
+    const hex = hexFor(8, 99)
+    expect(archiveCaseRecnoFromHex(hex, 99)).toBe(8)
     archive.exec(`
       INSERT INTO "الموكلين" VALUES ('أحمد علي', '', 'Mas002', '8');
       INSERT INTO "القضايا"
@@ -331,11 +335,12 @@ describe.skipIf(!sqliteAvailable())('archive migrate sqlite', () => {
       .prepare(`SELECT id, case_number, internal_file_number FROM cases WHERE id != 'cs-one'`)
       .get() as { id: string; case_number: string; internal_file_number: string }
     expect(created.internal_file_number).toBe('8')
-    expect(programCodeKey(created.case_number)).toBe('2')
+    expect(created.case_number).toBe('CS-00008')
+    expect(programCodeKey(created.case_number)).toBe('8')
     const hearing = db.prepare(`SELECT case_id FROM hearings`).get() as { case_id: string }
     expect(hearing.case_id).toBe(created.id)
     const seq = db.prepare(`SELECT current_value FROM number_sequences WHERE name='case'`).get() as { current_value: number }
-    expect(seq.current_value).toBe(2)
+    expect(seq.current_value).toBe(8)
     expect(seq.current_value).toBeLessThan(7000)
     db.close()
   })
@@ -394,7 +399,7 @@ describe.skipIf(!sqliteAvailable())('archive migrate sqlite', () => {
         `INSERT INTO cases (id, case_number, title, client_id, first_instance_number, first_instance_year, opponent_name, created_at, updated_at)
          VALUES (?,?,?,?,?,?,?,?,?)`
       )
-      .run('cs-live', '1', 'LIVE TITLE', 'c1', '627', '1994', 'خصم أول', ts, ts)
+      .run('cs-live', 'CS-00999', 'LIVE TITLE', 'c1', '627', '1994', 'خصم أول', ts, ts)
     archive.exec(`
       INSERT INTO "القضايا"
         ("المكتب","رقم_السجل","نوع القضية","وردت للمكتب","الجهة_الموكل","إسم الخصم","موضوع الدعوى","رقم أول درجة")
@@ -425,7 +430,7 @@ describe.skipIf(!sqliteAvailable())('archive migrate sqlite', () => {
         `INSERT INTO cases (id, case_number, title, client_id, first_instance_number, first_instance_year, opponent_name, created_at, updated_at, deleted_at)
          VALUES (?,?,?,?,?,?,?,?,?,?)`
       )
-      .run('cs-del', '1', 'DELETED', 'c1', '627', '1994', 'خصم أول', ts, ts, ts)
+      .run('cs-del', 'CS-00999', 'DELETED', 'c1', '627', '1994', 'خصم أول', ts, ts, ts)
     archive.exec(`
       INSERT INTO "القضايا"
         ("المكتب","رقم_السجل","نوع القضية","وردت للمكتب","الجهة_الموكل","إسم الخصم","موضوع الدعوى","رقم أول درجة")
@@ -440,6 +445,35 @@ describe.skipIf(!sqliteAvailable())('archive migrate sqlite', () => {
     const db = openDb(dbPath)
     expect((db.prepare(`SELECT COUNT(*) AS c FROM cases WHERE deleted_at IS NULL`).get() as { c: number }).c).toBe(1)
     expect((db.prepare(`SELECT title FROM cases WHERE id='cs-del'`).get() as { title: string }).title).toBe('DELETED')
+    db.close()
+  })
+
+  it('keeps exact archive recno as CS code and leaves missing recnos as gaps', () => {
+    const { archivePath, dbPath, archive, live } = makePair()
+    archive.exec(`
+      INSERT INTO "القضايا"
+        ("المكتب","رقم_السجل","نوع القضية","وردت للمكتب","الجهة_الموكل","إسم الخصم","موضوع الدعوى","رقم أول درجة")
+      VALUES
+        ('Mas002','199','','','','','',''),
+        ('Mas002','200','مدني','01-01-1994','أحمد علي','خصم','موضوع','100/1994');
+    `)
+    archive.close()
+    live.close()
+    const applied = migrateArchive({ archivePath, dbPath, apply: true, today: '2026-10-01' })
+    expect(applied.casesInserted).toBe(2)
+    expect(applied.casesSkippedEmpty).toBe(0)
+    const db = openDb(dbPath)
+    const rows = db
+      .prepare(`SELECT case_number, internal_file_number, title FROM cases ORDER BY CAST(internal_file_number AS INTEGER)`)
+      .all() as { case_number: string; internal_file_number: string; title: string }[]
+    expect(rows.map((r) => r.case_number)).toEqual(['CS-00199', 'CS-00200'])
+    expect(rows.some((r) => programCodeKey(r.case_number) === '198')).toBe(false)
+    expect(db.prepare(`SELECT full_name FROM clients WHERE client_number='CL-0000'`).get() as { full_name: string }).toEqual({
+      full_name: 'بدون موكل'
+    })
+    expect(
+      (db.prepare(`SELECT current_value FROM number_sequences WHERE name='case'`).get() as { current_value: number }).current_value
+    ).toBe(200)
     db.close()
   })
 })

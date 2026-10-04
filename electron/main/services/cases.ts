@@ -7,7 +7,7 @@ import type { AuthedUser } from '../ipc/helpers'
 import type { ListQuery } from '@shared/types'
 import { caseSchema, parseSchema } from '@shared/schemas'
 import { rememberLookup } from './lookups'
-import { maskClientContactFields } from './clients'
+import { ensureUnnamedClient, maskClientContactFields } from './clients'
 import { maskOpponentContactFields } from './people'
 import { clampPageSize, pageKind, includeIds, applyColumnFilters, orderBySql, programCodeSortSql, courtNumberSortSql } from '../db/queryLimits'
 import { ftsQuery } from '../db/fts'
@@ -118,6 +118,11 @@ const CASE_LIST_SELECT = `c.id, c.case_number, c.office_case_number, c.case_year
               c.session_place, c.filing_date, c.received_date, c.client_id, c.opponent_name, c.primary_lawyer_id, c.case_type_id,
               cl.full_name as client_name, cl.client_number, ct.name_ar as case_type_name, l.full_name as lawyer_name`
 
+const CASE_LIST_FROM = `FROM cases c
+       LEFT JOIN clients cl ON cl.id = c.client_id
+       LEFT JOIN case_types ct ON ct.id = c.case_type_id AND ${notDeleted('ct')}
+       LEFT JOIN lawyers l ON l.id = c.primary_lawyer_id AND ${notDeleted('l')}`
+
 export function listCases(query: ListQuery = {}, archived: number | 'all' = 0) {
   const db = getDb()
   const page = query.page ?? 1
@@ -140,7 +145,7 @@ export function listCases(query: ListQuery = {}, archived: number | 'all' = 0) {
   } else {
     archivedSql = 'c.is_archived = 0 AND '
   }
-  let where = `WHERE ${archivedSql}${notDeleted('c')} AND ${notDeleted('cl')}`
+  let where = `WHERE ${archivedSql}${notDeleted('c')} AND (cl.id IS NULL OR ${notDeleted('cl')})`
   const fts = ftsQuery(rawSearch)
   if (rawSearch && courtFromSearch.year) {
     where = applyCourtNumberFilter(where, params, rawSearch)
@@ -243,10 +248,7 @@ export function listCases(query: ListQuery = {}, archived: number | 'all' = 0) {
   const total = (
     db
       .prepare(
-        `SELECT COUNT(*) as c FROM cases c
-         JOIN clients cl ON cl.id = c.client_id
-         LEFT JOIN case_types ct ON ct.id = c.case_type_id AND ${notDeleted('ct')}
-         LEFT JOIN lawyers l ON l.id = c.primary_lawyer_id AND ${notDeleted('l')}
+        `SELECT COUNT(*) as c ${CASE_LIST_FROM}
          ${where}`
       )
       .get(...params) as { c: number }
@@ -276,10 +278,7 @@ export function listCases(query: ListQuery = {}, archived: number | 'all' = 0) {
     .prepare(
       `SELECT ${CASE_LIST_SELECT},
               ${extraSelect}
-       FROM cases c
-       JOIN clients cl ON cl.id = c.client_id
-       LEFT JOIN case_types ct ON ct.id = c.case_type_id AND ${notDeleted('ct')}
-       LEFT JOIN lawyers l ON l.id = c.primary_lawyer_id AND ${notDeleted('l')}
+       ${CASE_LIST_FROM}
        ${where} ORDER BY ${order} LIMIT ? OFFSET ?`
     )
     .all(...params, pageSize, (page - 1) * pageSize) as Record<string, unknown>[]
@@ -291,10 +290,7 @@ export function listCases(query: ListQuery = {}, archived: number | 'all' = 0) {
         .prepare(
           `SELECT ${CASE_LIST_SELECT},
                   ${extraSelect}
-           FROM cases c
-           JOIN clients cl ON cl.id = c.client_id
-           LEFT JOIN case_types ct ON ct.id = c.case_type_id AND ${notDeleted('ct')}
-           LEFT JOIN lawyers l ON l.id = c.primary_lawyer_id AND ${notDeleted('l')}
+           ${CASE_LIST_FROM}
            WHERE c.id IN (${missing.map(() => '?').join(',')}) AND ${notDeleted('c')}`
         )
         .all(...missing) as Record<string, unknown>[]
@@ -318,7 +314,7 @@ export function getCase(id: string, actor?: AuthedUser | null) {
       `SELECT c.*, cl.full_name as client_name, ct.name_ar as case_type_name, l.full_name as lawyer_name,
               al.full_name as assistant_lawyer_name
        FROM cases c
-       JOIN clients cl ON cl.id = c.client_id
+       LEFT JOIN clients cl ON cl.id = c.client_id
        LEFT JOIN case_types ct ON ct.id = c.case_type_id AND ${notDeleted('ct')}
        LEFT JOIN lawyers l ON l.id = c.primary_lawyer_id AND ${notDeleted('l')}
        LEFT JOIN lawyers al ON al.id = c.assistant_lawyer_id AND ${notDeleted('al')}
@@ -478,8 +474,8 @@ export function createCase(actor: AuthedUser, data: Record<string, unknown>) {
 function createCaseOnce(actor: AuthedUser, data: Record<string, unknown>) {
   if (!data.numbering_mode && data.__numbering_mode) data.numbering_mode = data.__numbering_mode
   data = parseSchema(caseSchema, data) as Record<string, unknown>
-  const clientId = asId(data.client_id)
-  if (!clientId) throw new Error('لا يمكن إنشاء قضية بدون عميل')
+  const clientId = asId(data.client_id) || ensureUnnamedClient()
+  data.client_id = clientId
   const title = String(data.title ?? '').trim()
   if (!title) throw new Error('اسم القضية مطلوب')
   if (!String(data.category ?? '').trim()) data.category = title
@@ -586,8 +582,8 @@ export function updateCase(actor: AuthedUser, id: string, data: Record<string, u
     | { case_number: string; status: string }
     | undefined
   if (!old) throw new Error('القضية غير موجودة')
-  const clientId = asId(data.client_id)
-  if (!clientId) throw new Error('لا يمكن حفظ قضية بدون عميل')
+  const clientId = asId(data.client_id) || ensureUnnamedClient()
+  data.client_id = clientId
   if (!String(data.category ?? '').trim()) data.category = String(data.title ?? '').trim()
   const allocated = allocateCaseNumber(db, data, id)
   const closedAt = data.status === 'closed' && old.status !== 'closed' ? nowIso() : null

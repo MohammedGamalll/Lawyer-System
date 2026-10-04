@@ -93,5 +93,16 @@ describe.skipIf(!sqliteAvailable())('wipe-data script', () => {
       (getDb().prepare(`SELECT current_value FROM number_sequences WHERE name='case'`).get() as { current_value: number })
         .current_value
     ).toBe(0)
+    expect(
+      (getDb().prepare(`SELECT value FROM settings WHERE key='sync_parents_bootstrapped'`).get() as { value: string })
+        .value
+    ).toBe('1')
+    expect(
+      (
+        getDb().prepare(`SELECT value FROM settings WHERE key='sync_full_pull_v125'`).get() as
+          | { value: string }
+          | undefined
+      )?.value || ''
+    ).toBe('')
   })
 })

@@ -71,6 +71,7 @@ function applyRemoteWriteInner(
   const pk = pkColumn(table)
   const id = row[pk]
   if (id == null || id === '') return
+  if (table === 'settings' && String(id).startsWith('sync_')) return
   const db = getDb()
   runAsRemote(() => {
     const twin = findLocalIdByNaturalKey(table, row)
@@ -135,6 +136,10 @@ function writePrepared(
   } catch (err) {
     if (isNotNullConflict(err)) {
       log.warn('skip remote row NOT NULL', table, row[pk], err)
+      return
+    }
+    if (/FOREIGN KEY constraint failed/i.test(String((err as { message?: string })?.message || err || ''))) {
+      log.warn('skip remote row FK', table, row[pk], err)
       return
     }
     if (!isUniqueConflict(err)) throw err

@@ -14,6 +14,10 @@ export function formatPrefixedCode(prefix: string, n: number, padding: number): 
   return `${prefix}${String(n).padStart(Math.max(padding, 1), '0')}`
 }
 
+export function archiveProgramCode(recno: number, prefix = 'CS-', padding = 5): string {
+  return formatPrefixedCode(prefix, Math.trunc(recno), padding)
+}
+
 export function nextFreeProgramNumber(
   occupiedKeys: Set<string>,
   startFrom: number,

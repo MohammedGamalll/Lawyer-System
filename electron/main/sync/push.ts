@@ -6,6 +6,8 @@ import { getSupabase } from './client'
 import { adoptRemoteId, isUniqueConflict } from './adoptRemoteId'
 import { mapSyncError } from './errors'
 import { omitLocalOnly, stripColumn, unknownColumnFromError } from './payload'
+import { getSetting } from '../services/settings'
+import { FULL_PULL_FLAG, hasIncompletePull } from './pull'
 import { listQueue, pendingCount, removeQueueItem, enqueueIfAbsent, enqueueParentSnapshot, pkColumn, deferQueueItem } from './queue'
 import { emitSyncStatus } from './status'
 import { withTimeout } from './timeout'
@@ -160,7 +162,9 @@ function queueMissingParent(payload: Record<string, unknown>, message: string): 
 export async function pushQueue(): Promise<string> {
   const sb = getSupabase()
   if (!sb) return ''
-  enqueueParentSnapshot()
+  if (getSetting(FULL_PULL_FLAG, '') === 'done' && !hasIncompletePull()) {
+    enqueueParentSnapshot()
+  }
   if (pendingCount() === 0) return ''
   emitSyncStatus('syncing')
   let lastError = ''

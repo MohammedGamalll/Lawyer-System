@@ -640,16 +640,18 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
   handle(ipc, IPC.updater.check, { auth: false }, async () => ok(await updater.checkUpdates()))
   handle(ipc, IPC.updater.version, { auth: false }, () => ok(updater.appVersion()))
   handle(ipc, IPC.updater.install, { auth: false }, () => ok(updater.installUpdate()))
-  handle(ipc, IPC.demo.seed, { permission: 'settings.manage', write: true }, (_e, user, mode) => {
-    if (String(mode || '') === 'wipe') return ok(wipe.wipeBusinessData(user!))
+  handle(ipc, IPC.demo.seed, { permission: 'settings.manage' }, async (_e, user, mode) => {
+    if (String(mode || '') === 'wipe') return ok(await wipe.wipeBusinessDataEverywhere(user!))
     if (String(mode || '') === 'trial') {
-      wipe.wipeBusinessData(user!)
+      await wipe.wipeBusinessDataEverywhere(user!)
       demo.seedDemoData()
       return ok({ ok: true, sync: 'enabled' })
     }
     return ok(demo.seedDemoData())
   })
-  handle(ipc, IPC.demo.wipe, { permission: 'settings.manage', write: true }, (_e, user) => ok(wipe.wipeBusinessData(user!)))
+  handle(ipc, IPC.demo.wipe, { permission: 'settings.manage' }, async (_e, user) =>
+    ok(await wipe.wipeBusinessDataEverywhere(user!))
+  )
   handle(ipc, IPC.dataRepair.audit, { permission: 'settings.manage' }, () => ok(dataRepair.auditOfficeData()))
   handle(ipc, IPC.dataRepair.relink, { permission: 'settings.manage', write: true }, (_e, user, apply) => {
     if (apply) backup.createBackup(user!)

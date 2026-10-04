@@ -120,7 +120,7 @@ export const caseSchema = z.object({
   numbering_mode: z.enum(['auto', 'manual']).optional(),
   office_case_number: optStr,
   case_year: optStr,
-  client_id: reqId,
+  client_id: optId,
   primary_lawyer_id: optId,
   assistant_lawyer_id: optId,
   case_type_id: optId,

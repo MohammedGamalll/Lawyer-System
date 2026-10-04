@@ -5,6 +5,7 @@ import type { AuthedUser } from '../ipc/helpers'
 import { getSetting, setSettingSilent } from './settings'
 import { SYNC_TABLES } from '../db/schema'
 import { getSupabase } from '../sync/client'
+import { FULL_PULL_FLAG } from '../sync/pull'
 import { dropFtsTriggers, ensureFts } from '../db/fts'
 
 export const KEEP = new Set([
@@ -42,7 +43,6 @@ function wipeExceptAdminTx(): number {
   db.prepare(`DELETE FROM sessions WHERE user_id NOT IN (SELECT id FROM users WHERE lower(username) = 'admin')`).run()
   db.prepare(`DELETE FROM users WHERE lower(username) != 'admin'`).run()
   db.prepare('UPDATE number_sequences SET current_value = 0').run()
-  db.prepare(`UPDATE number_sequences SET current_value = 7000 WHERE name = 'case'`).run()
   db.prepare(`DELETE FROM settings WHERE key = 'sync_disabled'`).run()
   db.prepare('UPDATE cashboxes SET current_balance = 0').run()
   setSettingSilent('sync_last_pulled_at', '1970-01-01T00:00:00.000Z')
@@ -69,9 +69,11 @@ export function wipeBusinessData(actor: AuthedUser): { tables: number } {
   audit(actor, 'wipe', 'system', null, 'تم مسح بيانات العمل مع الإبقاء على حساب الأدمن والإعدادات')
   getDb().exec('DELETE FROM local_sync_queue')
   setSettingSilent('sync_last_pulled_at', '1970-01-01T00:00:00.000Z')
-  setSettingSilent('sync_parents_bootstrapped', '0')
+  setSettingSilent('sync_parents_bootstrapped', '1')
   setSettingSilent('sync_pull_checkpoint', '')
+  setSettingSilent('sync_full_pull_pass', '')
   setSettingSilent('sync_full_pull_v124', '')
+  setSettingSilent(FULL_PULL_FLAG, '')
   try {
     ensureFts(getDb(), { forceRebuild: true })
   } catch {
@@ -132,5 +134,31 @@ export async function wipeRemoteBusinessData(): Promise<{ deleted: string[]; err
     }
     if (!failed) break
   }
+  const { error: seqErr } = await sb.from('number_sequences').update({ current_value: 0 }).not('name', 'is', null)
+  if (seqErr) errors.push(`number_sequences: ${seqErr.message}`)
   return { deleted, errors }
+}
+
+/** مسح الجهاز + السحابة. لو السحابة فشلت ما نمسحش المحلي عشان المزامنة ما ترجعش الداتا القديمة. */
+export async function wipeBusinessDataEverywhere(actor: AuthedUser): Promise<{
+  tables: number
+  remote: { deleted: string[]; errors: string[] }
+}> {
+  try {
+    getDb().exec('DELETE FROM local_sync_queue')
+  } catch {
+    /* ignore */
+  }
+  const remote = await wipeRemoteBusinessData()
+  const configured = remote.errors[0] !== 'supabase not configured'
+  if (configured && remote.errors.length) {
+    throw new Error(`فشل مسح السحابة: ${remote.errors.join('؛ ')}`)
+  }
+  const local = wipeBusinessData(actor)
+  if (configured) {
+    const again = await wipeRemoteBusinessData()
+    if (again.errors.length) throw new Error(`فشل مسح السحابة: ${again.errors.join('؛ ')}`)
+    return { tables: local.tables, remote: again }
+  }
+  return { tables: local.tables, remote }
 }

@@ -123,7 +123,7 @@ export function enqueueIfAbsent(tableName: string, recordId: string, operation: 
   recordLocalChange(tableName, recordId, operation)
 }
 
-const PARENT_TABLES = [
+export const PARENT_TABLES = [
   'roles',
   'permissions',
   'role_permissions',
@@ -136,6 +136,10 @@ const PARENT_TABLES = [
   'expense_categories',
   'lookup_values'
 ] as const
+
+export function dropParentQueue(): void {
+  dropQueueExcept([...PARENT_TABLES], null)
+}
 
 let parentsBootstrapped = false
 

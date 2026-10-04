@@ -8,7 +8,7 @@ import { isSyncConfigured } from './client'
 import { guardAbortError, isSyncPaused, runPrePushGuard, setAuthGuardWindow } from './authGuard'
 import { mapSyncError } from './errors'
 import { pushQueue } from './push'
-import { pullChanges, hasIncompletePull } from './pull'
+import { pullChanges, hasIncompletePull, needsFullPull } from './pull'
 import { startRealtime, stopRealtime } from './realtime'
 import { emitSyncStatus, getSyncSnapshot, onSyncStatus } from './status'
 import { CYCLE_TIMEOUT_MS, TIMEOUT_MESSAGE, withTimeout } from './timeout'
@@ -42,7 +42,7 @@ export function getSyncState() {
   }
   const snap = getSyncSnapshot()
   if (!isSyncConfigured()) return { ...snap, status: 'offline' as const, pendingCount: pending }
-  if (hasIncompletePull()) {
+  if (needsFullPull() || hasIncompletePull()) {
     return { ...snap, pendingCount: pending, status: 'syncing' as const, error: snap.error || 'جاري استكمال سحب البيانات…' }
   }
   const pauseErr = guardAbortError()
@@ -69,16 +69,38 @@ export async function runSyncCycle(): Promise<void> {
         emitSyncStatus('syncing', guard.error || guardAbortError())
         return
       }
+      const full = needsFullPull()
+      let pushError = ''
+      if (full) {
+        emitSyncStatus('syncing', 'جاري سحب البيانات…')
+        const pulled = await pullChanges()
+        startRealtime(getWin)
+        if (!pulled.done || hasIncompletePull()) {
+          emitSyncStatus('syncing', 'جاري استكمال سحب البيانات…')
+          scheduleSyncSoon()
+          getWin()?.webContents.send('sync:changed', { table: '*' })
+          return
+        }
+      }
       emitSyncStatus('syncing', 'جاري رفع البيانات…')
-      const pushError = mapSyncError(await pushQueue())
-      emitSyncStatus('syncing', 'جاري سحب البيانات…')
-      const pulled = await pullChanges()
-      startRealtime(getWin)
-      const pending = pendingCount()
-      if (!pulled.done || pending > 0 || hasIncompletePull()) {
-        emitSyncStatus('syncing', pushError || 'جاري استكمال سحب البيانات…')
-        scheduleSyncSoon()
-      } else emitSyncStatus('synced')
+      pushError = mapSyncError(await pushQueue())
+      if (!full) {
+        emitSyncStatus('syncing', 'جاري سحب البيانات…')
+        const pulled = await pullChanges()
+        startRealtime(getWin)
+        const pending = pendingCount()
+        if (!pulled.done || pending > 0 || hasIncompletePull()) {
+          emitSyncStatus('syncing', pushError || 'جاري استكمال سحب البيانات…')
+          scheduleSyncSoon()
+        } else emitSyncStatus('synced')
+      } else {
+        startRealtime(getWin)
+        const pending = pendingCount()
+        if (pending > 0 || hasIncompletePull()) {
+          emitSyncStatus('syncing', pushError || 'جاري استكمال المزامنة…')
+          scheduleSyncSoon()
+        } else emitSyncStatus('synced')
+      }
       getWin()?.webContents.send('sync:changed', { table: '*' })
     } catch (err) {
       log.warn('sync cycle', err)

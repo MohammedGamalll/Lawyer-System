@@ -15,15 +15,35 @@ import { shouldSkipFts } from '@shared/searchQuery'
 import { upsertClientPoa } from './legal'
 import { casePrintJoinSql, casePrintSelectSql, enrichPrintRows } from './printCaseFields'
 import { sqlClientOwnsCase } from './caseLink'
+import { UNNAMED_CLIENT_NAME, UNNAMED_CLIENT_NUMBER } from '@shared/unnamedClient'
 
 export { normalizePersonName }
+export { UNNAMED_CLIENT_NAME, UNNAMED_CLIENT_NUMBER }
+
+export function ensureUnnamedClient(): string {
+  const db = getDb()
+  const existing = db
+    .prepare(
+      `SELECT id FROM clients WHERE deleted_at IS NULL AND (client_number = ? OR full_name = ?) LIMIT 1`
+    )
+    .get(UNNAMED_CLIENT_NUMBER, UNNAMED_CLIENT_NAME) as { id: string } | undefined
+  if (existing?.id) return existing.id
+  const ts = nowIso()
+  const id = newId()
+  db.prepare(
+    `INSERT INTO clients (id, client_number, full_name, client_type, id_kind, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?)`
+  ).run(id, UNNAMED_CLIENT_NUMBER, UNNAMED_CLIENT_NAME, 'individual', 'national_id', ts, ts)
+  recordLocalChange('clients', id, 'INSERT')
+  return id
+}
 
 export function listClients(query: ListQuery = {}, actor?: AuthedUser | null) {
   const db = getDb()
   const page = query.page ?? 1
   const pageSize = clampPageSize(query.pageSize, pageKind(query))
-  const params: unknown[] = []
-  let where = `WHERE c.is_archived = 0 AND ${notDeleted('c')}`
+  const params: unknown[] = [UNNAMED_CLIENT_NUMBER, UNNAMED_CLIENT_NAME]
+  let where = `WHERE c.is_archived = 0 AND ${notDeleted('c')} AND c.client_number != ? AND c.full_name != ?`
   const fts = ftsQuery(String(query.search || ''))
   if (query.search && fts && !shouldSkipFts(query.search)) {
     where += ` AND c.rowid IN (SELECT rowid FROM clients_fts WHERE clients_fts MATCH ?)`
@@ -122,11 +142,12 @@ export function searchClients(term: string, actor?: AuthedUser | null) {
        LEFT JOIN cases cs ON cs.client_id = c.id AND ${notDeleted('cs')}
        LEFT JOIN case_clients x ON x.client_id = c.id AND ${notDeleted('x')}
        LEFT JOIN cases cs2 ON cs2.id = x.case_id AND ${notDeleted('cs2')}
-       WHERE ${notDeleted('c')} AND (${arabicLike('c.full_name')} OR c.client_number LIKE ? OR c.phone LIKE ? OR c.national_id LIKE ?
+       WHERE ${notDeleted('c')} AND c.client_number != ? AND c.full_name != ?
+         AND (${arabicLike('c.full_name')} OR c.client_number LIKE ? OR c.phone LIKE ? OR c.national_id LIKE ?
           OR cs.case_number LIKE ? OR cs2.case_number LIKE ? OR c.poa_number LIKE ? OR ${arabicLike('c.poa_office')})
        LIMIT 50`
     )
-    .all(s, s, s, s, s, s, s, s)
+    .all(UNNAMED_CLIENT_NUMBER, UNNAMED_CLIENT_NAME, s, s, s, s, s, s, s, s)
   return maskClientRows(rows, actor)
 }
 
