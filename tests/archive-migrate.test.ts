@@ -9,6 +9,8 @@ import {
   archiveCourtKeys,
   extractNationalId,
   hearingStatusForDate,
+  taskDedupeKey,
+  taskStatusForDate,
   isEmptyArchiveCase,
   liveCourtKeys,
   nextFreeProgramNumber,
@@ -66,6 +68,11 @@ describe('archive migrate matchers', () => {
     expect(parseLegacyDate('01/12/1993')).toBe('1993-12-01')
     expect(hearingStatusForDate('2026-09-29', '2026-10-01')).toBe('done')
     expect(hearingStatusForDate('2026-10-15', '2026-10-01')).toBe('upcoming')
+    expect(taskStatusForDate('2026-09-29', '2026-10-01')).toBe('completed')
+    expect(taskStatusForDate('2026-10-15', '2026-10-01')).toBe('not_done')
+    expect(taskDedupeKey('admin', '2026-01-01', 'متابعه بالجدول')).toBe(
+      taskDedupeKey('admin', '2026-01-01', 'متابعة بالجدول')
+    )
   })
 
   it('computes CASES1 recno from the VB Hex formula', () => {
@@ -127,6 +134,12 @@ describe.skipIf(!sqliteAvailable())('archive migrate sqlite', () => {
       );
       CREATE TABLE "الجلسات" (
         "المكتب" TEXT, "رقم_السجل" TEXT, "تاريخ_الجلسة" TEXT, "بيان_الجلسة" TEXT, "نوع_الجلسة" TEXT, "Hex" TEXT
+      );
+      CREATE TABLE "الإجراءات" (
+        "المكتب" TEXT, "رقم_السجل" TEXT, "تاريخ_إداري" TEXT, "بيان_إداري" TEXT, "نوع_العمل" TEXT, "Hex" TEXT
+      );
+      CREATE TABLE "الحصر" (
+        "المكتب" TEXT, "رقم_السجل" TEXT, "التاريخ" TEXT, "البيان" TEXT, "النوع" TEXT, "Hex" TEXT
       );
     `)
     const live = openDb(dbPath)
@@ -200,6 +213,11 @@ describe.skipIf(!sqliteAvailable())('archive migrate sqlite', () => {
       INSERT INTO "الجلسات" VALUES ('Mas002','5','10-01-1994','اول جلسه','1','${hexFor(1, 5)}');
       INSERT INTO "الجلسات" VALUES ('Mas002','2','15-10-2026','اول جلسه','1','${hexFor(2, 2)}');
       INSERT INTO "الجلسات" VALUES ('Mas002','4','29-09-2026','اول جلسه','1','${hexFor(4, 4)}');
+      INSERT INTO "الإجراءات" VALUES ('Mas002','10','10-01-1994','متابعه بالجدول','1','${hexFor(1, 10)}');
+      INSERT INTO "الإجراءات" VALUES ('Mas002','11','10-01-1994','متابعه بالجدول','1','${hexFor(1, 11)}');
+      INSERT INTO "الإجراءات" VALUES ('Mas002','12','29-09-2026','استلام صوره رسمي','2','${hexFor(4, 12)}');
+      INSERT INTO "الإجراءات" VALUES ('Mas002','13','01-01-1990','يتيم','1','${hexFor(99, 13)}');
+      INSERT INTO "الحصر" VALUES ('Mas002','20','23-04-2001','حصر رقم 4754 /2001','1','${hexFor(4, 20)}');
     `)
     archive.close()
     live.close()
@@ -214,6 +232,9 @@ describe.skipIf(!sqliteAvailable())('archive migrate sqlite', () => {
     expect(dry.hearingsSkippedDedupe).toBe(1)
     expect(dry.hearingsOrphan).toBe(0)
     expect(dry.hearingsInserted).toBe(3)
+    expect(dry.tasksInserted).toBe(3)
+    expect(dry.tasksSkippedDedupe).toBe(1)
+    expect(dry.tasksOrphan).toBe(1)
 
     const liveCheck = openDb(dbPath)
     expect((liveCheck.prepare(`SELECT COUNT(*) AS c FROM cases`).get() as { c: number }).c).toBe(2)
@@ -230,6 +251,9 @@ describe.skipIf(!sqliteAvailable())('archive migrate sqlite', () => {
     expect(applied.hearingsInserted).toBe(3)
     expect(applied.hearingsSkippedDedupe).toBe(1)
     expect(applied.hearingsOrphan).toBe(0)
+    expect(applied.tasksInserted).toBe(3)
+    expect(applied.tasksSkippedDedupe).toBe(1)
+    expect(applied.tasksOrphan).toBe(1)
 
     const db = openDb(dbPath)
     const liveCase = db.prepare(`SELECT title, case_number FROM cases WHERE id='cs-live'`).get() as {
@@ -278,6 +302,15 @@ describe.skipIf(!sqliteAvailable())('archive migrate sqlite', () => {
     expect(queued.some((q) => q.table_name === 'cases' && q.record_id === 'cs-live')).toBe(false)
     expect(queued.filter((q) => q.table_name === 'cases' && q.operation === 'INSERT').length).toBe(3)
     expect(queued.filter((q) => q.table_name === 'hearings').length).toBe(3)
+    expect(queued.filter((q) => q.table_name === 'tasks').length).toBe(3)
+    const tasks = db
+      .prepare(`SELECT case_id, work_kind, description, status, police_report_kind FROM tasks ORDER BY due_date`)
+      .all() as { case_id: string; work_kind: string; description: string; status: string; police_report_kind: string | null }[]
+    expect(tasks).toHaveLength(3)
+    expect(tasks.filter((t) => t.work_kind === 'admin')).toHaveLength(2)
+    expect(tasks.filter((t) => t.work_kind === 'execution')).toHaveLength(1)
+    expect(tasks.find((t) => t.work_kind === 'execution')?.police_report_kind).toBe('حصر')
+    expect(tasks.find((t) => t.description === 'متابعه بالجدول')?.status).toBe('completed')
     expect(queued.filter((q) => q.table_name === 'clients' && q.operation === 'INSERT').length).toBe(2)
 
     const seq = db.prepare(`SELECT current_value FROM number_sequences WHERE name='case'`).get() as { current_value: number }
@@ -293,6 +326,7 @@ describe.skipIf(!sqliteAvailable())('archive migrate sqlite', () => {
     const second = migrateArchive({ archivePath, dbPath, apply: true, today: '2026-10-01' })
     expect(second.casesInserted).toBe(0)
     expect(second.hearingsInserted).toBe(0)
+    expect(second.tasksInserted).toBe(0)
     expect(second.clientsInserted).toBe(0)
   })
 

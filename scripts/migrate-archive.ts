@@ -1,5 +1,5 @@
 /**
- * Copy clients, cases, and hearings from read-only archive.db into live lawoffice.db.
+ * Copy clients, cases, hearings, and admin/execution acts from read-only archive.db.
  * Never UPDATE existing live rows. Default is --dry-run; pass --apply to write.
  *
  *   npx tsx scripts/migrate-archive.ts
@@ -18,6 +18,8 @@ import {
   extractNationalId,
   hearingDedupeKey,
   hearingStatusForDate,
+  taskDedupeKey,
+  taskStatusForDate,
   archiveProgramCode,
   liveCourtKeys,
   nextFreeProgramNumber,
@@ -57,6 +59,9 @@ export type MigrateReport = {
   hearingsInserted: number
   hearingsSkippedDedupe: number
   hearingsOrphan: number
+  tasksInserted: number
+  tasksSkippedDedupe: number
+  tasksOrphan: number
   caseClientsInserted: number
   caseOpponentsInserted: number
   queueAdded: number
@@ -234,6 +239,9 @@ export function migrateArchive(opts: MigrateOptions = {}): MigrateReport {
     hearingsInserted: 0,
     hearingsSkippedDedupe: 0,
     hearingsOrphan: 0,
+    tasksInserted: 0,
+    tasksSkippedDedupe: 0,
+    tasksOrphan: 0,
     caseClientsInserted: 0,
     caseOpponentsInserted: 0,
     queueAdded: 0
@@ -307,6 +315,7 @@ export function migrateArchive(opts: MigrateOptions = {}): MigrateReport {
     const caseClientLinks = new Set<string>()
     const caseOpponentLinks = new Set<string>()
     const hearingsByCase = new Map<string, Set<string>>()
+    const tasksByCase = new Map<string, Set<string>>()
     const countedClients = new Set<string>()
     const countedOpponents = new Set<string>()
     const nidByFold = new Map<string, string>()
@@ -409,6 +418,17 @@ export function migrateArchive(opts: MigrateOptions = {}): MigrateReport {
       const set = hearingsByCase.get(r.case_id) ?? new Set<string>()
       set.add(hearingDedupeKey(r.hearing_date, r.d || r.w))
       hearingsByCase.set(r.case_id, set)
+    }
+    for (const r of live
+      .prepare(
+        `SELECT case_id, due_date, IFNULL(description,'') AS d, IFNULL(title,'') AS t, IFNULL(work_kind,'admin') AS k
+         FROM tasks WHERE deleted_at IS NULL`
+      )
+      .all() as { case_id: string | null; due_date: string | null; d: string; t: string; k: string }[]) {
+      if (!r.case_id || !r.due_date) continue
+      const set = tasksByCase.get(r.case_id) ?? new Set<string>()
+      set.add(taskDedupeKey(r.k, r.due_date, r.d || r.t))
+      tasksByCase.set(r.case_id, set)
     }
 
     if (apply && tableExists(live, 'archive_migration_map')) {
@@ -929,6 +949,98 @@ export function migrateArchive(opts: MigrateOptions = {}): MigrateReport {
       saveMap(`hearing:${office}:${hearingRecno}`, 'hearings', id)
     }
 
+    const caseMeta = new Map<string, { clientId: string | null; title: string; court: string }>()
+    if (apply) {
+      for (const r of live!
+        .prepare(`SELECT id, client_id, title, court FROM cases WHERE deleted_at IS NULL`)
+        .all() as { id: string; client_id: string | null; title: string | null; court: string | null }[]) {
+        caseMeta.set(r.id, { clientId: r.client_id, title: r.title || '', court: r.court || '' })
+      }
+    }
+    const insertTask = apply
+      ? live!.prepare(
+          `INSERT INTO tasks
+            (id, title, description, venue, case_subject, case_id, client_id, due_date, priority, status, progress,
+             work_kind, execution_kind, police_report_no, police_report_kind, notes, created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        )
+      : null
+
+    const migrateActs = (
+      table: string,
+      dateCol: string,
+      textCol: string,
+      typeCol: string,
+      workKind: 'admin' | 'execution',
+      mapPrefix: string,
+      fallback: string
+    ) => {
+      const rows = tableExists(archive!, table) ? (archive!.prepare(`SELECT * FROM ${quoteIdent(table)}`).all() as ArchiveRow[]) : []
+      for (const row of rows) {
+        const office = str(row, 'المكتب') || 'Mas002'
+        const actRecno = Number(str(row, 'رقم_السجل'))
+        const caseRecno = archiveCaseRecnoFromHex(row['Hex'], actRecno)
+        if (!caseRecno) {
+          report.tasksOrphan += 1
+          continue
+        }
+        const caseId = resolveMigratedCase(office, caseRecno)
+        if (!caseId) {
+          report.tasksOrphan += 1
+          continue
+        }
+        const date = parseLegacyDate(row[dateCol])
+        if (!date) {
+          report.tasksOrphan += 1
+          continue
+        }
+        const text = str(row, textCol) || fallback
+        const key = taskDedupeKey(workKind, date, text)
+        const set = tasksByCase.get(caseId) ?? new Set<string>()
+        if (set.has(key)) {
+          report.tasksSkippedDedupe += 1
+          continue
+        }
+        set.add(key)
+        tasksByCase.set(caseId, set)
+        report.tasksInserted += 1
+        const id = randomUUID()
+        if (apply && insertTask) {
+          const meta = caseMeta.get(caseId)
+          const past = taskStatusForDate(date, today) === 'completed'
+          const typeRaw = str(row, typeCol)
+          const isHasr = workKind === 'execution' && /حصر/.test(text)
+          const reportNo = text.match(/حصر(?:\s*رقم)?\s*(\d+)/)?.[1] || null
+          insertTask.run(
+            id,
+            text.slice(0, 80),
+            text,
+            meta?.court || null,
+            meta?.title || null,
+            caseId,
+            meta?.clientId || null,
+            date,
+            'medium',
+            past ? 'completed' : 'not_done',
+            past ? 100 : 0,
+            workKind,
+            workKind === 'execution' ? (/جنائي|حصر|ضبط|نياب/.test(text) ? 'جنائي' : 'مدني') : null,
+            reportNo,
+            isHasr ? 'حصر' : null,
+            typeRaw || null,
+            ts,
+            ts
+          )
+          chunk.tick()
+        }
+        enqueue('tasks', id, 'INSERT')
+        saveMap(`${mapPrefix}:${office}:${actRecno}`, 'tasks', id)
+      }
+    }
+
+    migrateActs('الإجراءات', 'تاريخ_إداري', 'بيان_إداري', 'نوع_العمل', 'admin', 'admin', 'عمل إداري')
+    migrateActs('الحصر', 'التاريخ', 'البيان', 'النوع', 'execution', 'exec', 'إجراء تنفيذ')
+
     const bumpSeq = (name: 'case' | 'client', maxN: number, exact: boolean) => {
       const row = live!.prepare(`SELECT current_value FROM number_sequences WHERE name=?`).get(name) as
         | { current_value: number }
@@ -995,6 +1107,12 @@ function printReport(report: MigrateReport): void {
     report.hearingsInserted,
     report.hearingsSkippedDedupe,
     report.hearingsOrphan
+  )
+  console.log(
+    'tasks inserted/deduped/orphan',
+    report.tasksInserted,
+    report.tasksSkippedDedupe,
+    report.tasksOrphan
   )
   console.log('links case_clients/case_opponents', report.caseClientsInserted, report.caseOpponentsInserted)
   console.log('queue added', report.queueAdded)

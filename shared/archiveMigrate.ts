@@ -215,3 +215,11 @@ export function hearingStatusForDate(isoDate: string, todayIso: string): 'done' 
 export function hearingDedupeKey(dateIso: string, text: unknown): string {
   return `${dateIso}|${arabicFold(text)}`
 }
+
+export function taskDedupeKey(workKind: string, dateIso: string, text: unknown): string {
+  return `${workKind}|${dateIso}|${arabicFold(text)}`
+}
+
+export function taskStatusForDate(isoDate: string, todayIso: string): 'completed' | 'not_done' {
+  return isoDate < todayIso.slice(0, 10) ? 'completed' : 'not_done'
+}
