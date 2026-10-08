@@ -324,6 +324,19 @@ function seedIfEmpty(database: BetterSqlite3.Database): void {
   for (const [k, v] of Object.entries(defaults)) insertSetting.run(k, v, ts)
 }
 
+const SEQUENCE_OCCUPIED: Record<string, { table: string; column: string }> = {
+  client: { table: 'clients', column: 'client_number' },
+  case: { table: 'cases', column: 'case_number' },
+  invoice: { table: 'invoices', column: 'invoice_number' },
+  receipt: { table: 'receipts', column: 'receipt_number' },
+  voucher: { table: 'vouchers', column: 'voucher_number' },
+  payment: { table: 'payments', column: 'payment_number' },
+  expense: { table: 'expenses', column: 'expense_number' },
+  poa: { table: 'power_of_attorney', column: 'poa_number' },
+  contract: { table: 'contracts', column: 'contract_number' },
+  correspondence: { table: 'correspondence', column: 'correspondence_number' }
+}
+
 export function nextNumber(database: BetterSqlite3.Database, name: string): string {
   const row = database.prepare('SELECT * FROM number_sequences WHERE name = ?').get(name) as {
     prefix: string
@@ -331,7 +344,16 @@ export function nextNumber(database: BetterSqlite3.Database, name: string): stri
     padding: number
   }
   if (!row) throw new Error(`Unknown sequence: ${name}`)
-  const next = row.current_value + 1
+  let next = row.current_value + 1
+  const occupied = SEQUENCE_OCCUPIED[name]
+  if (occupied) {
+    const exists = database.prepare(`SELECT 1 AS x FROM ${occupied.table} WHERE ${occupied.column} = ? LIMIT 1`)
+    for (let i = 0; i < 200000; i++) {
+      const code = `${row.prefix}${String(next).padStart(row.padding, '0')}`
+      if (!exists.get(code)) break
+      next += 1
+    }
+  }
   database.prepare('UPDATE number_sequences SET current_value = ?, updated_at = ? WHERE name = ?').run(next, nowIso(), name)
   return `${row.prefix}${String(next).padStart(row.padding, '0')}`
 }

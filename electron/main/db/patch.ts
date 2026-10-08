@@ -117,6 +117,8 @@ export function patchSchema(db: Db): void {
   addColumn(db, 'case_opponents', 'capacity_cassation', 'TEXT')
   addColumn(db, 'case_opponents', 'sort_order', 'INTEGER NOT NULL DEFAULT 0')
   ensureCaseSequenceFrom(db, 0)
+  ensureSequenceFromLiveMax(db, 'client', 'clients', 'client_number', 'CL-')
+  ensureSequenceFromLiveMax(db, 'case', 'cases', 'case_number', 'CS-')
   try {
     extractCourtNumbers(db)
   } catch (err) {
@@ -369,12 +371,36 @@ export function ensurePermissions(db: Db): void {
   }
 }
 
+function liveMaxProgramN(db: Db, table: string, column: string, prefix: string): number {
+  try {
+    const row = db
+      .prepare(
+        `SELECT MAX(CAST(REPLACE(REPLACE(IFNULL(${column},''), ?, ''), ?, '') AS INTEGER)) AS m FROM ${table}`
+      )
+      .get(prefix, prefix.toLowerCase()) as { m: number | null }
+    return Number(row?.m) || 0
+  } catch {
+    return 0
+  }
+}
+
+function ensureSequenceFromLiveMax(db: Db, name: string, table: string, column: string, prefix: string): void {
+  const row = db.prepare(`SELECT current_value FROM number_sequences WHERE name = ?`).get(name) as
+    | { current_value: number }
+    | undefined
+  if (!row) return
+  const nextVal = Math.max(Number(row.current_value) || 0, liveMaxProgramN(db, table, column, prefix))
+  if (nextVal === row.current_value) return
+  db.prepare(`UPDATE number_sequences SET current_value = ?, updated_at = ? WHERE name = ?`).run(nextVal, nowIso(), name)
+}
+
 function ensureCaseSequenceFrom(db: Db, minCurrent: number): void {
   const row = db.prepare(`SELECT current_value, padding FROM number_sequences WHERE name = 'case'`).get() as
     | { current_value: number; padding: number }
     | undefined
   if (!row) return
-  const nextVal = Math.max(Number(row.current_value) || 0, minCurrent)
+  const fromLive = liveMaxProgramN(db, 'cases', 'case_number', 'CS-')
+  const nextVal = Math.max(Number(row.current_value) || 0, minCurrent, fromLive)
   const pad = Math.max(Number(row.padding) || 0, 4)
   db.prepare(`UPDATE number_sequences SET current_value = ?, padding = ? WHERE name = 'case'`).run(nextVal, pad)
 }

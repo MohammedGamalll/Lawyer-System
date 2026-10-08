@@ -1054,8 +1054,12 @@ export function migrateArchive(opts: MigrateOptions = {}): MigrateReport {
       }
       enqueue('number_sequences', name, 'UPDATE')
     }
+    for (const key of occupiedClientCodes) {
+      const n = Number(key)
+      if (Number.isFinite(n) && n > 0) maxClientN = Math.max(maxClientN, n)
+    }
     bumpSeq('case', maxCaseN, true)
-    bumpSeq('client', maxClientN, false)
+    bumpSeq('client', maxClientN, true)
 
     chunk.commit(false)
   } finally {
