@@ -31,6 +31,20 @@ export function isHearingDoneStatus(status?: unknown): boolean {
   return s === 'done' || s === 'تمت'
 }
 
+function isHearingCancelledStatus(status?: unknown): boolean {
+  const s = String(status || '').trim()
+  return s === 'cancelled' || s === 'ملغاة'
+}
+
+export function isActiveOverdueHearingStatus(status?: unknown): boolean {
+  const s = String(status || '').trim()
+  return s === 'upcoming' || s === 'postponed' || s === 'مؤجلة'
+}
+
+function hearingHasDecision(input: { result?: unknown; courtDecision?: unknown; whatHappened?: unknown }): boolean {
+  return hasText(input.result) || hasText(input.courtDecision) || hasText(input.whatHappened)
+}
+
 export function shouldShowWorkAlert(input: {
   caseStatus?: unknown
   caseArchived?: unknown
@@ -45,7 +59,9 @@ export function shouldShowWorkAlert(input: {
   latestHearingDate?: unknown
   today: string
 }): boolean {
-  if (input.kind === 'hearing' && isHearingDoneStatus(input.hearingStatus)) return false
+  if (input.kind === 'hearing' && (isHearingDoneStatus(input.hearingStatus) || isHearingCancelledStatus(input.hearingStatus))) {
+    return false
+  }
   const next = dayOf(input.nextDate)
   const action = dayOf(input.actionDate)
   const latest = dayOf(input.latestHearingDate)
@@ -55,7 +71,13 @@ export function shouldShowWorkAlert(input: {
   }
   const stillOpen = (next && next >= input.today) || (action && action >= input.today)
   if (stillOpen) return true
-  if (action && action < input.today && !(next && next >= input.today)) return false
+  if (action && action < input.today && !(next && next >= input.today)) {
+    if (input.kind !== 'hearing') return false
+    if (isInactiveCaseForAlerts(input.caseStatus, input.caseArchived)) return false
+    if (hearingHasDecision(input)) return false
+    if (latest && latest > action) return false
+    return isActiveOverdueHearingStatus(input.hearingStatus)
+  }
   if (isInactiveCaseForAlerts(input.caseStatus, input.caseArchived)) return false
   if (!action && !next) return true
   if (input.kind === 'task') {
@@ -63,7 +85,7 @@ export function shouldShowWorkAlert(input: {
     return st !== 'completed' && st !== 'cancelled'
   }
   if (input.kind === 'hearing') {
-    return !hasText(input.result) && !hasText(input.courtDecision) && !hasText(input.whatHappened)
+    return !hearingHasDecision(input)
   }
   return true
 }

@@ -149,7 +149,8 @@ const ar = {
     dateTo: 'إلى تاريخ',
     colTitle: 'التنبيه',
     colType: 'النوع',
-    colDate: 'التاريخ'
+    colDate: 'التاريخ',
+    overdueHearing: 'جلسة متأخرة — لم يأتِ قرارها'
   },
   excelTemplate: 'قالب Excel',
   importConfirm: 'صفوف صحيحة: {{valid}} / أخطاء: {{invalid}}. تنفيذ؟',

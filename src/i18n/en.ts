@@ -149,7 +149,8 @@ const en = {
     dateTo: 'To',
     colTitle: 'Alert',
     colType: 'Type',
-    colDate: 'Date'
+    colDate: 'Date',
+    overdueHearing: 'Overdue hearing — no decision yet'
   },
   excelTemplate: 'Excel template',
   importConfirm: 'Valid rows: {{valid}} / errors: {{invalid}}. Proceed?',

@@ -888,18 +888,6 @@ export function allocateCaseNumber(
     }
     if (!number) throw new Error(DUPLICATE_CASE_CODE)
   }
-  if (office) {
-    const found = excludeId
-      ? (db
-          .prepare(
-            `SELECT id FROM cases WHERE office_case_number = ? AND IFNULL(case_year,'') = ? AND id != ? AND ${notDeleted()}`
-          )
-          .get(office, year, excludeId) as { id: string } | undefined)
-      : (db
-          .prepare(`SELECT id FROM cases WHERE office_case_number = ? AND IFNULL(case_year,'') = ? AND ${notDeleted()}`)
-          .get(office, year) as { id: string } | undefined)
-    if (found) throw new Error('رقم القضية مستخدم بالفعل في هذه السنة')
-  }
   return { number, year: year || null, office: office || null }
 }
 

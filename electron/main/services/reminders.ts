@@ -3,7 +3,7 @@ import { nowIso, addDays, todayIso } from '../utils/time'
 import { newId, asIdOrNull, notDeleted } from '../db/ids'
 import { recordLocalChange } from '../sync/queue'
 import { formattedCourtNumber } from '@shared/printLabels'
-import { shouldShowWorkAlert } from './alertVisibility'
+import { isInactiveCaseForAlerts, shouldShowWorkAlert } from './alertVisibility'
 
 export function createReminder(data: {
   reminder_type: string
@@ -64,18 +64,16 @@ function alreadyNotifiedToday(type: string, relatedId?: string): boolean {
 
 function alreadyNotifiedHearingCaseDate(caseId: string, hearingDate: string): boolean {
   if (!caseId || !hearingDate) return false
-  const today = todayIso()
   const day = hearingDate.slice(0, 10)
   const row = getDb()
     .prepare(
       `SELECT 1 as x FROM notifications n
        JOIN hearings h ON h.id = n.related_id AND h.deleted_at IS NULL
        WHERE n.type = 'hearing' AND n.deleted_at IS NULL
-         AND substr(n.created_at, 1, 10) = ?
          AND h.case_id = ?
          AND substr(h.hearing_date, 1, 10) = ?`
     )
-    .get(today, caseId, day) as { x: number } | undefined
+    .get(caseId, day) as { x: number } | undefined
   return Boolean(row)
 }
 
@@ -220,6 +218,44 @@ export function generateDailyNotifications(): void {
       continue
     }
     notifyHearingOnce(h, 'جلسة الغد', tomorrow)
+  }
+
+  const overdueHearings = db
+    .prepare(
+      `SELECT h.id, h.case_id, h.hearing_date, h.next_hearing_date, h.result, h.court_decision, h.what_happened, h.status,
+              cs.title, cs.case_number, cs.office_case_number, cs.case_year, cs.status as case_status, cs.is_archived,
+              cs.first_instance_number, cs.first_instance_year, cs.appeal_number, cs.appeal_year,
+              cs.cassation_number, cs.cassation_year, cs.opponent_name, cl.full_name as client_name,
+              (SELECT MAX(h2.hearing_date) FROM hearings h2
+                WHERE h2.case_id = h.case_id AND ${notDeleted('h2')}) AS latest_hearing_date
+       FROM hearings h
+       JOIN cases cs ON cs.id = h.case_id
+       LEFT JOIN clients cl ON cl.id = cs.client_id AND ${notDeleted('cl')}
+       WHERE h.hearing_date < ? AND h.status IN ('upcoming', 'postponed') AND ${notDeleted('h')} AND ${notDeleted('cs')}
+         AND IFNULL(TRIM(h.result),'') = '' AND IFNULL(TRIM(h.court_decision),'') = '' AND IFNULL(TRIM(h.what_happened),'') = ''
+         AND (h.next_hearing_date IS NULL OR TRIM(h.next_hearing_date) = '' OR h.next_hearing_date < ?)`
+    )
+    .all(today, today) as (HearingAlert & { status?: string; latest_hearing_date?: string })[]
+  for (const h of overdueHearings) {
+    if (isInactiveCaseForAlerts(h.case_status, h.is_archived)) continue
+    if (
+      !shouldShowWorkAlert({
+        caseStatus: h.case_status,
+        caseArchived: h.is_archived,
+        kind: 'hearing',
+        actionDate: h.hearing_date,
+        nextDate: h.next_hearing_date,
+        result: h.result,
+        courtDecision: h.court_decision,
+        whatHappened: h.what_happened,
+        hearingStatus: h.status,
+        latestHearingDate: h.latest_hearing_date,
+        today
+      })
+    ) {
+      continue
+    }
+    notifyHearingOnce(h, 'جلسة متأخرة — لم يأتِ قرارها', String(h.hearing_date || today))
   }
 
   const overdue = db

@@ -108,6 +108,21 @@ describe.skipIf(!sqliteAvailable())('allocateCaseNumber', () => {
     db.close()
   })
 
+  it('allows the same court number and year on two different cases', () => {
+    const db = seed()
+    insertCase(db, randomUUID(), 'CS-00001', '373', '2024')
+    const second = allocateCaseNumber(db, {
+      numbering_mode: 'auto',
+      office_case_number: '373',
+      case_year: '2024'
+    })
+    expect(second.office).toBe('373')
+    expect(second.year).toBe('2024')
+    expect(second.number).toMatch(/^CS-/)
+    expect(second.number).not.toBe('CS-00001')
+    db.close()
+  })
+
   it('rejects a duplicate program code including CS- prefix variants', () => {
     const db = seed()
     insertCase(db, randomUUID(), 'CS-00245')

@@ -186,6 +186,70 @@ describe('alert visibility', () => {
     ).toBe(true)
   })
 
+  it('shows a past upcoming hearing on an open case when no decision was recorded', () => {
+    expect(
+      shouldShowWorkAlert({
+        caseStatus: 'open',
+        kind: 'hearing',
+        actionDate: '2026-10-08',
+        hearingStatus: 'upcoming',
+        today: '2026-10-12'
+      })
+    ).toBe(true)
+    expect(
+      notificationIsVisible(
+        {
+          related_type: 'hearing',
+          case_status: 'open',
+          hearing_date: '2026-10-08',
+          hearing_status: 'upcoming'
+        },
+        '2026-10-12'
+      )
+    ).toBe(true)
+  })
+
+  it('hides a past overdue hearing when the case is closed, a decision exists, or a later hearing exists', () => {
+    expect(
+      shouldShowWorkAlert({
+        caseStatus: 'closed',
+        kind: 'hearing',
+        actionDate: '2026-10-08',
+        hearingStatus: 'upcoming',
+        today: '2026-10-12'
+      })
+    ).toBe(false)
+    expect(
+      shouldShowWorkAlert({
+        caseStatus: 'open',
+        kind: 'hearing',
+        actionDate: '2026-10-08',
+        hearingStatus: 'upcoming',
+        result: 'حكمت المحكمة',
+        today: '2026-10-12'
+      })
+    ).toBe(false)
+    expect(
+      shouldShowWorkAlert({
+        caseStatus: 'open',
+        kind: 'hearing',
+        actionDate: '2026-10-08',
+        hearingStatus: 'upcoming',
+        latestHearingDate: '2026-10-20',
+        today: '2026-10-12'
+      })
+    ).toBe(false)
+    expect(
+      shouldShowWorkAlert({
+        caseStatus: 'open',
+        kind: 'hearing',
+        actionDate: '2026-10-08',
+        hearingStatus: 'done',
+        today: '2026-10-12'
+      })
+    ).toBe(false)
+  })
+
   it('hides a past finished hearing and a completed task', () => {
     expect(
       shouldShowWorkAlert({
@@ -331,6 +395,50 @@ describe.skipIf(!sqliteAvailable())('login usernames, closed-case alerts, and pa
       )
       .all() as { id: string; related_id: string }[]
     expect(rows).toHaveLength(1)
+  })
+
+  it('writes one overdue-hearing alert for a past upcoming session without a decision', async () => {
+    const db = await boot()
+    const ts = new Date().toISOString()
+    const { cairoAddDays, cairoTodayIso } = await import('../shared/cairoDate')
+    const past = cairoAddDays(cairoTodayIso(), -4)
+    db.prepare(
+      `INSERT INTO clients (id, client_number, full_name, client_type, created_at, updated_at)
+       VALUES ('cl-over', 'CL-OV', 'موكل', 'individual', ?, ?)`
+    ).run(ts, ts)
+    db.prepare(
+      `INSERT INTO cases (id, case_number, title, client_id, status, created_at, updated_at)
+       VALUES ('cs-over', 'CS-00810', 'دعوى', 'cl-over', 'open', ?, ?)`
+    ).run(ts, ts)
+    db.prepare(
+      `INSERT INTO hearings (id, case_id, hearing_date, hearing_type, status, created_at, updated_at)
+       VALUES ('h-over', 'cs-over', ?, 'موضوع', 'upcoming', ?, ?)`
+    ).run(past, ts, ts)
+    db.prepare(
+      `INSERT INTO cases (id, case_number, title, client_id, status, created_at, updated_at)
+       VALUES ('cs-over-closed', 'CS-00811', 'دعوى مغلقة', 'cl-over', 'closed', ?, ?)`
+    ).run(ts, ts)
+    db.prepare(
+      `INSERT INTO hearings (id, case_id, hearing_date, hearing_type, status, created_at, updated_at)
+       VALUES ('h-over-closed', 'cs-over-closed', ?, 'موضوع', 'upcoming', ?, ?)`
+    ).run(past, ts, ts)
+    db.prepare(
+      `INSERT INTO cases (id, case_number, title, client_id, status, created_at, updated_at)
+       VALUES ('cs-over-dec', 'CS-00812', 'دعوى بقرار', 'cl-over', 'open', ?, ?)`
+    ).run(ts, ts)
+    db.prepare(
+      `INSERT INTO hearings (id, case_id, hearing_date, hearing_type, result, status, created_at, updated_at)
+       VALUES ('h-over-dec', 'cs-over-dec', ?, 'موضوع', 'حكمت المحكمة', 'upcoming', ?, ?)`
+    ).run(past, ts, ts)
+    const { generateDailyNotifications } = await import('../electron/main/services/reminders')
+    generateDailyNotifications()
+    const rows = db
+      .prepare(
+        `SELECT title, related_id FROM notifications WHERE title LIKE 'جلسة متأخرة%' AND deleted_at IS NULL`
+      )
+      .all() as { title: string; related_id: string }[]
+    expect(rows).toHaveLength(1)
+    expect(rows[0].related_id).toBe('h-over')
   })
 
   it('does not throw when completing a missing hearing and dismisses the alert', async () => {
