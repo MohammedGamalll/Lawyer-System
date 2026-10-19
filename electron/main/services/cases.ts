@@ -814,6 +814,27 @@ export function programCodeKey(value: string) {
   return key
 }
 
+export function getAdjacentCase(id: string, deltaRaw: unknown): { id: string } | null {
+  const delta = Number(deltaRaw) < 0 ? -1 : 1
+  const current = getDb()
+    .prepare(`SELECT id, case_number FROM cases WHERE id = ? AND ${notDeleted()}`)
+    .get(id) as { id: string; case_number?: string } | undefined
+  if (!current) throw new Error('القضية غير موجودة')
+  const n = Number(programCodeKey(String(current.case_number || '')))
+  if (!Number.isFinite(n) || n <= 0) return null
+  const target = n + delta
+  if (target <= 0) return null
+  const row = getDb()
+    .prepare(
+      `SELECT id FROM cases
+       WHERE ${notDeleted()}
+         AND CAST(REPLACE(REPLACE(IFNULL(case_number,''), 'CS-', ''), 'cs-', '') AS INTEGER) = ?
+       LIMIT 1`
+    )
+    .get(target) as { id: string } | undefined
+  return row?.id ? { id: row.id } : null
+}
+
 function bumpCaseSequenceIfNeeded(db: ReturnType<typeof getDb>, code: string) {
   const seq = db.prepare(`SELECT prefix, current_value, padding FROM number_sequences WHERE name = 'case'`).get() as
     | { prefix: string; current_value: number; padding: number }

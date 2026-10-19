@@ -377,87 +377,67 @@ export async function exportReport(q: ReportQuery, format: 'xlsx' | 'csv'): Prom
 export function globalSearch(term: string, actor?: AuthedUser | null) {
   const db = getDb()
   const s = foldedLikeTerm(term)
-  const code = isProgramCodeQuery(term)
+  const raw = String(term ?? '').trim()
+  const code = isProgramCodeQuery(raw) && !/^(CL)-/i.test(raw)
   const out: Record<string, unknown> = {}
   if (!actor) return out
-  if (hasAnyPermission(actor, 'clients.view')) {
-    const params: unknown[] = []
-    let where = `WHERE ${notDeleted()} AND (`
-    if (code) {
-      where += `client_number LIKE ? OR CAST(REPLACE(REPLACE(IFNULL(client_number,''), 'CL-', ''), 'cl-', '') AS INTEGER) = ?`
-      params.push(`%${term.trim()}%`, Number(String(term).replace(/\D/g, '')))
-    } else {
-      where += `${arabicLike('full_name')} OR client_number LIKE ? OR phone LIKE ? OR national_id LIKE ?`
-      params.push(s, s, s, s)
+  if (code) {
+    if (hasAnyPermission(actor, 'cases.view')) {
+      const params: unknown[] = []
+      const where = applyProgramCodeFilter(`WHERE ${notDeleted('c')} AND ${notDeleted('cl')}`, params, raw)
+      out.cases = db
+        .prepare(
+          `SELECT DISTINCT c.id, c.case_number, c.title, c.status, c.office_case_number, c.case_year, c.is_archived
+           FROM cases c
+           JOIN clients cl ON cl.id = c.client_id
+           ${where}
+           LIMIT 25`
+        )
+        .all(...params)
     }
-    where += ')'
+    return out
+  }
+  if (hasAnyPermission(actor, 'clients.view')) {
     out.clients = maskClientContactFields(
-      db.prepare(`SELECT id, client_number, full_name, phone FROM clients ${where} LIMIT 25`).all(...params),
+      db
+        .prepare(
+          `SELECT id, client_number, full_name, phone FROM clients WHERE ${notDeleted()} AND ${arabicLike('full_name')} LIMIT 25`
+        )
+        .all(s),
       actor
     )
   }
-  if (hasAnyPermission(actor, 'cases.view')) {
-    const params: unknown[] = []
-    let where = `WHERE ${notDeleted('c')} AND ${notDeleted('cl')}`
-    if (code) {
-      where = applyProgramCodeFilter(where, params, term)
-    } else {
-      where += ` AND (${arabicLike('c.title')} OR ${arabicLike('c.opponent_name')} OR ${arabicLike('c.category')} OR ${arabicLike('cl.full_name')} OR c.case_number LIKE ? OR IFNULL(c.internal_file_number,'') LIKE ? OR IFNULL(c.office_case_number,'') LIKE ? OR IFNULL(c.case_year,'') LIKE ? OR EXISTS (
-        SELECT 1 FROM case_clients x JOIN clients cx ON cx.id = x.client_id
-        WHERE x.case_id = c.id AND ${notDeleted('x')} AND ${notDeleted('cx')} AND ${arabicLike('cx.full_name')}
-      ))`
-      params.push(s, s, s, s, s, s, s, s, s)
-    }
-    out.cases = db
-      .prepare(
-        `SELECT DISTINCT c.id, c.case_number, c.title, c.status, c.office_case_number, c.case_year, c.is_archived
-         FROM cases c
-         JOIN clients cl ON cl.id = c.client_id
-         ${where}
-         LIMIT 25`
-      )
-      .all(...params)
-  }
-  if (hasAnyPermission(actor, 'hearings.view')) {
-    const params: unknown[] = []
-    let where = `WHERE ${notDeleted('h')} AND ${notDeleted('cs')}`
-    if (code) {
-      where = applyProgramCodeFilter(where, params, term, 'cs')
-    } else {
-      where += ` AND (${arabicLike('cs.title')} OR cs.case_number LIKE ? OR IFNULL(cs.office_case_number,'') LIKE ? OR IFNULL(cs.case_year,'') LIKE ?)`
-      params.push(s, s, s, s)
-    }
-    out.hearings = db
-      .prepare(
-        `SELECT h.id, h.hearing_date, cs.case_number, cs.title, cs.office_case_number
-         FROM hearings h JOIN cases cs ON cs.id = h.case_id
-         ${where}
-         LIMIT 25`
-      )
-      .all(...params)
-  }
-  if (hasAnyPermission(actor, 'documents.view')) {
-    out.documents = db
-      .prepare(`SELECT id, title, file_name FROM documents WHERE ${notDeleted()} AND (title LIKE ? OR file_name LIKE ?) LIMIT 10`)
-      .all(s, s)
-  }
-  if (hasAnyPermission(actor, 'contracts.view')) {
-    out.contracts = db
-      .prepare(
-        `SELECT id, contract_number, title FROM contracts WHERE ${notDeleted()} AND (title LIKE ? OR contract_number LIKE ?) LIMIT 10`
-      )
-      .all(s, s)
-  }
-  if (hasAnyPermission(actor, 'poa.view')) {
-    out.poa = db.prepare(`SELECT id, poa_number, poa_type FROM power_of_attorney WHERE ${notDeleted()} AND poa_number LIKE ? LIMIT 10`).all(s)
-  }
-  if (hasAnyPermission(actor, ['accounts.view', 'accounts.payment'])) {
-    out.payments = db.prepare(`SELECT id, payment_number, amount FROM payments WHERE ${notDeleted()} AND payment_number LIKE ? LIMIT 10`).all(s)
-  }
-  if (hasAnyPermission(actor, 'tasks.view')) {
-    out.tasks = db.prepare(`SELECT id, title, status FROM tasks WHERE ${notDeleted()} AND title LIKE ? LIMIT 10`).all(s)
-  }
   return out
+}
+
+function applyVenueExprs(sql: string, params: unknown[], venue: unknown, exprs: string[]): string {
+  const v = String(venue || '').trim()
+  if (!v) return sql
+  sql += ` AND (${exprs.map((e) => arabicLike(e)).join(' OR ')})`
+  const term = foldedLikeTerm(v)
+  for (let i = 0; i < exprs.length; i++) params.push(term)
+  return sql
+}
+
+function applyTaskActionStatus(sql: string, status: unknown, alias = 't'): string {
+  const s = String(status || '').trim()
+  if (!s || s === 'all') return sql
+  if (s === 'done' || s === 'completed') return `${sql} AND ${alias}.status = 'completed'`
+  return `${sql} AND ${alias}.status NOT IN ('completed', 'cancelled')`
+}
+
+function applyCaseTaskStatus(sql: string, params: unknown[], status: unknown, venue: unknown): string {
+  const s = String(status || '').trim()
+  const v = String(venue || '').trim()
+  if (!s || s === 'all') return sql
+  let inner = `SELECT 1 FROM tasks tv WHERE tv.case_id = c.id AND ${notDeleted('tv')}`
+  if (s === 'done' || s === 'completed') inner += ` AND tv.status = 'completed'`
+  else inner += ` AND tv.status NOT IN ('completed', 'cancelled')`
+  if (v) {
+    inner += ` AND ${arabicLike('tv.venue')}`
+    params.push(foldedLikeTerm(v))
+  }
+  return `${sql} AND EXISTS (${inner})`
 }
 
 export function advancedSearch(filters: {
@@ -473,6 +453,8 @@ export function advancedSearch(filters: {
   client_name?: string
   opponent_name?: string
   scope?: string
+  venue?: string
+  action_status?: string
 }) {
   const db = getDb()
   const params: unknown[] = []
@@ -518,6 +500,7 @@ export function advancedSearch(filters: {
       sql += ' AND (h.lawyer_id = ? OR cs.primary_lawyer_id = ?)'
       params.push(filters.lawyer_id, filters.lawyer_id)
     }
+    sql = applyVenueExprs(sql, params, filters.venue, ['h.venue', 'cs.court', 'cs.session_place'])
     return db.prepare(`${sql} LIMIT 200`).all(...params)
   }
   if (scope === 'admin') {
@@ -546,6 +529,8 @@ export function advancedSearch(filters: {
       sql += ` AND ${arabicLike('cl.full_name')}`
       params.push(foldedLikeTerm(filters.client_name))
     }
+    sql = applyVenueExprs(sql, params, filters.venue, ['t.venue', 'cs.court', 'cs.session_place'])
+    sql = applyTaskActionStatus(sql, filters.action_status)
     return db.prepare(`${sql} LIMIT 200`).all(...params)
   }
   if (scope === 'execution') {
@@ -574,6 +559,8 @@ export function advancedSearch(filters: {
       sql += ` AND ${arabicLike('cl.full_name')}`
       params.push(foldedLikeTerm(filters.client_name))
     }
+    sql = applyVenueExprs(sql, params, filters.venue, ['t.venue', 'cs.court', 'cs.session_place'])
+    sql = applyTaskActionStatus(sql, filters.action_status)
     return db.prepare(`${sql} LIMIT 200`).all(...params)
   }
   let sql = `SELECT DISTINCT c.id, c.case_number, c.office_case_number, c.case_year, c.title, c.category, c.status,
@@ -636,6 +623,12 @@ export function advancedSearch(filters: {
   if (filters.hearing_to) {
     sql += ' AND h.hearing_date <= ?'
     params.push(filters.hearing_to)
+  }
+  const actionStatus = String(filters.action_status || '').trim()
+  if (actionStatus && actionStatus !== 'all') {
+    sql = applyCaseTaskStatus(sql, params, actionStatus, filters.venue)
+  } else {
+    sql = applyVenueExprs(sql, params, filters.venue, ['c.court', 'c.session_place', 'h.venue'])
   }
   return db.prepare(`${sql} LIMIT 200`).all(...params)
 }

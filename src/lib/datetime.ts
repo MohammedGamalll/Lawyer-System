@@ -73,6 +73,18 @@ export function toIsoDate(y: number, m: number, d: number): string {
   return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 }
 
+const AR_WEEKDAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
+const EN_WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+export function weekdayName(value?: string | null, lang: string = 'ar'): string {
+  const p = parseDateParts(value)
+  if (!p) return ''
+  const dt = new Date(p.y, p.m - 1, p.d)
+  if (Number.isNaN(dt.getTime())) return ''
+  const names = lang === 'en' ? EN_WEEKDAYS : AR_WEEKDAYS
+  return names[dt.getDay()] || ''
+}
+
 export function toIsoTime(h: number, min: number): string {
   return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
 }

@@ -204,6 +204,7 @@ export type Column = {
   widthCh?: number
   keepText?: boolean
   render?: (row: Record<string, unknown>) => React.ReactNode
+  cellTitle?: (row: Record<string, unknown>) => string
   onCellClick?: (row: Record<string, unknown>) => void
 }
 
@@ -312,7 +313,7 @@ export function CrudPage({
   const setField: SetField = (n, v) => {
     setForm((prev) => {
       const nextVal = typeof v === 'function' ? (v as (p: unknown) => unknown)(prev[n]) : v
-      rhf.setValue(n as never, nextVal as never, { shouldValidate: true })
+      rhf.setValue(n as never, nextVal as never, { shouldValidate: false, shouldDirty: true })
       return { ...prev, [n]: nextVal }
     })
   }
@@ -400,7 +401,7 @@ export function CrudPage({
     measure()
     window.addEventListener('resize', measure)
     return () => window.removeEventListener('resize', measure)
-  }, [embedded, extraActions, extraFilters, hideQuickSearch, title])
+  }, [embedded, hideQuickSearch, title])
 
   useEffect(() => {
     if (skipFilterPageReset.current) {
@@ -408,7 +409,7 @@ export function CrudPage({
       return
     }
     setPage(1)
-  }, [JSON.stringify(columnFilters), sortKey, sortDir])
+  }, [JSON.stringify(columnFilters), sortKey, sortDir, JSON.stringify(listFilters)])
 
   useEffect(() => {
     load().catch((e) => toast(e.message, 'err'))
@@ -627,7 +628,7 @@ export function CrudPage({
       {columns.map((c) => (
         <td
           key={c.key}
-          title={c.render ? undefined : formatCell(c.key, row[c.key], i18n.language, t)}
+          title={c.cellTitle?.(row) ?? formatCell(c.key, row[c.key], i18n.language, t)}
           style={colStyle(c)}
           className={`${c.keepText ? 'cell-keep' : 'truncate'} px-2 py-1.5 text-start align-middle leading-relaxed text-navy-900 dark:text-white ${c.onCellClick ? 'cursor-pointer underline decoration-navy-300' : ''}`}
           onClick={(e) => {
@@ -763,9 +764,13 @@ export function CrudPage({
           </table>
         </div>
         <div className="min-h-0 flex-1">
-          {displayRows.length === 0 ? (
+          {displayRows.length === 0 || open ? (
             <div className="px-3 py-10 text-center text-navy-400">
-              {idleUntilSearch && !q.trim() && !hasListFilter ? emptyHint || t('cases.searchFirst') : t('noData')}
+              {open
+                ? ''
+                : idleUntilSearch && !q.trim() && !hasListFilter
+                  ? emptyHint || t('cases.searchFirst')
+                  : t('noData')}
             </div>
           ) : (
             <TableVirtuoso
@@ -797,7 +802,7 @@ export function CrudPage({
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm text-navy-600 dark:text-navy-200">
         <span>
-          {t('page')} {page} {t('of')} {pages} — {data.total}
+          {t('page')} {page} {t('of')} {pages} — {t('paginationTotal', { total: data.total })}
         </span>
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-1">

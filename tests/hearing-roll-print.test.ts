@@ -88,6 +88,8 @@ describe('hearing roll print', () => {
     expect(html).toContain('الأستاذ / ........................................................................')
     expect(html).not.toContain('الأستاذ / محمد')
     expect(html).toContain('class="group-header"')
+    expect(html).toContain('hr-program-code')
+    expect(html).toContain('07001')
     expect(html).toContain('width:19%')
     expect(html).toContain('width:20%')
     expect(sheetTitle).toContain('جلسات يوم')
@@ -110,6 +112,19 @@ describe('hearing roll print', () => {
     expect(html).toContain('جلسات يوم')
     expect(html).not.toContain('<h3 class="hr-group">')
     expect(sheetTitle).toBe('كشف جلسات المحكمة')
+    expect(html.indexOf('2026/10/1')).toBeLessThan(html.indexOf('2026/10/5'))
+  })
+
+  it('prints later dates after earlier ones even when rows arrive newest-first', () => {
+    const { html } = hearingRollTableHtml(
+      [
+        { hearing_date: '2026-10-22', court: 'الجيزة', client_name: 'ب', system_code: '2' },
+        { hearing_date: '2026-10-01', court: 'القاهرة', client_name: 'أ', system_code: '1' }
+      ],
+      t,
+      'ar'
+    )
+    expect(html.indexOf('2026/10/1')).toBeLessThan(html.indexOf('2026/10/22'))
   })
 
   it('uses darker borders, gray thead, top alignment, and cell padding', () => {

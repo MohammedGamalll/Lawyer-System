@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { courtParts, formatCourtNumber, formatProgramCode, degreeNumberLines, padProgramDigits } from '../src/lib/courtNumber'
+import { courtParts, formatCourtNumber, formatProgramCode, degreeNumberLines, padProgramDigits, programCodeKey } from '../src/lib/courtNumber'
 import { formattedCourtNumber } from '../shared/printLabels'
 import { rtlIsolatedPair } from '../shared/rtlBidi'
 
@@ -105,5 +105,11 @@ describe('court number order', () => {
     expect(formatProgramCode({ case_number: 'CS-2' })).toBe('00002')
     expect(formatProgramCode({ case_number: 'CS-02334' })).toBe('02334')
     expect(padProgramDigits('10')).toBe('00010')
+  })
+
+  it('treats 512, CS-00512, and 00512 as the same program-code key', () => {
+    expect(programCodeKey('512')).toBe(programCodeKey('CS-00512'))
+    expect(programCodeKey('512')).toBe(programCodeKey('00512'))
+    expect(programCodeKey('512')).not.toBe(programCodeKey('1512'))
   })
 })

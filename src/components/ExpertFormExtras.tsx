@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Field } from './ui'
 import { LookupCombo } from './LookupCombo'
@@ -14,6 +14,23 @@ export function ExpertFormExtras({
   setField: SetField
 }) {
   const { t } = useTranslation()
+  const [office, setOffice] = useState(String(form.expert_office || ''))
+  const [name, setName] = useState(String(form.expert_name || ''))
+
+  useEffect(() => {
+    setOffice(String(form.expert_office || ''))
+  }, [form.expert_office])
+  useEffect(() => {
+    setName(String(form.expert_name || ''))
+  }, [form.expert_name])
+  useEffect(() => {
+    const id = window.setTimeout(() => setField('expert_office', office), 200)
+    return () => window.clearTimeout(id)
+  }, [office])
+  useEffect(() => {
+    const id = window.setTimeout(() => setField('expert_name', name), 200)
+    return () => window.clearTimeout(id)
+  }, [name])
 
   useEffect(() => {
     const caseId = String(form.case_id || '')
@@ -66,8 +83,9 @@ export function ExpertFormExtras({
           <Field label={t('fields.expert_office')}>
             <input
               className="min-h-9 w-full rounded border px-2 py-1.5 text-base dark:bg-navy-900"
-              value={String(form.expert_office || '')}
-              onChange={(e) => setField('expert_office', e.target.value)}
+              value={office}
+              onChange={(e) => setOffice(e.target.value)}
+              onBlur={() => setField('expert_office', office)}
             />
           </Field>
         </div>
@@ -75,8 +93,9 @@ export function ExpertFormExtras({
           <Field label={t('fields.expert_name')}>
             <input
               className="min-h-9 w-full rounded border px-2 py-1.5 text-base dark:bg-navy-900"
-              value={String(form.expert_name || '')}
-              onChange={(e) => setField('expert_name', e.target.value)}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onBlur={() => setField('expert_name', name)}
             />
           </Field>
         </div>

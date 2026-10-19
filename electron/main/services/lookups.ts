@@ -4,20 +4,39 @@ import { newId, notDeleted } from '../db/ids'
 import { recordLocalChange } from '../sync/queue'
 import { stemLookupValue } from '@shared/hearingText'
 
-const STEM_KINDS = new Set(['hearing_decision', 'previous_decision', 'admin_action'])
+const DATE_STEM_KINDS = new Set(['hearing_decision', 'previous_decision', 'admin_action', 'execution_action'])
+const PHRASE_STEM_KINDS = new Set(['admin_action', 'execution_action'])
+
+function normalizeLookupValue(kind: string, raw: unknown): string {
+  const trimmed = String(raw ?? '').trim()
+  if (PHRASE_STEM_KINDS.has(kind)) return stemLookupValue(trimmed, { maxWords: 2 })
+  if (DATE_STEM_KINDS.has(kind)) return stemLookupValue(trimmed)
+  return trimmed
+}
 
 export function listLookups(kind: string): { value: string }[] {
   if (!kind) return []
-  return getDb()
+  const rows = getDb()
     .prepare(
       `SELECT value FROM lookup_values WHERE kind = ? AND ${notDeleted()} ORDER BY IFNULL(sort_order, 0), value COLLATE NOCASE`
     )
     .all(kind) as { value: string }[]
+  if (!DATE_STEM_KINDS.has(kind)) return rows
+  const seen = new Set<string>()
+  const out: { value: string }[] = []
+  for (const r of rows) {
+    const value = normalizeLookupValue(kind, r.value)
+    if (!value) continue
+    const key = value.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({ value })
+  }
+  return out
 }
 
 export function rememberLookup(kind: string, raw?: unknown): void {
-  const trimmed = String(raw ?? '').trim()
-  const value = STEM_KINDS.has(kind) ? stemLookupValue(trimmed) : trimmed
+  const value = normalizeLookupValue(kind, raw)
   if (!kind || !value) return
   const db = getDb()
   const row = db

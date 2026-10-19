@@ -10,14 +10,54 @@ import { hearingSchema, parseSchema } from '@shared/schemas'
 import { rememberLookup } from './lookups'
 import { createTask } from './schedule'
 import { clampPageSize, pageKind, applyColumnFilters, orderBySql, programCodeSortSql, courtNumberSortSql } from '../db/queryLimits'
-import { casePrintJoinSql, casePrintSelectSql, enrichPrintRows } from './printCaseFields'
-import { parsePostponedDate } from '@shared/hearingText'
+import { casePrintJoinSql, casePrintSelectSql, caseScreenSelectSql, enrichPrintRows } from './printCaseFields'
+import { carryHearingDecisionText, parsePostponedDate } from '@shared/hearingText'
 import { isHearingDoneStatus } from './alertVisibility'
+
+const HEARING_TABLE_COLS = new Set([
+  'hearing_date',
+  'previous_decision',
+  'court_decision',
+  'status',
+  'venue',
+  'hearing_type'
+])
+
+function hearingListJoins() {
+  return `${casePrintJoinSql('h.case_id')}
+       LEFT JOIN clients cl ON cl.id = cs.client_id AND ${notDeleted('cl')}
+       LEFT JOIN lawyers l ON l.id = h.lawyer_id AND ${notDeleted('l')}`
+}
+
+function hearingWhereNeedsJoin(query: ListQuery, f: Record<string, unknown>) {
+  if (query.search) return true
+  if (f.venue) return true
+  if (query.sortBy && !HEARING_TABLE_COLS.has(String(query.sortBy))) return true
+  const cols = query.columnFilters || {}
+  for (const [key, raw] of Object.entries(cols)) {
+    if (!String(raw ?? '').trim()) continue
+    if (!HEARING_TABLE_COLS.has(key)) return true
+  }
+  return false
+}
+
+function previousDecisionSql() {
+  return `COALESCE(
+                NULLIF(TRIM(h.previous_decision), ''),
+                (SELECT COALESCE(NULLIF(TRIM(p.court_decision), ''), NULLIF(TRIM(p.postponement_reason), ''))
+                 FROM hearings p
+                 WHERE p.case_id = h.case_id AND ${notDeleted('p')} AND p.id != h.id
+                   AND (p.hearing_date < h.hearing_date OR (p.hearing_date = h.hearing_date AND p.created_at < h.created_at))
+                 ORDER BY p.hearing_date DESC, p.created_at DESC LIMIT 1)
+              ) as previous_decision`
+}
 
 export function listHearings(query: ListQuery = {}, userId?: string) {
   const db = getDb()
   const page = query.page ?? 1
-  const pageSize = clampPageSize(query.pageSize, pageKind(query))
+  const kind = pageKind(query)
+  const pageSize = clampPageSize(query.pageSize, kind)
+  const isPrint = kind === 'print'
   const params: unknown[] = []
   let where = `WHERE ${notDeleted('h')}`
   if (query.search) {
@@ -27,6 +67,9 @@ export function listHearings(query: ListQuery = {}, userId?: string) {
   }
   const f = query.filters ?? {}
   const cairoToday = todayIso()
+  if (f.range_empty) {
+    return { rows: [], total: 0, page, pageSize }
+  }
   if (f.status) {
     where += ' AND h.status = ?'
     params.push(f.status)
@@ -49,8 +92,8 @@ export function listHearings(query: ListQuery = {}, userId?: string) {
       where += ` AND (IFNULL(h.venue,'') LIKE ? OR IFNULL(h.expert_name,'') LIKE ? OR IFNULL(cs.court,'') LIKE ? OR IFNULL(cs.session_place,'') LIKE ?)`
       params.push(s, s, s, s)
     } else {
-      where += ' AND h.venue LIKE ?'
-      params.push(s)
+      where += ` AND (IFNULL(h.venue,'') LIKE ? OR IFNULL(cs.court,'') LIKE ? OR IFNULL(cs.session_place,'') LIKE ?)`
+      params.push(s, s, s)
     }
   }
   if (f.hearing_kind === 'expert') {
@@ -97,18 +140,8 @@ export function listHearings(query: ListQuery = {}, userId?: string) {
     client_name: 'cl.full_name',
     lawyer_name: 'l.full_name'
   })
-  const total = (
-    db
-      .prepare(
-        `SELECT COUNT(*) as c FROM hearings h
-         LEFT JOIN cases cs ON cs.id = h.case_id AND ${notDeleted('cs')}
-         LEFT JOIN case_types ct ON ct.id = cs.case_type_id AND ${notDeleted('ct')}
-         LEFT JOIN clients cl ON cl.id = cs.client_id AND ${notDeleted('cl')}
-         LEFT JOIN lawyers l ON l.id = h.lawyer_id AND ${notDeleted('l')}
-         ${where}`
-      )
-      .get(...params) as { c: number }
-  ).c
+  const fromSql = hearingWhereNeedsJoin(query, f) ? `FROM hearings h ${hearingListJoins()}` : 'FROM hearings h'
+  const total = (db.prepare(`SELECT COUNT(*) as c ${fromSql} ${where}`).get(...params) as { c: number }).c
   const order = orderBySql(
     query.sortBy,
     query.sortDir,
@@ -129,52 +162,50 @@ export function listHearings(query: ListQuery = {}, userId?: string) {
     },
     'h.hearing_date DESC, h.hearing_time DESC'
   )
-  const rows = db
-    .prepare(
-      `SELECT h.id, h.case_id, h.hearing_date, h.hearing_time, h.hearing_type,
-              COALESCE(
-                NULLIF(TRIM(h.previous_decision), ''),
-                (SELECT COALESCE(NULLIF(TRIM(p.court_decision), ''), NULLIF(TRIM(p.postponement_reason), ''))
-                 FROM hearings p
-                 WHERE p.case_id = h.case_id AND ${notDeleted('p')} AND p.id != h.id
-                   AND (p.hearing_date < h.hearing_date OR (p.hearing_date = h.hearing_date AND p.created_at < h.created_at))
-                 ORDER BY p.hearing_date DESC, p.created_at DESC LIMIT 1)
-              ) as previous_decision, h.court_decision,
-              h.hall, h.floor, h.venue, h.expert_name, h.expert_office, h.status, h.result, h.lawyer_id,
+  const idRows = db
+    .prepare(`SELECT h.id ${fromSql} ${where} ORDER BY ${order} LIMIT ? OFFSET ?`)
+    .all(...params, pageSize, (page - 1) * pageSize) as { id: string }[]
+  if (!idRows.length) return { rows: [], total, page, pageSize }
+  const ids = idRows.map((r) => r.id)
+  const placeholders = ids.map(() => '?').join(',')
+  const caseSelect = isPrint ? casePrintSelectSql('cs') : caseScreenSelectSql('cs')
+  const prevHearingDate = isPrint
+    ? `,
               (SELECT h2.hearing_date FROM hearings h2
                 WHERE h2.case_id = h.case_id AND ${notDeleted('h2')}
                   AND h2.hearing_date < h.hearing_date
-                ORDER BY h2.hearing_date DESC LIMIT 1) as previous_hearing_date,
-              h.what_happened, h.next_actions, h.notes, cs.client_id,
-              ${casePrintSelectSql('cs')},
-              cl.full_name as client_name,
-              l.full_name as lawyer_name,
+                ORDER BY h2.hearing_date DESC LIMIT 1) as previous_hearing_date`
+    : ''
+  const adminSelect = f.case_id
+    ? `,
               (SELECT t.description FROM tasks t
                 WHERE t.hearing_id = h.id AND ${notDeleted('t')} AND IFNULL(t.work_kind, 'admin') = 'admin'
                   AND t.status NOT IN ('completed', 'cancelled')
-                ORDER BY t.due_date IS NULL, t.due_date ASC, t.created_at DESC LIMIT 1) as current_admin_action,
-              (SELECT CASE
-                  WHEN t.due_date IS NOT NULL AND t.due_date < '${cairoToday}' AND t.status NOT IN ('completed', 'cancelled') THEN 'overdue'
-                  ELSE t.status
-                END FROM tasks t
-                WHERE t.hearing_id = h.id AND ${notDeleted('t')} AND IFNULL(t.work_kind, 'admin') = 'admin'
-                  AND t.status NOT IN ('completed', 'cancelled')
-                ORDER BY t.due_date IS NULL, t.due_date ASC, t.created_at DESC LIMIT 1) as current_admin_status,
-              (SELECT t.id FROM tasks t
-                WHERE t.hearing_id = h.id AND ${notDeleted('t')} AND IFNULL(t.work_kind, 'admin') = 'admin'
-                  AND t.status NOT IN ('completed', 'cancelled')
-                ORDER BY t.due_date IS NULL, t.due_date ASC, t.created_at DESC LIMIT 1) as current_admin_task_id,
-              (SELECT COUNT(*) FROM tasks t
-                WHERE t.case_id = h.case_id AND ${notDeleted('t')} AND IFNULL(t.work_kind, 'admin') = 'admin'
-                  AND t.status NOT IN ('cancelled')) as case_admin_count
+                ORDER BY t.due_date IS NULL, t.due_date ASC, t.created_at DESC LIMIT 1) as current_admin_action`
+    : ', h.next_actions as current_admin_action'
+  const rows = db
+    .prepare(
+      `SELECT h.id, h.case_id, h.hearing_date, h.hearing_time, h.hearing_type,
+              ${previousDecisionSql()}, h.court_decision,
+              h.hall, h.floor, h.venue, h.expert_name, h.expert_office, h.status, h.result, h.lawyer_id,
+              h.what_happened, h.next_actions, h.notes, cs.client_id,
+              ${caseSelect},
+              cl.full_name as client_name,
+              l.full_name as lawyer_name
+              ${prevHearingDate}
+              ${adminSelect}
        FROM hearings h
-       ${casePrintJoinSql('h.case_id')}
-       LEFT JOIN clients cl ON cl.id = cs.client_id AND ${notDeleted('cl')}
-       LEFT JOIN lawyers l ON l.id = h.lawyer_id AND ${notDeleted('l')}
-       ${where} ORDER BY ${order} LIMIT ? OFFSET ?`
+       ${hearingListJoins()}
+       WHERE h.id IN (${placeholders})`
     )
-    .all(...params, pageSize, (page - 1) * pageSize)
-  return { rows: enrichPrintRows(rows), total, page, pageSize }
+    .all(...ids) as Record<string, unknown>[]
+  const byId = new Map(rows.map((row) => [String(row.id), row]))
+  const ordered = ids.map((id) => byId.get(id)).filter((row): row is Record<string, unknown> => Boolean(row))
+  const cleaned = ordered.map((row) => ({
+    ...row,
+    previous_decision: carryHearingDecisionText(row.previous_decision, String(row.hearing_date || ''))
+  }))
+  return { rows: enrichPrintRows(cleaned), total, page, pageSize }
 }
 
 export function getHearing(id: string) {
@@ -215,7 +246,12 @@ export function getHearing(id: string) {
        ORDER BY t.due_date IS NULL, t.due_date ASC, t.created_at ASC`
     )
     .all(id)
-  return { ...(row as object), upcoming_procedures }
+  const rec = row as Record<string, unknown>
+  return {
+    ...rec,
+    previous_decision: carryHearingDecisionText(rec.previous_decision, String(rec.hearing_date || '')),
+    upcoming_procedures
+  }
 }
 
 function attachHearingReminder(hearingId: string, caseId: string, date: string, time?: string | null) {
@@ -450,7 +486,10 @@ function ensureNextHearing(
     .prepare(`SELECT id FROM hearings WHERE case_id = ? AND hearing_date = ? AND ${notDeleted()}`)
     .get(caseId, nextDate) as { id: string } | undefined
   if (exists) return false
-  const reason = String(old.postponement_reason || old.court_decision || '').trim()
+  const previousDecision =
+    carryHearingDecisionText(old.court_decision, nextDate) ||
+    carryHearingDecisionText(old.postponement_reason, nextDate)
+  const reason = previousDecision || String(old.postponement_reason || '').trim()
   createHearing(actor, {
     case_id: caseId,
     hearing_date: nextDate,
@@ -458,7 +497,7 @@ function ensureNextHearing(
     hearing_type: old.hearing_type,
     lawyer_id: old.lawyer_id,
     venue: old.venue,
-    previous_decision: old.court_decision || undefined,
+    previous_decision: previousDecision || undefined,
     postponement_reason: reason || undefined,
     status: 'upcoming'
   })

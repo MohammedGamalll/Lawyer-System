@@ -244,33 +244,40 @@ export const expertHearingSchema = z.object({
   status: optStr
 })
 
-export const taskSchema = z.object({
-  title: optStr,
-  description: reqStr,
-  venue: optStr,
-  case_subject: optStr,
-  assignee_id: optId,
-  case_id: optId,
-  client_id: optId,
-  start_date: optStr,
-  due_date: reqStr,
-  priority: optStr,
-  status: optStr,
-  progress: optNum,
-  work_kind: optStr,
-  hearing_id: optId,
-  execution_kind: optStr,
-  police_report_no: optStr,
-  police_report_kind: optStr,
-  police_station: optStr,
-  execution_number: optStr,
-  execution_officer: optStr,
-  judgment_date: optStr,
-  judgment_text: optStr,
-  notes: optStr,
-  opponent_address: optStr,
-  opponent_phone: optStr
-})
+export const taskSchema = z
+  .object({
+    title: optStr,
+    description: reqStr,
+    venue: optStr,
+    case_subject: optStr,
+    assignee_id: optId,
+    case_id: optId,
+    client_id: optId,
+    start_date: optStr,
+    due_date: reqStr,
+    priority: optStr,
+    status: optStr,
+    progress: optNum,
+    work_kind: optStr,
+    hearing_id: optId,
+    execution_kind: optStr,
+    police_report_no: optStr,
+    police_report_kind: optStr,
+    police_station: optStr,
+    execution_number: optStr,
+    execution_officer: optStr,
+    judgment_date: optStr,
+    judgment_text: optStr,
+    notes: optStr,
+    opponent_address: optStr,
+    opponent_phone: optStr
+  })
+  .superRefine((val, ctx) => {
+    const kind = String(val.work_kind || '').trim()
+    if (kind !== 'execution' && !String(val.venue || '').trim()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: msg.required, path: ['venue'] })
+    }
+  })
 
 export const reminderSchema = z.object({
   title: reqStr,

@@ -60,4 +60,22 @@ describe('print RTL / Arabic shaping template', () => {
     expect(portrait).toContain('size: A4 portrait')
     expect(landscape).toContain('size: A4 landscape')
   })
+
+  it('enlarges the office logo on A4, report, and hearings-roll layouts', () => {
+    const a4 = buildPrintHtml({ title: 'ملف', body: '', kind: 'a4', office: 'مكتب' })
+    const report = buildPrintHtml({ title: 'تقرير', body: '', kind: 'report', office: 'مكتب' })
+    const roll = buildPrintHtml({
+      title: 'كشف',
+      body: '',
+      kind: 'report',
+      office: 'مكتب',
+      layout: 'hearingsRoll'
+    })
+    expect(a4).toContain('height: 110px')
+    expect(a4).toContain('max-width: 110px')
+    expect(report).toContain('height: 80px')
+    expect(roll).toContain('height: 110px')
+    expect(roll).toContain('max-width: 110px')
+    expect(roll).toContain('.hr-program-code')
+  })
 })

@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ClipboardList, FileSearch, Gavel, Hammer, Wallet } from 'lucide-react'
+import { ClipboardList, FileSearch, Gavel, Hammer, MessageCircle, Wallet } from 'lucide-react'
 import { invoke } from '../lib/api'
 import { useApp } from '../store'
 import { Button, Card, Field, InfoGrid, Input, MiniTable, Modal, PageHeader, Select, StatusBadge, UiTabs } from '../components/ui'
@@ -18,6 +18,7 @@ import { caseInteriorHtml } from '../components/VenuePrintBar'
 import { HearingsPage, TasksPage, ExpertsPage } from './WorkPages'
 import { PrintTemplatePicker } from '../components/PrintTemplatePicker'
 import { sendPrint } from '../lib/printKit'
+import { composeWhatsAppShare, openWhatsAppShare } from '../lib/whatsappShare'
 import { LookupCombo } from '../components/LookupCombo'
 import { DatePicker } from '../components/DateTimePicker'
 
@@ -166,7 +167,47 @@ export function CaseProfilePage() {
         <div className="flex flex-wrap items-end gap-4">
           <div>
             <div className="text-xs font-semibold text-navy-500">{t('fields.program_code')}</div>
-            <div className={`text-4xl font-black tracking-wide ${isManualProgramCode(row) ? 'text-red-600' : 'text-navy-900 dark:text-white'}`}>{formatProgramCode(row)}</div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="flex h-8 w-8 items-center justify-center rounded-md border border-navy-200 text-lg font-bold hover:bg-navy-50 dark:border-navy-700 dark:hover:bg-navy-800"
+                aria-label={t('prev')}
+                onClick={async () => {
+                  try {
+                    const hit = await invoke<{ id: string } | null>('cases:adjacent', id, -1)
+                    if (!hit?.id) {
+                      toast(t('noAdjacentCase'), 'err')
+                      return
+                    }
+                    setPage('caseProfile', { id: hit.id })
+                  } catch (e) {
+                    toast((e as Error).message, 'err')
+                  }
+                }}
+              >
+                −
+              </button>
+              <div className={`text-4xl font-black tracking-wide ${isManualProgramCode(row) ? 'text-red-600' : 'text-navy-900 dark:text-white'}`}>{formatProgramCode(row)}</div>
+              <button
+                type="button"
+                className="flex h-8 w-8 items-center justify-center rounded-md border border-navy-200 text-lg font-bold hover:bg-navy-50 dark:border-navy-700 dark:hover:bg-navy-800"
+                aria-label={t('next')}
+                onClick={async () => {
+                  try {
+                    const hit = await invoke<{ id: string } | null>('cases:adjacent', id, 1)
+                    if (!hit?.id) {
+                      toast(t('noAdjacentCase'), 'err')
+                      return
+                    }
+                    setPage('caseProfile', { id: hit.id })
+                  } catch (e) {
+                    toast((e as Error).message, 'err')
+                  }
+                }}
+              >
+                +
+              </button>
+            </div>
           </div>
           <div
             className="cursor-pointer"
@@ -227,6 +268,28 @@ export function CaseProfilePage() {
           >
             {t('printKit.caseInterior')}
           </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              const hearings = (row.hearings as Record<string, unknown>[] | undefined) || []
+              const latest = hearings[0] || {}
+              const text = composeWhatsAppShare(
+                {
+                  ...row,
+                  hearing_date: latest.hearing_date,
+                  court_decision: latest.court_decision || latest.previous_decision
+                },
+                t,
+                i18n.language
+              )
+              void openWhatsAppShare(text).catch((e) => toast((e as Error).message, 'err'))
+            }}
+          >
+            <span className="inline-flex items-center gap-1">
+              <MessageCircle size={16} />
+              {t('shareWhatsApp')}
+            </span>
+          </Button>
           <Button variant="outline" onClick={() => setPartiesOpen('clients')}>
             {t('caseFinance.parties')}
           </Button>
@@ -249,15 +312,36 @@ export function CaseProfilePage() {
         </div>
         <CapBits
           items={[
-            { label: t('fields.opponent_capacity_first'), value: row.opponent_capacity_first },
-            { label: t('fields.opponent_capacity_appeal'), value: row.opponent_capacity_appeal },
-            { label: t('fields.opponent_capacity_cassation'), value: row.opponent_capacity_cassation }
+            {
+              label: t('fields.opponent_capacity_first'),
+              value: opponents[0]?.capacity_first || row.opponent_capacity_first
+            },
+            {
+              label: t('fields.opponent_capacity_appeal'),
+              value: opponents[0]?.capacity_appeal || row.opponent_capacity_appeal
+            },
+            {
+              label: t('fields.opponent_capacity_cassation'),
+              value: opponents[0]?.capacity_cassation || row.opponent_capacity_cassation
+            }
           ]}
         />
+        <div>
+          <div className="text-xs font-semibold text-navy-500">{t('fields.hearingCourt')}</div>
+          <div className="font-bold">
+            {[row.court, row.circuit || row.circuit_number].map((v) => String(v || '').trim()).filter(Boolean).join(' — ') || '—'}
+          </div>
+        </div>
         <div>
           <div className="text-xs font-semibold text-navy-500">{t('fields.court_number')}</div>
           <div className="font-bold">
             <CourtNumberText row={row} />
+          </div>
+        </div>
+        <div>
+          <div className="text-xs font-semibold text-navy-500">{t('fields.caseTypeAndSubject')}</div>
+          <div className="font-bold">
+            {[row.case_type_name, row.title].map((v) => String(v || '').trim()).filter(Boolean).join(' — ') || '—'}
           </div>
         </div>
       </div>

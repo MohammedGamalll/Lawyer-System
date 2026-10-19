@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { parsePostponedDate, stemLookupValue } from '../shared/hearingText'
+import { carryHearingDecisionText, parsePostponedDate, stemLookupValue, stripSpecificIsoDate } from '../shared/hearingText'
 import { shouldShowWorkAlert } from '../electron/main/services/alertVisibility'
 import { programCodeKey } from '../electron/main/services/cases'
 
@@ -16,6 +16,22 @@ describe('stemLookupValue', () => {
     expect(stemLookupValue('للاطلاع 2026-10-15')).toBe('للاطلاع')
     expect(stemLookupValue('11/1')).toBe('')
     expect(stemLookupValue('  إعادة   إعلان  ')).toBe('إعادة إعلان')
+  })
+
+  it('keeps only the first two words for admin phrases', () => {
+    expect(stemLookupValue('استلام إعلان لجلسة 5/9', { maxWords: 2 })).toBe('استلام إعلان')
+    expect(stemLookupValue('إيداع إعلان من جلسة 5/9', { maxWords: 2 })).toBe('إيداع إعلان')
+    expect(stemLookupValue('تصوير تقرير خبراء', { maxWords: 2 })).toBe('تصوير تقرير')
+  })
+})
+
+describe('carryHearingDecisionText', () => {
+  it('keeps the decision phrase and drops only the next-date token', () => {
+    expect(stripSpecificIsoDate('إعادة إعلان من جلسة 1/11', '2026-10-29')).toBe('إعادة إعلان من جلسة 1/11')
+    expect(carryHearingDecisionText('إعادة إعلان من جلسة 1/11', '2026-10-29')).toBe('إعادة إعلان من جلسة 1/11')
+    expect(carryHearingDecisionText('تأجيل لجلسة 29/10', '2026-10-29')).toBe('تأجيل')
+    expect(carryHearingDecisionText('جلسة 29/10', '2026-10-29')).toBe('')
+    expect(carryHearingDecisionText('29', '2026-10-29')).toBe('')
   })
 })
 

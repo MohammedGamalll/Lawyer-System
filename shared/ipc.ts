@@ -47,7 +47,8 @@ export const IPC = {
     importPreview: 'cases:importPreview',
     importCommit: 'cases:importCommit',
     importTemplate: 'cases:importTemplate',
-    checkProgramCode: 'cases:checkProgramCode'
+    checkProgramCode: 'cases:checkProgramCode',
+    adjacent: 'cases:adjacent'
   },
   hearings: {
     list: 'hearings:list',

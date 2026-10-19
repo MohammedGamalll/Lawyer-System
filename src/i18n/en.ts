@@ -39,7 +39,10 @@ const en = {
   prev: 'Previous',
   of: 'of',
   page: 'Page',
+  paginationTotal: 'Total {{total}}',
   rowsPerPage: 'Rows',
+  noAdjacentCase: 'No case with this code',
+  shareWhatsApp: 'Share via WhatsApp',
   print: 'Print',
   printKit: {
     notes: 'Notes',
@@ -72,7 +75,7 @@ const en = {
     dateTo: 'Date to',
     caseLabel: 'Case',
     requiredAction: 'Required action',
-    whatWasDone: 'What was done',
+    whatWasDone: 'What was done in the action',
     decisionDone: 'Decision / what was done',
     hallFloor: 'Hall and floor',
     hasrNumber: 'Hasr number',
@@ -101,7 +104,9 @@ const en = {
   printVenuePreview: 'Preview',
   printVenue: {
     hearings: 'Court hearings',
-    experts: 'Expert sessions'
+    experts: 'Expert sessions',
+    admin: 'Administrative work',
+    execution: 'Execution work'
   },
   printSelected: 'Print visible',
   printCaseSheet: 'Print case sheet',
@@ -440,7 +445,8 @@ const en = {
     pickYear: 'Year',
     hour: 'Hour',
     minute: 'Minute',
-    period: 'AM/PM'
+    period: 'AM/PM',
+    weekdays: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
   },
   docs: {
     upload: 'Upload document',
@@ -569,6 +575,11 @@ const en = {
     lawyer: 'Lawyer',
     hearingFrom: 'Hearing from',
     hearingTo: 'Hearing to',
+    venue: 'Venue',
+    actionStatus: 'Action status',
+    actionOpen: 'Not done',
+    actionDone: 'Done',
+    actionAll: 'All',
     run: 'Search',
     legacyTitle: 'Legacy archive search (read only)',
     legacyHint: 'Name or number from old data'

@@ -290,7 +290,13 @@ export function renderLayoutHtml(
         inner = `${label ? `<span class="lbl">${label}: </span>` : ''}<span class="val">${val}</span>`
       }
       const jc = b.vAlign === 'middle' ? 'center' : b.vAlign === 'bottom' ? 'flex-end' : 'flex-start'
-      return `<div class="block" style="left:${b.x}mm;top:${b.y}mm;width:${b.w}mm;height:${b.h}mm;font-size:${b.fontSize}pt;text-align:${b.align};display:flex;flex-direction:column;justify-content:${jc}"><div class="inner">${inner}</div></div>`
+      const programCode = b.bind === 'case.case_number'
+      const fontSize = programCode ? Math.max(Number(b.fontSize) || 12, 16) : b.fontSize
+      const weight = programCode ? 'font-weight:800;' : ''
+      if (programCode) {
+        inner = `${label ? `<span class="lbl">${label}: </span>` : ''}<span class="val program-code-field">${val}</span>`
+      }
+      return `<div class="block" style="left:${b.x}mm;top:${b.y}mm;width:${b.w}mm;height:${b.h}mm;font-size:${fontSize}pt;${weight}text-align:${b.align};display:flex;flex-direction:column;justify-content:${jc}"><div class="inner">${inner}</div></div>`
     })
     .join('')
   return `<!DOCTYPE html>
@@ -312,8 +318,9 @@ body { width: 210mm; min-height: 297mm; font-family: 'IBM Plex Sans Arabic', Tah
 .court-number { unicode-bidi: isolate; }
 .block img { display: block; max-width: 100%; max-height: 100%; }
 .print-date { position: absolute; top: 4mm; left: 6mm; font-size: 9pt; color: #5b6b7c; z-index: 4; }
-.print-logo-center { position: absolute; top: 3mm; left: 50%; transform: translateX(-50%); height: 16mm; z-index: 3; }
-.print-logo-center img { height: 16mm; width: auto; object-fit: contain; }
+.program-code-field { font-weight: 800; }
+.print-logo-center { position: absolute; top: 3mm; left: 50%; transform: translateX(-50%); height: 26mm; z-index: 3; }
+.print-logo-center img { height: 26mm; width: auto; object-fit: contain; }
 .print-office { position: absolute; top: 3mm; right: 6mm; text-align: right; z-index: 4; max-width: 72mm; font-size: 10pt; line-height: 1.35; }
 .print-office .nm { font-weight: 700; }
 .print-office .ph { color: #5b6b7c; font-size: 8.5pt; }

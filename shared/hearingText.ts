@@ -2,14 +2,50 @@ const DATE_CORE = String.raw`(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2
 const DATE_PREFIX = String.raw`(?:بتاريخ|لجلسة|للجلسة|جلسة|في يوم|يوم|في)`
 const STEM_DATE_RE = new RegExp(`(?:${DATE_PREFIX}\\s*)?${DATE_CORE}`, 'gu')
 
-export function stemLookupValue(raw: unknown): string {
+export function stemLookupValue(raw: unknown, opts?: { maxWords?: number }): string {
   let s = String(raw ?? '')
     .replace(STEM_DATE_RE, ' ')
     .replace(/[،,;؛._]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
   s = s.replace(/^(?:بتاريخ|لجلسة|للجلسة|جلسة)\s+/u, '').replace(/\s+(?:بتاريخ|لجلسة|للجلسة)$/u, '')
-  return s.trim()
+  s = s.trim()
+  const max = opts?.maxWords
+  if (max && max > 0) {
+    s = s.split(/\s+/).filter(Boolean).slice(0, max).join(' ')
+  }
+  return s
+}
+
+export function stripSpecificIsoDate(text: string, iso: string): string {
+  const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!m) return String(text || '')
+  const y = m[1]
+  const y2 = y.slice(2)
+  const mo = String(Number(m[2]))
+  const mo2 = m[2]
+  const d = String(Number(m[3]))
+  const d2 = m[3]
+  const dateAlts = [
+    `${y}[-/.]${mo2}[-/.]${d2}`,
+    `${d2}\\s*[\\/\\-.]\\s*${mo2}(?:\\s*[\\/\\-.]\\s*(?:${y}|${y2}))?`,
+    `${d}\\s*[\\/\\-.]\\s*${mo}(?:\\s*[\\/\\-.]\\s*(?:${y}|${y2}))?`
+  ]
+  const prefix = `(?:بتاريخ|لجلسة|للجلسة|جلسة|في يوم|يوم|في)\\s*`
+  const re = new RegExp(`(?:${prefix})?(?:${dateAlts.join('|')})`, 'gu')
+  return String(text || '')
+    .replace(re, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+export function carryHearingDecisionText(raw: unknown, nextIso?: string): string {
+  let s = String(raw ?? '').trim()
+  if (!s) return ''
+  if (nextIso) s = stripSpecificIsoDate(s, nextIso)
+  if (!stemLookupValue(s)) return ''
+  if (/^\d{1,2}$/.test(s) || /^\d{4}-\d{2}-\d{2}$/.test(s)) return ''
+  return s
 }
 
 function pad2(n: number): string {

@@ -184,6 +184,9 @@ export function registerIpc(ipc: IpcMain, getWin: () => BrowserWindow | null): v
   handle(ipc, IPC.cases.checkProgramCode, { permission: ['cases.create', 'cases.update'] }, (_e, _u, code, excludeId) =>
     ok(cases.checkProgramCode(String(code ?? ''), excludeId ? String(excludeId) : undefined))
   )
+  handle(ipc, IPC.cases.adjacent, { permission: 'cases.view' }, (_e, _u, id, delta) =>
+    ok(cases.getAdjacentCase(String(id), delta))
+  )
 
   handle(ipc, IPC.caseTypes.list, {}, () => ok(cases.listCaseTypes()))
   handle(ipc, IPC.caseTypes.findOrCreate, { permission: ['cases.create', 'cases.update'], write: true }, (_e, user, name) =>

@@ -135,7 +135,7 @@ export function listTasks(query: ListQuery = {}, userId?: string) {
       police_station: 't.police_station COLLATE NOCASE',
       hasr: `(IFNULL(t.police_report_kind,'') || IFNULL(t.police_report_no,'')) COLLATE NOCASE`
     },
-    't.due_date IS NULL, t.due_date ASC'
+    't.due_date IS NULL, t.due_date DESC'
   )
   const rows = db
     .prepare(

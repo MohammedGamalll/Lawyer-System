@@ -1,16 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { CrudPage, FieldDef } from '../components/CrudPage'
 import { HearingFormExtras } from '../components/HearingFormExtras'
 import { TaskFormExtras } from '../components/TaskFormExtras'
 import { VenuePrintBar } from '../components/VenuePrintBar'
 import { Button, Select } from '../components/ui'
+import { composeWhatsAppShare, openWhatsAppShare } from '../lib/whatsappShare'
+import { LookupCombo } from '../components/LookupCombo'
 import { DatePicker } from '../components/DateTimePicker'
 import { invoke } from '../lib/api'
 import { useApp } from '../store'
 import { expertHearingSchema, hearingSchema, taskSchema } from '@shared/schemas'
 import { formatCell } from '../lib/datetime'
-import { formatProgramCode, isManualProgramCode, degreeNumberLines } from '../lib/courtNumber'
+import { formatProgramCode, formatCourtNumber, isManualProgramCode, degreeNumberLines } from '../lib/courtNumber'
 import { CourtNumberText } from '../components/CourtNumberText'
 import { RecordDetailsModal } from '../components/RecordDetailsModal'
 import { ExpertFormExtras } from '../components/ExpertFormExtras'
@@ -29,11 +31,11 @@ function f(t: (k: string) => string, name: string, extra: Partial<FieldDef> = {}
   return { name, label: t(`fields.${name}`), ...extra }
 }
 
-function partiesText(r: Record<string, unknown>) {
+export function partiesText(r: Record<string, unknown>) {
   return [r.client_name, r.opponent_name].map((v) => String(v || '').trim()).filter(Boolean).join(' / ') || '—'
 }
 
-function typeSubject(r: Record<string, unknown>) {
+export function typeSubject(r: Record<string, unknown>) {
   return [r.case_type_name || r.case_type, r.case_title || r.case_subject || r.title]
     .map((v) => String(v || '').trim())
     .filter(Boolean)
@@ -45,6 +47,22 @@ function hearingCourtText(r: Record<string, unknown>) {
     .map((v) => String(v || '').trim())
     .filter(Boolean)
     .join(' — ') || '—'
+}
+
+function degreeNumbersText(row: Record<string, unknown>, t: (k: string) => string) {
+  const lines = degreeNumberLines(row)
+  if (!lines.length) return '—'
+  return lines.map((line) => `${t(`fields.${line.key}`)}: ${line.value}`).join(' — ')
+}
+
+function actionText(r: Record<string, unknown>) {
+  return String(r.required_action || r.description || r.title || r.next_actions || r.current_admin_action || '').trim() || '—'
+}
+
+function hasrText(r: Record<string, unknown>) {
+  const kind = String(r.police_report_kind || '').trim()
+  const no = String(r.police_report_no || '').trim()
+  return [kind, no].filter(Boolean).join(' — ') || '—'
 }
 
 function DegreeNumbers({
@@ -88,18 +106,79 @@ export function HearingsPage({ embeddedCaseId }: { embeddedCaseId?: string } = {
   const [view, setView] = useState(() => String(pageMeta.view || 'all'))
   const [rangeFrom, setRangeFrom] = useState('')
   const [rangeTo, setRangeTo] = useState('')
+  const [rangeVenue, setRangeVenue] = useState('')
   const caseId = String(embeddedCaseId || pageMeta.case_id || '')
   useEffect(() => {
     if (pageMeta.view) setView(String(pageMeta.view))
   }, [pageMeta.view])
-  const listFilters: Record<string, unknown> = {}
-  if (caseId) listFilters.case_id = caseId
-  if (!caseId && view !== 'all' && view !== 'range') listFilters.view = view
-  if (!caseId && view === 'range') {
-    if (rangeFrom) listFilters.date_from = rangeFrom
-    if (rangeTo) listFilters.date_to = rangeTo
-  }
+  const listFilters = useMemo(() => {
+    const next: Record<string, unknown> = {}
+    if (caseId) next.case_id = caseId
+    if (!caseId && view !== 'all' && view !== 'range') next.view = view
+    if (!caseId && view === 'range') {
+      if (rangeFrom && rangeTo) {
+        next.date_from = rangeFrom
+        next.date_to = rangeTo
+      } else {
+        next.range_empty = 1
+      }
+      if (rangeVenue.trim()) next.venue = rangeVenue.trim()
+    }
+    return next
+  }, [caseId, view, rangeFrom, rangeTo, rangeVenue])
   const fromCase = Boolean(caseId)
+  const columns = useMemo(() => {
+    const full = [
+      {
+        key: 'case_number',
+        label: t('fields.program_code'),
+        keepText: true,
+        widthCh: 12,
+        cellTitle: (r: Record<string, unknown>) => formatProgramCode(r) || '—',
+        render: (r: Record<string, unknown>) => (
+          <span className={isManualProgramCode(r) ? 'font-bold text-red-600' : ''}>{formatProgramCode(r) || '—'}</span>
+        ),
+        onCellClick: (r: Record<string, unknown>) => r.case_id && setPage('caseProfile', { id: r.case_id })
+      },
+      { key: 'hearing_date', label: t('fields.hearing_date') },
+      {
+        key: 'hearing_court',
+        label: t('fields.hearingCourt'),
+        cellTitle: (r: Record<string, unknown>) => hearingCourtText(r),
+        render: (r: Record<string, unknown>) => hearingCourtText(r)
+      },
+      {
+        key: 'court_numbers',
+        label: t('fields.court_number'),
+        cellTitle: (r: Record<string, unknown>) => degreeNumbersText(r, t),
+        render: (r: Record<string, unknown>) => <DegreeNumbers row={r} t={t} />
+      },
+      {
+        key: 'caseTypeAndSubject',
+        label: t('fields.caseTypeAndSubject'),
+        cellTitle: (r: Record<string, unknown>) => typeSubject(r),
+        render: (r: Record<string, unknown>) => typeSubject(r)
+      },
+      {
+        key: 'parties',
+        label: t('fields.parties'),
+        cellTitle: (r: Record<string, unknown>) => partiesText(r),
+        render: (r: Record<string, unknown>) => partiesText(r)
+      },
+      { key: 'previous_decision', label: t('fields.previous_decision') },
+      { key: 'court_decision', label: t('fields.court_decision') },
+      { key: 'status', label: t('fields.status'), status: true },
+      {
+        key: 'next_actions',
+        label: t('printKit.requiredAction'),
+        cellTitle: (r: Record<string, unknown>) => actionText(r),
+        render: (r: Record<string, unknown>) => actionText(r)
+      }
+    ]
+    if (!embeddedCaseId) return full.filter((c) => c.key !== 'next_actions' && c.key !== 'status')
+    const keep = new Set(['hearing_date', 'previous_decision', 'court_decision', 'next_actions', 'status'])
+    return full.filter((c) => keep.has(c.key))
+  }, [embeddedCaseId, setPage, t])
 
   return (
     <>
@@ -120,41 +199,7 @@ export function HearingsPage({ embeddedCaseId }: { embeddedCaseId?: string } = {
         upcoming_procedures: []
       }}
       formPrefix={(form, setField) => <HearingFormExtras form={form} setField={setField} />}
-      columns={[
-        {
-          key: 'case_number',
-          label: t('fields.program_code'),
-          keepText: true,
-          widthCh: 12,
-          render: (r: Record<string, unknown>) => (
-            <span className={isManualProgramCode(r) ? 'font-bold text-red-600' : ''}>{formatProgramCode(r) || '—'}</span>
-          ),
-          onCellClick: (r: Record<string, unknown>) => r.case_id && setPage('caseProfile', { id: r.case_id })
-        },
-        { key: 'hearing_date', label: t('fields.hearing_date') },
-        {
-          key: 'hearing_court',
-          label: t('fields.hearingCourt'),
-          render: (r: Record<string, unknown>) => hearingCourtText(r)
-        },
-        {
-          key: 'court_numbers',
-          label: t('fields.court_number'),
-          render: (r: Record<string, unknown>) => <DegreeNumbers row={r} t={t} />
-        },
-        {
-          key: 'caseTypeAndSubject',
-          label: t('fields.caseTypeAndSubject'),
-          render: (r: Record<string, unknown>) => typeSubject(r)
-        },
-        {
-          key: 'parties',
-          label: t('fields.parties'),
-          render: (r: Record<string, unknown>) => partiesText(r)
-        },
-        { key: 'previous_decision', label: t('fields.previous_decision') },
-        { key: 'court_decision', label: t('fields.court_decision') }
-      ]}
+      columns={columns}
       fields={[
         f(t, 'case_id', { lookup: 'cases', required: true }),
         f(t, 'lawyer_id', { lookup: 'lawyers' }),
@@ -181,6 +226,9 @@ export function HearingsPage({ embeddedCaseId }: { embeddedCaseId?: string } = {
                   <>
                     <DatePicker value={rangeFrom} onChange={setRangeFrom} />
                     <DatePicker value={rangeTo} onChange={setRangeTo} />
+                    <div className="w-[10rem]">
+                      <LookupCombo kind="venue" value={rangeVenue} onChange={setRangeVenue} />
+                    </div>
                   </>
                 ) : null}
                 <div className="ms-auto">
@@ -199,7 +247,9 @@ export function HearingsPage({ embeddedCaseId }: { embeddedCaseId?: string } = {
           pageSize: 1000,
           print: true,
           filters: listFilters,
-          columnFilters: ctx.colFilters
+          columnFilters: ctx.colFilters,
+          sortBy: 'hearing_date',
+          sortDir: 'asc'
         })
         const fetched = res.rows || []
         const rows = applyPrintColFilters(fetched, ctx.colFilters, i18n.language, t)
@@ -208,6 +258,18 @@ export function HearingsPage({ embeddedCaseId }: { embeddedCaseId?: string } = {
         if ((res.total || 0) > fetched.length) toast(t('printListCapped', { count: fetched.length }))
       }}
       onRowOpen={details.open}
+      rowActions={(r) => (
+        <button
+          type="button"
+          className="w-full px-3 py-2 text-start text-sm hover:bg-navy-50 dark:hover:bg-navy-800"
+          onClick={() => {
+            const text = composeWhatsAppShare(r, t, i18n.language)
+            void openWhatsAppShare(text).catch((e) => toast((e as Error).message, 'err'))
+          }}
+        >
+          {t('shareWhatsApp')}
+        </button>
+      )}
     />
     <RecordDetailsModal
       open={Boolean(details.row)}
@@ -333,92 +395,99 @@ export function TasksPage({
             <VenuePrintBar toast={toast} />
           </>
         }
-        columns={
-          workKind === 'execution'
-            ? [
-                {
-                  key: 'case_number',
-                  label: t('fields.program_code'),
-                  keepText: true,
-                  widthCh: 12,
-                  render: (r: Record<string, unknown>) => (
-                    <span className={isManualProgramCode(r) ? 'font-bold text-red-600' : ''}>
-                      {formatProgramCode(r) || '—'}
-                    </span>
-                  ),
-                  onCellClick: (r: Record<string, unknown>) => r.case_id && setPage('caseProfile', { id: r.case_id })
-                },
-                { key: 'status', label: t('fields.status'), status: true },
-                {
-                  key: 'office_case_number',
-                  label: t('fields.court_number'),
-                  render: (r: Record<string, unknown>) => <CourtNumberText row={r} />
-                },
-                {
-                  key: 'opponent_name',
-                  label: t('fields.opponent_name'),
-                  render: (r: Record<string, unknown>) => String(r.opponent_name || '').trim() || '—'
-                },
-                {
-                  key: 'description',
-                  label: t('fields.execution_action'),
-                  render: (r: Record<string, unknown>) =>
-                    String(r.required_action || r.description || r.title || '').trim() || '—'
-                },
-                { key: 'execution_kind', label: t('fields.execution_kind') },
-                { key: 'police_station', label: t('fields.police_station') },
-                {
-                  key: 'hasr',
-                  label: `${t('fields.police_report_kind')} / ${t('fields.police_report_no')}`,
-                  render: (r: Record<string, unknown>) => {
-                    const kind = String(r.police_report_kind || '').trim()
-                    const no = String(r.police_report_no || '').trim()
-                    return [kind, no].filter(Boolean).join(' — ') || '—'
-                  }
-                },
-                { key: 'due_date', label: t('fields.due_date') },
-                { key: 'venue', label: t('fields.venue') },
-                { key: 'assignee_name', label: t('fields.assignee_name') }
-              ]
-            : [
-                {
-                  key: 'case_number',
-                  label: t('fields.program_code'),
-                  keepText: true,
-                  widthCh: 12,
-                  render: (r: Record<string, unknown>) => (
-                    <span className={isManualProgramCode(r) ? 'font-bold text-red-600' : ''}>
-                      {formatProgramCode(r) || '—'}
-                    </span>
-                  ),
-                  onCellClick: (r: Record<string, unknown>) => r.case_id && setPage('caseProfile', { id: r.case_id })
-                },
-                { key: 'status', label: t('fields.status'), status: true },
-                {
-                  key: 'office_case_number',
-                  label: t('fields.court_number'),
-                  render: (r: Record<string, unknown>) => <CourtNumberText row={r} />
-                },
-                {
-                  key: 'parties',
-                  label: t('fields.parties'),
-                  render: (r: Record<string, unknown>) => partiesText(r)
-                },
-                {
-                  key: 'description',
-                  label: t('printKit.requiredAction'),
-                  render: (r: Record<string, unknown>) =>
-                    String(r.required_action || r.description || r.title || '').trim() || '—'
-                },
-                { key: 'due_date', label: t('fields.due_date') },
-                { key: 'venue', label: t('fields.venue') },
-                {
-                  key: 'notes',
-                  label: `${t('fields.notes')} / ${t('printKit.whatWasDone')}`,
-                  render: (r: Record<string, unknown>) => String(r.notes || '').trim() || '—'
-                }
-              ]
-        }
+        columns={(() => {
+          const execFull = [
+            {
+              key: 'case_number',
+              label: t('fields.program_code'),
+              keepText: true,
+              widthCh: 12,
+              cellTitle: (r: Record<string, unknown>) => formatProgramCode(r) || '—',
+              render: (r: Record<string, unknown>) => (
+                <span className={isManualProgramCode(r) ? 'font-bold text-red-600' : ''}>
+                  {formatProgramCode(r) || '—'}
+                </span>
+              ),
+              onCellClick: (r: Record<string, unknown>) => r.case_id && setPage('caseProfile', { id: r.case_id })
+            },
+            { key: 'status', label: t('fields.status'), status: true },
+            {
+              key: 'office_case_number',
+              label: t('fields.court_number'),
+              cellTitle: (r: Record<string, unknown>) => formatCourtNumber(r),
+              render: (r: Record<string, unknown>) => <CourtNumberText row={r} />
+            },
+            {
+              key: 'opponent_name',
+              label: t('fields.opponent_name'),
+              cellTitle: (r: Record<string, unknown>) => String(r.opponent_name || '').trim() || '—',
+              render: (r: Record<string, unknown>) => String(r.opponent_name || '').trim() || '—'
+            },
+            {
+              key: 'description',
+              label: t('fields.execution_action'),
+              cellTitle: (r: Record<string, unknown>) => actionText(r),
+              render: (r: Record<string, unknown>) => actionText(r)
+            },
+            { key: 'execution_kind', label: t('fields.execution_kind') },
+            { key: 'police_station', label: t('fields.police_station') },
+            {
+              key: 'hasr',
+              label: `${t('fields.police_report_kind')} / ${t('fields.police_report_no')}`,
+              cellTitle: (r: Record<string, unknown>) => hasrText(r),
+              render: (r: Record<string, unknown>) => hasrText(r)
+            },
+            { key: 'due_date', label: t('fields.due_date') },
+            { key: 'venue', label: t('fields.venue') },
+            { key: 'assignee_name', label: t('fields.assignee_name') }
+          ]
+          const adminFull = [
+            {
+              key: 'case_number',
+              label: t('fields.program_code'),
+              keepText: true,
+              widthCh: 12,
+              cellTitle: (r: Record<string, unknown>) => formatProgramCode(r) || '—',
+              render: (r: Record<string, unknown>) => (
+                <span className={isManualProgramCode(r) ? 'font-bold text-red-600' : ''}>
+                  {formatProgramCode(r) || '—'}
+                </span>
+              ),
+              onCellClick: (r: Record<string, unknown>) => r.case_id && setPage('caseProfile', { id: r.case_id })
+            },
+            { key: 'status', label: t('fields.status'), status: true },
+            {
+              key: 'office_case_number',
+              label: t('fields.court_number'),
+              cellTitle: (r: Record<string, unknown>) => formatCourtNumber(r),
+              render: (r: Record<string, unknown>) => <CourtNumberText row={r} />
+            },
+            {
+              key: 'parties',
+              label: t('fields.parties'),
+              cellTitle: (r: Record<string, unknown>) => partiesText(r),
+              render: (r: Record<string, unknown>) => partiesText(r)
+            },
+            {
+              key: 'description',
+              label: t('printKit.requiredAction'),
+              cellTitle: (r: Record<string, unknown>) => actionText(r),
+              render: (r: Record<string, unknown>) => actionText(r)
+            },
+            { key: 'due_date', label: t('fields.due_date') },
+            { key: 'venue', label: t('fields.venue') },
+            {
+              key: 'notes',
+              label: t('printKit.whatWasDone'),
+              cellTitle: (r: Record<string, unknown>) => String(r.notes || '').trim() || '—',
+              render: (r: Record<string, unknown>) => String(r.notes || '').trim() || '—'
+            }
+          ]
+          const full = workKind === 'execution' ? execFull : adminFull
+          if (!embeddedCaseId) return full
+          const keep = new Set(['due_date', 'description', 'status', 'venue', 'notes'])
+          return full.filter((c) => keep.has(c.key))
+        })()}
         fields={[
           f(t, 'case_id', { lookup: 'cases' }),
           f(t, 'status', { type: 'combo', comboKind: 'task_status' }),
@@ -428,13 +497,19 @@ export function TasksPage({
             comboKind,
             required: workKind !== 'execution',
             hidden: workKind === 'execution',
-            label: t('fields.description')
+            label: t('printKit.requiredAction')
           }),
           f(t, 'due_date', { type: 'date', required: true }),
-          f(t, 'venue', { type: 'combo', comboKind: 'venue', hidden: workKind === 'execution' }),
+          f(t, 'venue', {
+            type: 'combo',
+            comboKind: 'venue',
+            hidden: workKind === 'execution',
+            required: workKind !== 'execution'
+          }),
           f(t, 'assignee_id', { lookup: 'users', label: t('fields.lawyer_id') }),
           f(t, 'client_id', { lookup: 'clients' }),
-          f(t, 'priority', { type: 'select', options: st(t, ['low', 'medium', 'high']) })
+          f(t, 'priority', { type: 'select', options: st(t, ['low', 'medium', 'high']) }),
+          f(t, 'notes', { type: 'textarea', label: t('printKit.whatWasDone') })
         ]}
         onRowOpen={details.open}
         onPrint={async (ctx) => {
@@ -443,7 +518,9 @@ export function TasksPage({
             pageSize: 1000,
             print: true,
             filters,
-            columnFilters: ctx.colFilters
+            columnFilters: ctx.colFilters,
+            sortBy: 'due_date',
+            sortDir: 'asc'
           })
           const fetched = res.rows || []
           const rows = applyPrintColFilters(fetched, ctx.colFilters, i18n.language, t)
@@ -468,7 +545,7 @@ export function TasksPage({
                 { label: t('fields.client_id'), value: String(details.row.client_name || '') },
                 { label: t('fields.status'), value: formatCell('status', details.row.status, i18n.language, t) },
                 {
-                  label: workKind === 'execution' ? t('fields.execution_action') : t('fields.description'),
+                  label: workKind === 'execution' ? t('fields.execution_action') : t('printKit.requiredAction'),
                   value: String(details.row.description || details.row.title || '')
                 },
                 { label: t('fields.due_date'), value: formatCell('due_date', details.row.due_date, i18n.language, t) },
@@ -477,7 +554,7 @@ export function TasksPage({
                 { label: t('fields.priority'), value: formatCell('priority', details.row.priority, i18n.language, t) },
                 { label: t('fields.execution_kind'), value: String(details.row.execution_kind || '') },
                 { label: t('fields.opponent_name'), value: String(details.row.opponent_name || '') },
-                { label: t('fields.notes'), value: String(details.row.notes || '') }
+                { label: t('printKit.whatWasDone'), value: String(details.row.notes || '') }
               ]
             : []
         }
@@ -514,38 +591,46 @@ export function ExpertsPage({ embeddedCaseId }: { embeddedCaseId?: string } = {}
       embedded={Boolean(embeddedCaseId)}
       defaults={{ case_id: caseId || undefined, status: 'upcoming' }}
       formPrefix={(form, setField) => <ExpertFormExtras form={form} setField={setField} />}
-      columns={[
-        {
-          key: 'case_number',
-          label: t('fields.program_code'),
-          keepText: true,
-          widthCh: 12,
-          render: (r: Record<string, unknown>) => (
-            <span className={isManualProgramCode(r) ? 'font-bold text-red-600' : ''}>{formatProgramCode(r) || '—'}</span>
-          ),
-          onCellClick: (r: Record<string, unknown>) => r.case_id && setPage('caseProfile', { id: r.case_id })
-        },
-        {
-          key: 'office_case_number',
-          label: t('fields.court_number'),
-          render: (r: Record<string, unknown>) => <CourtNumberText row={r} />
-        },
-        {
-          key: 'parties',
-          label: t('fields.parties'),
-          render: (r: Record<string, unknown>) => partiesText(r)
-        },
-        { key: 'status', label: t('fields.status'), status: true },
-        { key: 'hearing_date', label: t('fields.hearing_date') },
-        { key: 'hearing_time', label: t('fields.hearing_time') },
-        { key: 'venue', label: t('fields.venue') },
-        { key: 'expert_office', label: t('fields.expert_office') },
-        { key: 'expert_name', label: t('fields.expert_name') },
-        { key: 'floor', label: t('fields.floor') },
-        { key: 'hall', label: t('fields.hall') },
-        { key: 'previous_action', label: t('fields.previous_action') },
-        { key: 'current_action', label: t('fields.current_action') }
-      ]}
+      columns={(() => {
+        const full = [
+          {
+            key: 'case_number',
+            label: t('fields.program_code'),
+            keepText: true,
+            widthCh: 12,
+            cellTitle: (r: Record<string, unknown>) => formatProgramCode(r) || '—',
+            render: (r: Record<string, unknown>) => (
+              <span className={isManualProgramCode(r) ? 'font-bold text-red-600' : ''}>{formatProgramCode(r) || '—'}</span>
+            ),
+            onCellClick: (r: Record<string, unknown>) => r.case_id && setPage('caseProfile', { id: r.case_id })
+          },
+          {
+            key: 'office_case_number',
+            label: t('fields.court_number'),
+            cellTitle: (r: Record<string, unknown>) => formatCourtNumber(r),
+            render: (r: Record<string, unknown>) => <CourtNumberText row={r} />
+          },
+          {
+            key: 'parties',
+            label: t('fields.parties'),
+            cellTitle: (r: Record<string, unknown>) => partiesText(r),
+            render: (r: Record<string, unknown>) => partiesText(r)
+          },
+          { key: 'status', label: t('fields.status'), status: true },
+          { key: 'hearing_date', label: t('fields.hearing_date') },
+          { key: 'hearing_time', label: t('fields.hearing_time') },
+          { key: 'venue', label: t('fields.venue') },
+          { key: 'expert_office', label: t('fields.expert_office') },
+          { key: 'expert_name', label: t('fields.expert_name') },
+          { key: 'floor', label: t('fields.floor') },
+          { key: 'hall', label: t('fields.hall') },
+          { key: 'previous_action', label: t('fields.previous_action') },
+          { key: 'current_action', label: t('fields.current_action') }
+        ]
+        if (!embeddedCaseId) return full
+        const keep = new Set(['hearing_date', 'previous_action', 'current_action', 'status', 'expert_office'])
+        return full.filter((c) => keep.has(c.key))
+      })()}
       fields={[
         f(t, 'case_id', { lookup: 'cases', required: true }),
         f(t, 'lawyer_id', { lookup: 'lawyers' }),
@@ -571,7 +656,9 @@ export function ExpertsPage({ embeddedCaseId }: { embeddedCaseId?: string } = {}
           pageSize: 1000,
           print: true,
           filters: listFilters,
-          columnFilters: ctx.colFilters
+          columnFilters: ctx.colFilters,
+          sortBy: 'hearing_date',
+          sortDir: 'asc'
         })
         const fetched = res.rows || []
         const rows = applyPrintColFilters(fetched, ctx.colFilters, i18n.language, t)

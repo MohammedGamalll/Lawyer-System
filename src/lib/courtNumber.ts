@@ -6,6 +6,12 @@ export function stripInternalPrefix(code: unknown) {
   return String(code ?? '').replace(/^(CS|CL)-/i, '')
 }
 
+export function programCodeKey(value: unknown) {
+  let key = stripInternalPrefix(value).trim().toLowerCase()
+  if (/^\d+$/.test(key)) key = String(Number(key))
+  return key
+}
+
 export function padProgramDigits(raw: unknown): string {
   const t = stripInternalPrefix(raw).trim()
   if (!t) return ''

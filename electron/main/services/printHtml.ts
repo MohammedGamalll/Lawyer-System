@@ -66,19 +66,21 @@ export function buildPrintHtml(opts: {
   td { font-size: ${tableFont}; font-weight: 400; }
   th { background: #122f4d; color: #fff; font-weight: 800; font-size: ${thFont}; }
   thead th { font-weight: 800; }
-  .head { position: relative; display: flex; flex-direction: row; justify-content: space-between; align-items: flex-start; gap: 12px; min-height: ${isA4 ? '96px' : '56px'}; border-bottom: 3px solid #c9a227; padding: 2px 0 8px; margin-bottom: 8px; }
-  .print-date { color: #5b6b7c; font-size: 10px; text-align: left; line-height: 1.35; flex: 1 1 0; min-width: 0; padding-inline-end: ${isA4 ? '84px' : '56px'}; }
+  .head { position: relative; display: flex; flex-direction: row; justify-content: space-between; align-items: flex-start; gap: 12px; min-height: ${isA4 ? '128px' : '88px'}; border-bottom: 3px solid #c9a227; padding: 2px 0 8px; margin-bottom: 8px; }
+  .print-date { color: #5b6b7c; font-size: 10px; text-align: left; line-height: 1.35; flex: 1 1 0; min-width: 0; padding-inline-end: ${isA4 ? '120px' : '88px'}; }
   .print-date .recipient { color: #122f4d; font-weight: 800; font-size: 11px; }
   .head-logo { position: absolute; left: 50%; top: 2px; transform: translateX(-50%); z-index: 2; }
-  .head img.logo, .logo { height: ${isA4 ? '72px' : '48px'}; width: auto; max-width: ${isA4 ? '72px' : '48px'}; object-fit: contain; display: block; margin: 0; border-radius: 50%; }
-  .head-office { text-align: right; padding-inline-end: ${isA4 ? '84px' : '56px'}; flex: 1 1 0; min-width: 0; }
+  .head img.logo, .logo { height: ${isA4 ? '110px' : '80px'}; width: auto; max-width: ${isA4 ? '110px' : '80px'}; object-fit: contain; display: block; margin: 0; border-radius: 50%; }
+  .head-office { text-align: right; padding-inline-end: ${isA4 ? '120px' : '88px'}; flex: 1 1 0; min-width: 0; }
   .gold { color: #c9a227; font-weight: 800; margin-top: 2px; }
   .court-number { unicode-bidi: isolate; }
   .total { font-weight: 800; font-size: 16px; margin-top: 12px; }
   .kv { margin: 0 0 5px; line-height: 1.45; }
   .block-title { font-weight: 800; border-bottom: 1px solid #c9a227; margin: 10px 0 6px; padding-bottom: 2px; font-size: ${isA4 ? '16px' : '13px'}; }
-  .program-code { font-size: ${isA4 ? '26px' : '18px'}; font-weight: 800; text-align: center; color: #122f4d; margin: 0 0 10px; letter-spacing: 0.03em; }
+  .program-code { font-size: ${isA4 ? '26px' : '20px'}; font-weight: 800; text-align: center; color: #122f4d; margin: 0 0 10px; letter-spacing: 0.03em; }
   .program-code.manual, .program-code-manual { color: #b91c1c; }
+  .print-card-block .pc-program-code { font-size: 18px; font-weight: 800; }
+  .hr-program-code { font-size: 16px; font-weight: 800; }
   .print-card-block {
     border-bottom: 2px dashed #bbb;
     margin-bottom: 20px;
@@ -110,14 +112,14 @@ export function buildPrintHtml(opts: {
     justify-content: space-between;
     align-items: flex-start;
     gap: 16px;
-    min-height: 44px;
+    min-height: 118px;
     border-bottom: none;
     position: relative;
     margin-bottom: 4px;
     padding-bottom: 4px;
   }
   body.hearings-roll-page .head.hr-head .head-office {
-    padding-inline-end: 56px;
+    padding-inline-end: 120px;
     flex: 1 1 0;
     min-width: 0;
     text-align: right;
@@ -129,9 +131,13 @@ export function buildPrintHtml(opts: {
     transform: translateX(-50%);
   }
   body.hearings-roll-page .head.hr-head img.logo {
-    height: 42px;
-    max-width: 42px;
+    height: 110px;
+    max-width: 110px;
     border-radius: 50%;
+  }
+  body.hearings-roll-page table.hearings-roll .hr-program-code {
+    font-size: 16px;
+    font-weight: 800;
   }
   body.hearings-roll-page .head.hr-head .print-date {
     position: static;

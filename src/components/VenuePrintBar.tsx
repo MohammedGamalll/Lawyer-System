@@ -47,6 +47,8 @@ export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'e
   const [hidden, setHidden] = useState<Record<string, boolean>>({})
   const [includeHearings, setIncludeHearings] = useState(true)
   const [includeExperts, setIncludeExperts] = useState(true)
+  const [includeAdmin, setIncludeAdmin] = useState(true)
+  const [includeExec, setIncludeExec] = useState(true)
 
   const loadRows = async () => {
     const v = venue.trim()
@@ -63,7 +65,9 @@ export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'e
             page: 1,
             pageSize: 1000,
             print: true,
-            filters
+            filters,
+            sortBy: 'hearing_date',
+            sortDir: 'asc'
           })
         : Promise.resolve({ rows: [] as Record<string, unknown>[] }),
       includeExperts
@@ -71,7 +75,9 @@ export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'e
             page: 1,
             pageSize: 1000,
             print: true,
-            filters: { ...filters, hearing_kind: 'expert' }
+            filters: { ...filters, hearing_kind: 'expert' },
+            sortBy: 'hearing_date',
+            sortDir: 'asc'
           })
         : Promise.resolve({ rows: [] as Record<string, unknown>[] }),
       includeExperts
@@ -79,7 +85,9 @@ export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'e
             page: 1,
             pageSize: 1000,
             print: true,
-            filters
+            filters,
+            sortBy: 'hearing_date',
+            sortDir: 'asc'
           })
         : Promise.resolve({ rows: [] as Record<string, unknown>[] }),
       includeExperts
@@ -87,15 +95,21 @@ export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'e
             page: 1,
             pageSize: 1000,
             print: true,
-            filters: dateFilters
+            filters: dateFilters,
+            sortBy: 'hearing_date',
+            sortDir: 'asc'
           })
         : Promise.resolve({ rows: [] as Record<string, unknown>[] }),
-      invoke<{ rows: Record<string, unknown>[] }>('tasks:list', {
-        page: 1,
-        pageSize: 1000,
-        print: true,
-        filters
-      })
+      includeAdmin || includeExec
+        ? invoke<{ rows: Record<string, unknown>[] }>('tasks:list', {
+            page: 1,
+            pageSize: 1000,
+            print: true,
+            filters,
+            sortBy: 'due_date',
+            sortDir: 'asc'
+          })
+        : Promise.resolve({ rows: [] as Record<string, unknown>[] })
     ])
     const open = (r: Record<string, unknown>) =>
       String(r.status) !== 'done' && String(r.status) !== 'cancelled' && String(r.status) !== 'completed'
@@ -121,8 +135,8 @@ export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'e
     const tRows = (tasks.rows || []).filter(
       (r) => String(r.status) !== 'completed' && String(r.status) !== 'cancelled'
     )
-    const exec = tRows.filter((r) => String(r.work_kind || 'admin') === 'execution')
-    const admin = tRows.filter((r) => String(r.work_kind || 'admin') !== 'execution')
+    const exec = includeExec ? tRows.filter((r) => String(r.work_kind || 'admin') === 'execution') : []
+    const admin = includeAdmin ? tRows.filter((r) => String(r.work_kind || 'admin') !== 'execution') : []
     return { v, hRows, expertRows, admin, exec }
   }
 
@@ -152,16 +166,16 @@ export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'e
           expertRollTableHtml(fromTable, t, i18n.language, { emptyLabel: t('noData') }).html
         ].join('')
       : ''
-    const adminRoll = taskRollTableHtml(admin, t, i18n.language, { emptyLabel: t('noData') })
-    const execRoll = executionTasksRollTableHtml(exec, t, i18n.language, { emptyLabel: t('noData') })
+    const adminRoll = includeAdmin ? taskRollTableHtml(admin, t, i18n.language, { emptyLabel: t('noData') }) : null
+    const execRoll = includeExec
+      ? executionTasksRollTableHtml(exec, t, i18n.language, { emptyLabel: t('noData') })
+      : null
     const body = `
         <h3 class="print-sub">${escPrint(subtitle)}</h3>
         ${hearingRoll ? `<h2>${escPrint(t('printVenue.hearings'))}</h2>${hearingRoll.html}` : ''}
         ${includeExperts ? `<h2>${escPrint(t('printVenue.experts'))}</h2>${expertBits}` : ''}
-        <h2>${escPrint(t('nav.tasks'))}</h2>
-        ${adminRoll.html}
-        <h2>${escPrint(t('nav.execution'))}</h2>
-        ${execRoll.html}`
+        ${adminRoll ? `<h2>${escPrint(t('printVenue.admin'))}</h2>${adminRoll.html}` : ''}
+        ${execRoll ? `<h2>${escPrint(t('printVenue.execution'))}</h2>${execRoll.html}` : ''}`
     await sendPrint('report', `${t('printVenueSheet')} ${v}`, body, 'hearingsRoll')
   }
 
@@ -255,6 +269,14 @@ export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'e
       <label className="flex items-center gap-1 text-sm">
         <input type="checkbox" checked={includeExperts} onChange={(e) => setIncludeExperts(e.target.checked)} />
         {t('printVenue.experts')}
+      </label>
+      <label className="flex items-center gap-1 text-sm">
+        <input type="checkbox" checked={includeAdmin} onChange={(e) => setIncludeAdmin(e.target.checked)} />
+        {t('printVenue.admin')}
+      </label>
+      <label className="flex items-center gap-1 text-sm">
+        <input type="checkbox" checked={includeExec} onChange={(e) => setIncludeExec(e.target.checked)} />
+        {t('printVenue.execution')}
       </label>
       <Button type="button" variant="outline" disabled={busy || !venue.trim()} onClick={() => void openPreview()}>
         {t('printVenuePreview')}

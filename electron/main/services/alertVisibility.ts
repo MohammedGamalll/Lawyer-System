@@ -72,6 +72,11 @@ export function shouldShowWorkAlert(input: {
   const stillOpen = (next && next >= input.today) || (action && action >= input.today)
   if (stillOpen) return true
   if (action && action < input.today && !(next && next >= input.today)) {
+    if (input.kind === 'task') {
+      if (isInactiveCaseForAlerts(input.caseStatus, input.caseArchived)) return false
+      const st = String(input.taskStatus || '')
+      return st !== 'completed' && st !== 'cancelled'
+    }
     if (input.kind !== 'hearing') return false
     if (isInactiveCaseForAlerts(input.caseStatus, input.caseArchived)) return false
     if (hearingHasDecision(input)) return false

@@ -11,7 +11,7 @@ import { onDataChanged } from '../lib/bus'
 import brandLogo from '../assets/brand-logo.png'
 import { NAV_ICONS } from '../lib/navIcons'
 import { orderedNavItems } from '../lib/layoutPrefs'
-import { displayCaseCode, displayClientCode } from '../lib/courtNumber'
+import { displayCaseCode, displayClientCode, programCodeKey } from '../lib/courtNumber'
 
 export function Layout({ children }: { children: ReactNode }) {
   const { t, i18n } = useTranslation()
@@ -106,11 +106,20 @@ export function Layout({ children }: { children: ReactNode }) {
 
   const runSearch = async (term: string) => {
     setQ(term)
-    if (term.length < 2) {
+    const trimmed = term.trim()
+    const digitQuery = /^\d{1,8}$/.test(trimmed) || /^(CS)-?\d+$/i.test(trimmed)
+    if (!trimmed || (!digitQuery && trimmed.length < 2)) {
       setSearchOpen(false)
       return
     }
-    const r = await invoke<typeof results>('search:global', term)
+    const r = await invoke<typeof results>('search:global', trimmed)
+    const cases = r.cases || []
+    if (digitQuery && cases.length === 1 && programCodeKey(cases[0].case_number) === programCodeKey(trimmed)) {
+      setSearchOpen(false)
+      setResults(r)
+      go('caseProfile', { id: cases[0].id })
+      return
+    }
     setResults(r)
     setSearchOpen(true)
   }

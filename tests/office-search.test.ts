@@ -49,8 +49,9 @@ describe.skipIf(!sqliteAvailable())('office search, extra parties, archived code
     db.prepare(
       `INSERT INTO clients (id, client_number, full_name, client_type, created_at, updated_at)
        VALUES ('cl1', 'CL-1', 'أحمد علي', 'individual', ?, ?),
-              ('cl2', 'CL-2', 'موكل إضافي', 'individual', ?, ?)`
-    ).run(ts, ts, ts, ts)
+              ('cl2', 'CL-2', 'موكل إضافي', 'individual', ?, ?),
+              ('cl512', 'CL-00512', 'موكل بالكود', 'individual', ?, ?)`
+    ).run(ts, ts, ts, ts, ts, ts)
     db.prepare(
       `INSERT INTO cases (id, case_number, title, client_id, status, is_archived, internal_file_number, created_at, updated_at)
        VALUES ('cs512', 'CS-00512', 'قضية مؤرشفة', 'cl1', 'closed', 1, NULL, ?, ?),
@@ -84,8 +85,14 @@ describe.skipIf(!sqliteAvailable())('office search, extra parties, archived code
     const byClient = listCases({ page: 1, pageSize: 50, filters: { client_id: 'cl2', archive_scope: 'all' } }, 'all')
     expect(byClient.rows.some((r) => String(r.id) === 'cs-extra')).toBe(true)
 
-    const global = globalSearch('512', actor) as { cases?: { id: string }[] }
+    const global = globalSearch('512', actor) as { cases?: { id: string }[]; clients?: { id: string }[] }
     expect((global.cases || []).some((r) => r.id === 'cs512')).toBe(true)
+    expect(global.clients).toBeUndefined()
+    expect((global.cases || []).every((r) => r.id !== 'cl512')).toBe(true)
+
+    const globalName = globalSearch('أحمد', actor) as { cases?: { id: string }[]; clients?: { id: string }[] }
+    expect((globalName.clients || []).some((r) => r.id === 'cl1')).toBe(true)
+    expect(globalName.cases).toBeUndefined()
 
     const adv = advancedSearch({ program_code: '512' }) as { id: string }[]
     expect(adv.some((r) => r.id === 'cs512')).toBe(true)

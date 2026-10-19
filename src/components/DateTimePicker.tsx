@@ -7,7 +7,8 @@ import {
   parseDateParts,
   parseTimeParts,
   toIsoDate,
-  toIsoTime
+  toIsoTime,
+  weekdayName
 } from '../lib/datetime'
 import { Button, Select } from './ui'
 
@@ -107,6 +108,13 @@ export function DatePicker({
       <Button type="button" variant="outline" size="sm" onClick={() => onChange(toIsoDate(now.getFullYear(), now.getMonth() + 1, now.getDate()))}>
         {t('cal.today')}
       </Button>
+      {!empty ? (
+        <span className="whitespace-nowrap text-sm font-semibold text-navy-800 dark:text-navy-100">
+          {t(`cal.weekdays.${new Date(y, m - 1, day).getDay()}`, {
+            defaultValue: weekdayName(toIsoDate(y, m, day), lang)
+          })}
+        </span>
+      ) : null}
     </div>
     </OpenOnLabel>
   )

@@ -107,15 +107,16 @@ function nz(v: unknown) {
   return s && s !== '—' ? s : ''
 }
 
-function pcPair(label: string, value: unknown, rawHtml = false) {
+function pcPair(label: string, value: unknown, rawHtml = false, extraClass = '') {
+  const cls = extraClass ? `pc-pair ${extraClass}` : 'pc-pair'
   if (rawHtml) {
     const v = String(value ?? '').trim()
     if (!v) return ''
-    return `<span class="pc-pair"><strong>${escPrint(label)}:</strong> ${v}</span>`
+    return `<span class="${cls}"><strong>${escPrint(label)}:</strong> ${v}</span>`
   }
   const v = nz(value)
   if (!v) return ''
-  return `<span class="pc-pair"><strong>${escPrint(label)}:</strong> ${escPrint(v)}</span>`
+  return `<span class="${cls}"><strong>${escPrint(label)}:</strong> ${escPrint(v)}</span>`
 }
 
 function pcRow(htmls: string[], extraClass = '') {
@@ -180,7 +181,7 @@ function caseNumbersRow(r: Record<string, unknown>, t: (k: string) => string) {
 function caseHeaderRows(r: Record<string, unknown>, t: (k: string) => string) {
   return [
     pcRow([
-      pcPair(t('fields.program_code'), r.system_code || formatProgramCode(r)),
+      pcPair(t('fields.program_code'), r.system_code || formatProgramCode(r), false, 'pc-program-code'),
       pcPair(t('printKit.court'), r.court_name || r.court),
       pcPair(t('printKit.circuit'), r.circuit || r.circuit_number)
     ]),
@@ -321,6 +322,17 @@ function hrLine(text: unknown, dottedIfEmpty = false): string {
   return `<div class="hr-line">${body}</div>`
 }
 
+function hrProgramCodeLine(r: Record<string, unknown>): string {
+  const code = nz(r.system_code) || formatProgramCode(r)
+  if (!code) return ''
+  const manual = isManualProgramCode(r) ? ' program-code-manual' : ''
+  return `<div class="hr-line hr-program-code${manual}">${escPrint(code)}</div>`
+}
+
+export function sortRowsByDateAsc(rows: Record<string, unknown>[], key: string) {
+  return [...rows].sort((a, b) => String(a[key] || '').localeCompare(String(b[key] || '')))
+}
+
 function hrHtml(html: string, dottedIfEmpty = false): string {
   const v = String(html ?? '').trim()
   if ((!v || v === '—') && !dottedIfEmpty) return ''
@@ -375,10 +387,7 @@ function rollCourtCell(r: Record<string, unknown>, preferVenue = false): string 
   const place = preferVenue ? adminPlace(r) : hearingPlace(r)
   const hallFloor = [nz(r.hall), nz(r.floor)].filter(Boolean).join(' / ')
   const circuit = [nz(r.circuit), nz(r.circuit_number), hallFloor].filter(Boolean).join(' ')
-  const code = nz(r.system_code) || formatProgramCode(r)
-  const codeLine = isManualProgramCode(r)
-    ? `<div class="hr-line program-code-manual">${escPrint(code)}</div>`
-    : hrLine(code)
+  const codeLine = hrProgramCodeLine(r)
   return hrStack(
     [
       codeLine,
@@ -528,9 +537,10 @@ export function hearingRollTableHtml(
       )
     }
   }
+  const hearingsAsc = sortRowsByDateAsc(hearings, 'hearing_date')
   const groups = new Map<string, Record<string, unknown>[]>()
   const order: string[] = []
-  for (const r of hearings) {
+  for (const r of hearingsAsc) {
     const key = `${nz(r.hearing_date)}|${hearingPlace(r)}`
     if (!groups.has(key)) {
       groups.set(key, [])
@@ -589,9 +599,10 @@ export function expertRollTableHtml(
       )
     }
   }
+  const rowsAsc = sortRowsByDateAsc(rows, 'hearing_date')
   const groups = new Map<string, Record<string, unknown>[]>()
   const order: string[] = []
-  for (const r of rows) {
+  for (const r of rowsAsc) {
     const key = `${nz(r.hearing_date)}|${nz(r.expert_office)}`
     if (!groups.has(key)) {
       groups.set(key, [])
@@ -605,13 +616,9 @@ export function expertRollTableHtml(
       const header = groupHeaderRow(hearingsDayTitle(group[0], lang, t))
       const body = group
         .map((r) => {
-          const code = nz(r.system_code) || formatProgramCode(r)
-          const codeLine = isManualProgramCode(r)
-            ? `<div class="hr-line program-code-manual">${escPrint(code)}</div>`
-            : hrLine(code)
           const court = `<td>${hrStack(
             [
-              codeLine,
+              hrProgramCodeLine(r),
               hrLine(r.expert_office),
               hrLabeled(t('printKit.expertNameLine'), r.expert_name, false),
               hrLine([nz(r.floor), nz(r.hall)].filter(Boolean).join(' — '))
@@ -665,9 +672,10 @@ export function taskRollTableHtml(
       )
     }
   }
+  const tasksAsc = sortRowsByDateAsc(tasks, 'due_date')
   const groups = new Map<string, Record<string, unknown>[]>()
   const order: string[] = []
-  for (const r of tasks) {
+  for (const r of tasksAsc) {
     const key = nz(r.due_date)
     if (!groups.has(key)) {
       groups.set(key, [])
@@ -740,7 +748,7 @@ function executionNumberOf(r: Record<string, unknown>) {
 function execCourtCell(r: Record<string, unknown>, t: (k: string) => string): string {
   return hrStack(
     [
-      hrLine(r.system_code || formatProgramCode(r)),
+      hrProgramCodeLine(r),
       hrLine(executionPlace(r)),
       hrLine(stripPlacePrefix(r.police_station)),
       hrLabeled(t('printKit.hasrType'), r.police_report_kind),
@@ -804,9 +812,10 @@ export function executionTasksRollTableHtml(
       )
     }
   }
+  const tasksAsc = sortRowsByDateAsc(tasks, 'due_date')
   const groups = new Map<string, Record<string, unknown>[]>()
   const order: string[] = []
-  for (const r of tasks) {
+  for (const r of tasksAsc) {
     const key = nz(r.due_date)
     if (!groups.has(key)) {
       groups.set(key, [])

@@ -6,6 +6,7 @@ import { useApp } from '../store'
 import { Button, Card, Field, PageHeader, Select, StatusBadge } from '../components/ui'
 import { DatePicker } from '../components/DateTimePicker'
 import { EntitySelect } from '../components/EntitySelect'
+import { LookupCombo } from '../components/LookupCombo'
 import { displayCaseCode, formatCourtNumber } from '../lib/courtNumber'
 import { CourtNumberText } from '../components/CourtNumberText'
 import { compactTableHtml, sendPrint } from '../lib/printKit'
@@ -24,7 +25,9 @@ export function SearchPage() {
     status: '',
     lawyer_id: '',
     hearing_from: '',
-    hearing_to: ''
+    hearing_to: '',
+    venue: '',
+    action_status: 'open'
   })
   const [rows, setRows] = useState<Record<string, unknown>[]>([])
 
@@ -41,7 +44,9 @@ export function SearchPage() {
         status: filters.status || undefined,
         lawyer_id: filters.lawyer_id || undefined,
         hearing_from: filters.hearing_from || undefined,
-        hearing_to: filters.hearing_to || undefined
+        hearing_to: filters.hearing_to || undefined,
+        venue: filters.venue || undefined,
+        action_status: filters.action_status || undefined
       })
       setRows(data)
     } catch (e) {
@@ -131,6 +136,19 @@ export function SearchPage() {
           </Field>
           <Field label={t('searchPage.hearingTo')}>
             <DatePicker value={filters.hearing_to} onChange={(d) => setFilters({ ...filters, hearing_to: d })} />
+          </Field>
+          <Field label={t('searchPage.venue')}>
+            <LookupCombo kind="venue" value={filters.venue} onChange={(v) => setFilters({ ...filters, venue: v })} />
+          </Field>
+          <Field label={t('searchPage.actionStatus')}>
+            <Select
+              value={filters.action_status}
+              onChange={(e) => setFilters({ ...filters, action_status: e.target.value })}
+            >
+              <option value="open">{t('searchPage.actionOpen')}</option>
+              <option value="done">{t('searchPage.actionDone')}</option>
+              <option value="all">{t('searchPage.actionAll')}</option>
+            </Select>
           </Field>
         </div>
         <Button className="mt-3" onClick={run}>

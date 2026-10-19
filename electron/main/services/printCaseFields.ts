@@ -75,6 +75,30 @@ export function casePrintSelectSql(cs = 'cs'): string {
               ) as client_capacity_cassation`
 }
 
+export function caseScreenSelectSql(cs = 'cs'): string {
+  return `
+              ${cs}.case_number, ${cs}.office_case_number, ${cs}.case_year, ${cs}.internal_file_number,
+              ${cs}.title as case_title,
+              ${cs}.court as court, ${cs}.court as court_name,
+              ${cs}.circuit, ${cs}.circuit_number, ${cs}.session_place,
+              ${cs}.litigation_degree,
+              ${cs}.police_station as case_police_station,
+              ${cs}.first_instance_number, ${cs}.first_instance_year,
+              ${cs}.appeal_number, ${cs}.appeal_year,
+              ${cs}.cassation_number, ${cs}.cassation_year,
+              ${cs}.extra_ref_type, ${cs}.extra_ref_number,
+              ${cs}.extra_ref2_type, ${cs}.extra_ref2_number,
+              ${cs}.extra_ref3_type, ${cs}.extra_ref3_number,
+              ${cs}.category,
+              ${cs}.judgment_date as case_judgment_date,
+              ${cs}.judgment_text as case_judgment_text,
+              ct.name_ar as case_type_name, ct.name_ar as case_type,
+              ${cs}.opponent_name,
+              ${cs}.opponent_capacity_first,
+              ${cs}.opponent_capacity_appeal,
+              ${cs}.opponent_capacity_cassation`
+}
+
 export function casePrintJoinSql(caseIdExpr: string): string {
   return `
        LEFT JOIN cases cs ON cs.id = ${caseIdExpr} AND ${notDeleted('cs')}

@@ -39,7 +39,10 @@ const ar = {
   prev: 'السابق',
   of: 'من',
   page: 'صفحة',
+  paginationTotal: 'إجمالي {{total}}',
   rowsPerPage: 'عدد الصفوف',
+  noAdjacentCase: 'لا توجد قضية بهذا الكود',
+  shareWhatsApp: 'مشاركة عبر الواتساب',
   print: 'طباعة',
   printKit: {
     notes: 'ملاحظات',
@@ -72,7 +75,7 @@ const ar = {
     dateTo: 'إلى تاريخ',
     caseLabel: 'القضية',
     requiredAction: 'الاجراء المطلوب',
-    whatWasDone: 'ما تم فيه',
+    whatWasDone: 'ما تم في الإجراء',
     decisionDone: 'القرار / ما تم فيها',
     hallFloor: 'القاعة والطابق',
     hasrNumber: 'رقم الحصر',
@@ -101,7 +104,9 @@ const ar = {
   printVenuePreview: 'عرض',
   printVenue: {
     hearings: 'جلسات المحكمة',
-    experts: 'جلسات الخبراء'
+    experts: 'جلسات الخبراء',
+    admin: 'الأعمال الإدارية',
+    execution: 'الأعمال التنفيذية'
   },
   printSelected: 'طباعة الظاهر',
   printCaseSheet: 'طباعة بيانات القضية',
@@ -441,7 +446,8 @@ const ar = {
     pickYear: 'السنة',
     hour: 'الساعة',
     minute: 'الدقيقة',
-    period: 'ص/م'
+    period: 'ص/م',
+    weekdays: ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
   },
   docs: {
     upload: 'رفع مستند',
@@ -569,6 +575,11 @@ const ar = {
     lawyer: 'المحامي',
     hearingFrom: 'تاريخ الجلسة من',
     hearingTo: 'تاريخ الجلسة إلى',
+    venue: 'الجهة',
+    actionStatus: 'حالة الإجراء',
+    actionOpen: 'أعمال لم تنجز',
+    actionDone: 'أعمال أنجزت',
+    actionAll: 'الكل',
     run: 'بحث',
     legacyTitle: 'بحث الأرشيف القديم (قراءة فقط)',
     legacyHint: 'اسم أو رقم من البيانات القديمة'

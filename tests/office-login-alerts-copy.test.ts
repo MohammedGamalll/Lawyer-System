@@ -145,7 +145,7 @@ describe('alert visibility', () => {
     ).toBe(true)
   })
 
-  it('hides a past unfinished action once its date has passed', () => {
+  it('hides a past unfinished hearing without active status, and shows a past unfinished task', () => {
     expect(
       shouldShowWorkAlert({
         caseStatus: 'open',
@@ -162,7 +162,7 @@ describe('alert visibility', () => {
         taskStatus: 'overdue',
         today: '2026-09-27'
       })
-    ).toBe(false)
+    ).toBe(true)
   })
 
   it('still shows today’s hearing or task', () => {
