@@ -28,8 +28,10 @@ import {
   hearingRollTableHtml,
   promoteSingleFilter,
   sendPrint,
+  sheetRollOpts,
 } from "../lib/printKit";
 import { PrintDesigner } from "./PrintDesigner";
+import { WorkSheetPrintPrefs } from "../components/WorkSheetPrintPrefs";
 import { wipeAllBusinessData } from "../lib/wipeData";
 import {
   applyFontSize,
@@ -126,18 +128,13 @@ export function ReportsPage() {
         { ...q, print: true },
       )) as Record<string, unknown>[];
       const rows = Array.isArray(data) ? data : [];
+      const rollOpts = await sheetRollOpts({ emptyLabel: t("noData") });
       const roll =
         type === "hearings"
-          ? hearingRollTableHtml(rows, t, i18n.language, {
-              emptyLabel: t("noData"),
-            })
+          ? hearingRollTableHtml(rows, t, i18n.language, rollOpts)
           : type === "executions"
-            ? executionTasksRollTableHtml(rows, t, i18n.language, {
-                emptyLabel: t("noData"),
-              })
-            : adminTasksRollTableHtml(rows, t, i18n.language, {
-                emptyLabel: t("noData"),
-              });
+            ? executionTasksRollTableHtml(rows, t, i18n.language, rollOpts)
+            : adminTasksRollTableHtml(rows, t, i18n.language, rollOpts);
       const title =
         type === "hearings"
           ? rangeTitle("reports.printHearings", "reports.printHearingsRange")
@@ -1654,7 +1651,10 @@ export function SettingsPage() {
             id: "print",
             label: t("settings.tabPrint"),
             body: can("settings.manage") ? (
-              <PrintDesigner />
+              <>
+                <WorkSheetPrintPrefs />
+                <PrintDesigner />
+              </>
             ) : (
               <p className="text-sm text-navy-500">{t("forbidden")}</p>
             ),

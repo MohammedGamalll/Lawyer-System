@@ -134,6 +134,7 @@ export type PrintBlockKind = 'section' | 'field' | 'text' | 'logo'
 
 export type PrintAlign = 'right' | 'center' | 'left'
 export type PrintVAlign = 'top' | 'middle' | 'bottom'
+export type PrintInk = 'navy' | 'black' | 'gold'
 
 export type PrintBlock = {
   id: string
@@ -148,6 +149,8 @@ export type PrintBlock = {
   fontSize: number
   align: PrintAlign
   vAlign: PrintVAlign
+  bold?: boolean
+  color?: PrintInk
 }
 
 export type PrintLayout = {
@@ -163,6 +166,8 @@ const FONT_MAX = 24
 const KINDS = new Set<PrintBlockKind>(['section', 'field', 'text', 'logo'])
 const ALIGNS = new Set<PrintAlign>(['right', 'center', 'left'])
 const VALIGNS = new Set<PrintVAlign>(['top', 'middle', 'bottom'])
+const INKS = new Set<PrintInk>(['navy', 'black', 'gold'])
+const INK_HEX: Record<PrintInk, string> = { navy: '#122f4d', black: '#111111', gold: '#c9a227' }
 const FIELD_SET = new Set<string>(PRINT_FIELD_KEYS)
 
 export function escapeHtml(raw: unknown): string {
@@ -216,7 +221,9 @@ export function sanitizeBlock(raw: unknown, index: number): PrintBlock | null {
     text: sanitizePlain(o.text, 400),
     fontSize: clamp(o.fontSize, FONT_MIN, FONT_MAX, 12),
     align,
-    vAlign
+    vAlign,
+    bold: Boolean(o.bold),
+    color: INKS.has(o.color as PrintInk) ? (o.color as PrintInk) : 'navy'
   }
 }
 
@@ -291,12 +298,13 @@ export function renderLayoutHtml(
       }
       const jc = b.vAlign === 'middle' ? 'center' : b.vAlign === 'bottom' ? 'flex-end' : 'flex-start'
       const programCode = b.bind === 'case.case_number'
-      const fontSize = programCode ? Math.max(Number(b.fontSize) || 12, 16) : b.fontSize
-      const weight = programCode ? 'font-weight:800;' : ''
+      const fontSize = programCode ? Math.max(Number(b.fontSize) || 12, 18) : b.fontSize
+      const weight = programCode || b.bold ? 'font-weight:800;' : 'font-weight:400;'
+      const ink = INK_HEX[b.color || 'navy']
       if (programCode) {
         inner = `${label ? `<span class="lbl">${label}: </span>` : ''}<span class="val program-code-field">${val}</span>`
       }
-      return `<div class="block" style="left:${b.x}mm;top:${b.y}mm;width:${b.w}mm;height:${b.h}mm;font-size:${fontSize}pt;${weight}text-align:${b.align};display:flex;flex-direction:column;justify-content:${jc}"><div class="inner">${inner}</div></div>`
+      return `<div class="block" style="left:${b.x}mm;top:${b.y}mm;width:${b.w}mm;height:${b.h}mm;font-size:${fontSize}pt;${weight}color:${ink};text-align:${b.align};display:flex;flex-direction:column;justify-content:${jc}"><div class="inner">${inner}</div></div>`
     })
     .join('')
   return `<!DOCTYPE html>

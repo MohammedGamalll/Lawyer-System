@@ -89,6 +89,7 @@ describe('hearing roll print', () => {
     expect(html).not.toContain('الأستاذ / محمد')
     expect(html).toContain('class="group-header"')
     expect(html).toContain('hr-program-code')
+    expect(html).toContain('class="hr-line hr-program-code')
     expect(html).toContain('07001')
     expect(html).toContain('width:19%')
     expect(html).toContain('width:20%')

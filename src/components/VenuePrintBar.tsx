@@ -15,9 +15,11 @@ import {
   labeledCell,
   courtNumberPrint,
   sendPrint,
+  sheetRollOpts,
   taskBlocksHtml,
   printVal
 } from '../lib/printKit'
+import { mergePrintRows, uniqueVenues, venueSheetLabel } from '../lib/venuePrint'
 
 type PreviewRow = { id: string; kind: 'hearing' | 'expert' | 'admin' | 'exec'; label: string; row: Record<string, unknown> }
 
@@ -39,7 +41,7 @@ function asExpertRollRow(r: Record<string, unknown>): Record<string, unknown> {
 
 export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'err') => void }) {
   const { t, i18n } = useTranslation()
-  const [venue, setVenue] = useState('')
+  const [venues, setVenues] = useState([''])
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [busy, setBusy] = useState(false)
@@ -49,10 +51,9 @@ export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'e
   const [includeExperts, setIncludeExperts] = useState(true)
   const [includeAdmin, setIncludeAdmin] = useState(true)
   const [includeExec, setIncludeExec] = useState(true)
+  const selectedVenues = uniqueVenues(venues)
 
-  const loadRows = async () => {
-    const v = venue.trim()
-    if (!v) return { v, hRows: [] as Record<string, unknown>[], expertRows: [] as Record<string, unknown>[], admin: [] as Record<string, unknown>[], exec: [] as Record<string, unknown>[] }
+  const loadForVenue = async (v: string) => {
     const filters: Record<string, string> = { venue: v }
     if (from) filters.date_from = from
     if (to) filters.date_to = to
@@ -137,7 +138,24 @@ export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'e
     )
     const exec = includeExec ? tRows.filter((r) => String(r.work_kind || 'admin') === 'execution') : []
     const admin = includeAdmin ? tRows.filter((r) => String(r.work_kind || 'admin') !== 'execution') : []
-    return { v, hRows, expertRows, admin, exec }
+    return { hRows, expertRows, admin, exec }
+  }
+
+  const loadRows = async () => {
+    const names = uniqueVenues(venues)
+    const range = [from, to].filter(Boolean).join(' — ')
+    const label = venueSheetLabel(names, range)
+    if (!names.length) {
+      return { v: label, hRows: [] as Record<string, unknown>[], expertRows: [] as Record<string, unknown>[], admin: [] as Record<string, unknown>[], exec: [] as Record<string, unknown>[] }
+    }
+    const parts = await Promise.all(names.map((name) => loadForVenue(name)))
+    return {
+      v: label,
+      hRows: mergePrintRows(parts.map((p) => p.hRows)),
+      expertRows: mergePrintRows(parts.map((p) => p.expertRows)),
+      admin: mergePrintRows(parts.map((p) => p.admin)),
+      exec: mergePrintRows(parts.map((p) => p.exec))
+    }
   }
 
   const printRows = async (
@@ -147,11 +165,9 @@ export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'e
     admin: Record<string, unknown>[],
     exec: Record<string, unknown>[]
   ) => {
-    const range = [from, to].filter(Boolean).join(' — ')
-    const subtitle = `${t('fields.venue')}: ${v}${range ? ` (${range})` : ''}`
-    const hearingRoll = includeHearings
-      ? hearingRollTableHtml(hRows, t, i18n.language, { emptyLabel: t('noData') })
-      : null
+    const subtitle = `${t('fields.venue')}: ${v}`
+    const rollOpts = await sheetRollOpts({ emptyLabel: t('noData') })
+    const hearingRoll = includeHearings ? hearingRollTableHtml(hRows, t, i18n.language, rollOpts) : null
     const fromTable = includeExperts
       ? expertRows.filter((r) => 'current_action' in r || 'previous_action' in r || r.expert_office != null)
       : []
@@ -160,16 +176,12 @@ export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'e
       : []
     const expertBits = includeExperts
       ? [
-          fromHearings.length
-            ? hearingRollTableHtml(fromHearings, t, i18n.language, { emptyLabel: t('noData') }).html
-            : '',
-          expertRollTableHtml(fromTable, t, i18n.language, { emptyLabel: t('noData') }).html
+          fromHearings.length ? hearingRollTableHtml(fromHearings, t, i18n.language, rollOpts).html : '',
+          expertRollTableHtml(fromTable, t, i18n.language, rollOpts).html
         ].join('')
       : ''
-    const adminRoll = includeAdmin ? taskRollTableHtml(admin, t, i18n.language, { emptyLabel: t('noData') }) : null
-    const execRoll = includeExec
-      ? executionTasksRollTableHtml(exec, t, i18n.language, { emptyLabel: t('noData') })
-      : null
+    const adminRoll = includeAdmin ? taskRollTableHtml(admin, t, i18n.language, rollOpts) : null
+    const execRoll = includeExec ? executionTasksRollTableHtml(exec, t, i18n.language, rollOpts) : null
     const body = `
         <h3 class="print-sub">${escPrint(subtitle)}</h3>
         ${hearingRoll ? `<h2>${escPrint(t('printVenue.hearings'))}</h2>${hearingRoll.html}` : ''}
@@ -180,8 +192,7 @@ export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'e
   }
 
   const openPreview = async () => {
-    const v = venue.trim()
-    if (!v) return
+    if (!selectedVenues.length) return
     setBusy(true)
     try {
       const data = await loadRows()
@@ -222,7 +233,7 @@ export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'e
 
   const printVisible = async () => {
     if (!preview) return
-    const v = venue.trim()
+    const v = venueSheetLabel(selectedVenues, [from, to].filter(Boolean).join(' — '))
     setBusy(true)
     try {
       const vis = preview.filter((p) => !hidden[p.id])
@@ -242,8 +253,7 @@ export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'e
   }
 
   const printSheet = async () => {
-    const v = venue.trim()
-    if (!v) return
+    if (!selectedVenues.length) return
     setBusy(true)
     try {
       const data = await loadRows()
@@ -257,9 +267,28 @@ export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'e
 
   return (
     <div className="flex flex-wrap items-end gap-2">
-      <div className="w-44">
-        <LookupCombo kind="venue" value={venue} onChange={setVenue} placeholder={t('fields.venue')} />
-      </div>
+      {venues.map((value, i) => (
+        <div key={i} className="flex items-end gap-1">
+          <div className="w-44">
+            <LookupCombo
+              kind="venue"
+              value={value}
+              onChange={(next) => setVenues((prev) => prev.map((x, j) => (j === i ? next : x)))}
+              placeholder={t('fields.venue')}
+            />
+          </div>
+          {venues.length > 1 ? (
+            <Button type="button" variant="outline" onClick={() => setVenues((prev) => prev.filter((_, j) => j !== i))}>
+              −
+            </Button>
+          ) : null}
+        </div>
+      ))}
+      {venues.length < 3 ? (
+        <Button type="button" variant="outline" onClick={() => setVenues((prev) => [...prev, ''])}>
+          {t('printVenue.addVenue')}
+        </Button>
+      ) : null}
       <DatePicker value={from} onChange={setFrom} />
       <DatePicker value={to} onChange={setTo} />
       <label className="flex items-center gap-1 text-sm">
@@ -278,10 +307,10 @@ export function VenuePrintBar({ toast }: { toast: (msg: string, type?: 'ok' | 'e
         <input type="checkbox" checked={includeExec} onChange={(e) => setIncludeExec(e.target.checked)} />
         {t('printVenue.execution')}
       </label>
-      <Button type="button" variant="outline" disabled={busy || !venue.trim()} onClick={() => void openPreview()}>
+      <Button type="button" variant="outline" disabled={busy || !selectedVenues.length} onClick={() => void openPreview()}>
         {t('printVenuePreview')}
       </Button>
-      <Button type="button" variant="outline" disabled={busy || !venue.trim()} onClick={() => void printSheet()}>
+      <Button type="button" variant="outline" disabled={busy || !selectedVenues.length} onClick={() => void printSheet()}>
         {t('printVenueSheet')}
       </Button>
       <Modal open={Boolean(preview)} wide title={t('printVenueSheet')} onClose={() => setPreview(null)}>

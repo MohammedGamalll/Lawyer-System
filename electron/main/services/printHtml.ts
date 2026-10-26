@@ -1,4 +1,5 @@
 import { escapeHtml } from '@shared/printTemplate'
+import { parseSheetFontSize, sheetTableFonts, type SheetFontSize } from '@shared/printSheetPrefs'
 
 export type PrintKind = 'invoice' | 'receipt' | 'voucher' | 'report' | 'a4'
 
@@ -21,6 +22,7 @@ export function buildPrintHtml(opts: {
   recipientLine?: string
   layout?: string
   landscape?: boolean
+  sheetFont?: SheetFontSize
 }): string {
   const isTicket = opts.kind === 'receipt' || opts.kind === 'voucher'
   const isReport = opts.kind === 'report'
@@ -28,9 +30,11 @@ export function buildPrintHtml(opts: {
   const hearingsRoll = opts.layout === 'hearingsRoll'
   const landscape = Boolean(opts.landscape) && !isTicket
   const width = isTicket ? '72mm' : landscape ? '277mm' : '190mm'
-  const fontSize = isTicket ? '13px' : isA4 ? '15px' : '11px'
-  const tableFont = isTicket ? 'inherit' : isA4 ? '13px' : '9.5px'
-  const thFont = isTicket ? 'inherit' : isA4 ? '14px' : '10.5px'
+  const sheetSize = parseSheetFontSize(opts.sheetFont)
+  const sheetFonts = sheetTableFonts(sheetSize)
+  const fontSize = isTicket ? '13px' : isA4 ? '17px' : '14px'
+  const tableFont = isTicket ? 'inherit' : isA4 ? '15px' : sheetFonts.td
+  const thFont = isTicket ? 'inherit' : isA4 ? '16px' : sheetFonts.th
   const pageMargin = isTicket ? '5mm 6mm' : isA4 ? '12mm 12mm' : hearingsRoll ? '8mm 8mm' : '10mm 10mm'
   const bodyPad = isTicket ? '6mm 7mm' : isA4 ? '12px 10px' : hearingsRoll ? '6px 4px' : '8px 8px'
   const phones = escapeHtml(opts.phone || '')
@@ -79,8 +83,8 @@ export function buildPrintHtml(opts: {
   .block-title { font-weight: 800; border-bottom: 1px solid #c9a227; margin: 10px 0 6px; padding-bottom: 2px; font-size: ${isA4 ? '16px' : '13px'}; }
   .program-code { font-size: ${isA4 ? '26px' : '20px'}; font-weight: 800; text-align: center; color: #122f4d; margin: 0 0 10px; letter-spacing: 0.03em; }
   .program-code.manual, .program-code-manual { color: #b91c1c; }
-  .print-card-block .pc-program-code { font-size: 18px; font-weight: 800; }
-  .hr-program-code { font-size: 16px; font-weight: 800; }
+  .print-card-block .pc-program-code { font-size: 18pt; font-weight: 800; }
+  .hr-program-code { font-size: 18pt; font-weight: 800; }
   .print-card-block {
     border-bottom: 2px dashed #bbb;
     margin-bottom: 20px;
@@ -136,7 +140,7 @@ export function buildPrintHtml(opts: {
     border-radius: 50%;
   }
   body.hearings-roll-page table.hearings-roll .hr-program-code {
-    font-size: 16px;
+    font-size: 18pt;
     font-weight: 800;
   }
   body.hearings-roll-page .head.hr-head .print-date {
@@ -168,7 +172,7 @@ export function buildPrintHtml(opts: {
     background: #fff;
     color: #122f4d;
     font-weight: 400;
-    font-size: 9.5px;
+    font-size: ${sheetFonts.td};
     line-height: 1.35;
   }
   table.hearings-roll tbody td { vertical-align: top; }
@@ -176,7 +180,7 @@ export function buildPrintHtml(opts: {
     background-color: #f5f5f5;
     color: #122f4d;
     font-weight: 800;
-    font-size: 10px;
+    font-size: ${sheetFonts.th};
   }
   table.hearings-roll tr.group-header td {
     background-color: #f0f0f0;

@@ -4,6 +4,7 @@ import { getTempDir, getDataRoot } from '../paths'
 import path from 'path'
 import fs from 'fs'
 import { cairoDateTimeStamp } from '@shared/cairoDate'
+import { parseSheetFontSize } from '@shared/printSheetPrefs'
 import { buildPrintHtml, stripPrintCodes, type PrintKind } from './printHtml'
 
 export type { PrintKind }
@@ -98,7 +99,8 @@ export function wrapHtml(title: string, body: string, kind: PrintKind, layout?: 
     printedAt: cairoDateTimeStamp(),
     recipientLine: kind === 'report' && layout !== 'hearingsRoll' ? recipientLine : undefined,
     layout,
-    landscape: kind !== 'receipt' && kind !== 'voucher' && (layout === 'landscape' || a4Landscape())
+    landscape: kind !== 'receipt' && kind !== 'voucher' && (layout === 'landscape' || a4Landscape()),
+    sheetFont: parseSheetFontSize(getSetting('print_sheet_font', 'md'))
   })
 }
 

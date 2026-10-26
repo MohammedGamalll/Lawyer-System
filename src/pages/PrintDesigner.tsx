@@ -15,6 +15,7 @@ import {
   type PrintAlign,
   type PrintBlock,
   type PrintFieldKey,
+  type PrintInk,
   type PrintLayout,
   type PrintVAlign
 } from '@shared/printTemplate'
@@ -101,7 +102,9 @@ export function PrintDesigner() {
       text: '',
       fontSize: 12,
       align: 'right',
-      vAlign: 'top'
+      vAlign: 'top',
+      bold: false,
+      color: 'navy'
     }
     setBlocks([...layout.blocks, next])
     setActive(next.id)
@@ -126,7 +129,9 @@ export function PrintDesigner() {
       text: '',
       fontSize: 13,
       align: 'right',
-      vAlign: 'top'
+      vAlign: 'top',
+      bold: false,
+      color: 'navy'
     }
     setBlocks([...layout.blocks, next])
     setActive(next.id)
@@ -362,6 +367,8 @@ export function PrintDesigner() {
                 width: b.w * SCALE,
                 height: b.h * SCALE,
                 fontSize: b.fontSize * 0.9,
+                fontWeight: b.bold || b.bind === 'case.case_number' ? 800 : 400,
+                color: b.color === 'gold' ? '#c9a227' : b.color === 'black' ? '#111111' : '#122f4d',
                 textAlign: b.align,
                 display: 'flex',
                 flexDirection: 'column',
@@ -416,6 +423,25 @@ export function PrintDesigner() {
                   value={block.fontSize}
                   onChange={(e) => patch(block.id, { fontSize: Number(e.target.value) })}
                 />
+              </Field>
+              <Field label={t('printDesigner.weight')}>
+                <Select
+                  value={block.bold ? 'bold' : 'normal'}
+                  onChange={(e) => patch(block.id, { bold: e.target.value === 'bold' })}
+                >
+                  <option value="normal">{t('printDesigner.normal')}</option>
+                  <option value="bold">{t('printDesigner.bold')}</option>
+                </Select>
+              </Field>
+              <Field label={t('printDesigner.color')}>
+                <Select
+                  value={block.color || 'navy'}
+                  onChange={(e) => patch(block.id, { color: e.target.value as PrintInk })}
+                >
+                  <option value="navy">{t('printDesigner.navy')}</option>
+                  <option value="black">{t('printDesigner.black')}</option>
+                  <option value="gold">{t('printDesigner.gold')}</option>
+                </Select>
               </Field>
               <Field label={t('printDesigner.align')}>
                 <Select value={block.align} onChange={(e) => patch(block.id, { align: e.target.value as PrintAlign })}>

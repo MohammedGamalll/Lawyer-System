@@ -77,5 +77,28 @@ describe('print RTL / Arabic shaping template', () => {
     expect(roll).toContain('height: 110px')
     expect(roll).toContain('max-width: 110px')
     expect(roll).toContain('.hr-program-code')
+    expect(roll).toContain('font-size: 18pt')
+    expect(roll).toContain('font-weight: 800')
+    expect(roll).toContain('font-size: 13px')
+    expect(roll).toContain('font-size: 14px')
+  })
+
+  it('uses larger A4 body type and scaled sheet fonts', () => {
+    const a4 = buildPrintHtml({ title: 'ملف', body: '', kind: 'a4', office: 'مكتب' })
+    const report = buildPrintHtml({ title: 'تقرير', body: '', kind: 'report', office: 'مكتب' })
+    const large = buildPrintHtml({
+      title: 'كشف',
+      body: '',
+      kind: 'report',
+      office: 'مكتب',
+      layout: 'hearingsRoll',
+      sheetFont: 'lg'
+    })
+    expect(a4).toContain('font-size: 17px')
+    expect(a4).toContain('font-size: 15px')
+    expect(report).toContain('font-size: 14px')
+    expect(large).toContain('font-size: 15px')
+    expect(large).toContain('font-size: 16px')
+    expect(large).toContain('font-size: 18pt')
   })
 })

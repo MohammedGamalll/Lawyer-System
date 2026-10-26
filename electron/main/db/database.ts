@@ -311,6 +311,8 @@ function seedIfEmpty(database: BetterSqlite3.Database): void {
     print_thermal_printer: '',
     print_landscape: 'false',
     print_orientation: 'portrait',
+    print_sheet_font: 'md',
+    print_sheet_hide_cols: '[]',
     auto_update: 'true',
     update_feed_url: '',
     backup_schedule: 'daily',

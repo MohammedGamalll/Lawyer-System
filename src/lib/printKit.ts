@@ -1,4 +1,5 @@
 import { invoke } from './api'
+import { parseSheetHideCols } from '@shared/printSheetPrefs'
 import { formatCell } from './datetime'
 import { formatCourtNumber, formatProgramCode, isManualProgramCode, stripInternalPrefix } from './courtNumber'
 import { rtlIsolatedPair } from '@shared/rtlBidi'
@@ -353,8 +354,9 @@ function hrStack(lines: string[], min = 1): string {
   return bits.join('')
 }
 
-function rollCaseNumberLines(r: Record<string, unknown>, t: (k: string) => string): string {
+function rollCaseNumberLines(r: Record<string, unknown>, t: (k: string) => string, includeProgramCode = false): string {
   const lines: string[] = []
+  if (includeProgramCode) lines.push(hrProgramCodeLine(r))
   const first =
     degreeNumber(r.first_instance_number, r.first_instance_year) ||
     (courtNumberPrint(r) !== '—' ? courtNumberPrint(r) : '')
@@ -414,11 +416,13 @@ function rollTypeCell(r: Record<string, unknown>, extraDates: unknown[] = []): s
   )
 }
 
-function rollClientCell(r: Record<string, unknown>): string {
+function rollClientCell(r: Record<string, unknown>, hidePrevious = false): string {
   const caps =
     nz(r.client_capacity) ||
     joinCaps(r.client_capacity_first || r.capacity_first, r.client_capacity_appeal || r.capacity_appeal, r.client_capacity_cassation || r.capacity_cassation)
-  return hrStack([hrLine(r.client_name, true), hrLine(caps), hrLine(r.previous_decision)], 1)
+  const lines = [hrLine(r.client_name, true), hrLine(caps)]
+  if (!hidePrevious) lines.push(hrLine(r.previous_decision))
+  return hrStack(lines, 1)
 }
 
 function rollOpponentCell(r: Record<string, unknown>, t: (k: string) => string): string {
@@ -474,19 +478,45 @@ const ROLL_COLGROUP = `<colgroup>
       <col style="width:19%" /><col style="width:19%" /><col style="width:20%" />
     </colgroup>`
 
-function rollThead(t: (k: string) => string, lastColKey: string) {
+function hideSet(hide?: Iterable<string>) {
+  return new Set([...(hide || [])].map(String))
+}
+
+function colOn(hide: Set<string>, id: string) {
+  return !hide.has(id)
+}
+
+function rollColCount(hide?: Iterable<string>) {
+  const h = hideSet(hide)
+  let n = 2
+  if (colOn(h, 'court')) n++
+  if (colOn(h, 'type')) n++
+  if (colOn(h, 'client')) n++
+  if (colOn(h, 'opponent')) n++
+  return n
+}
+
+function rollColgroup(hide?: Iterable<string>, preset?: string) {
+  if (preset && !hideSet(hide).size) return preset
+  const n = rollColCount(hide)
+  const w = Math.floor(100 / n)
+  return `<colgroup>${Array.from({ length: n }, () => `<col style="width:${w}%" />`).join('')}</colgroup>`
+}
+
+function rollThead(t: (k: string) => string, lastColKey: string, hide?: Iterable<string>) {
+  const h = hideSet(hide)
   return `<thead><tr>
-      <th>${escPrint(t('printKit.courtAndCircuit'))}</th>
+      ${colOn(h, 'court') ? `<th>${escPrint(t('printKit.courtAndCircuit'))}</th>` : ''}
       <th>${escPrint(t('printKit.caseNumber'))}</th>
-      <th>${escPrint(t('printKit.caseTypeCol'))}</th>
-      <th>${escPrint(t('printKit.clientAndCapacity'))}</th>
-      <th>${escPrint(t('printKit.opponentAndCapacity'))}</th>
+      ${colOn(h, 'type') ? `<th>${escPrint(t('printKit.caseTypeCol'))}</th>` : ''}
+      ${colOn(h, 'client') ? `<th>${escPrint(t('printKit.clientAndCapacity'))}</th>` : ''}
+      ${colOn(h, 'opponent') ? `<th>${escPrint(t('printKit.opponentAndCapacity'))}</th>` : ''}
       <th>${escPrint(t(lastColKey))}</th>
     </tr></thead>`
 }
 
-function groupHeaderRow(title: string) {
-  return `<tr class="group-header"><td colspan="6">${escPrint(title)}</td></tr>`
+function groupHeaderRow(title: string, hide?: Iterable<string>) {
+  return `<tr class="group-header"><td colspan="${rollColCount(hide)}">${escPrint(title)}</td></tr>`
 }
 
 function wrapRollTable(
@@ -494,23 +524,25 @@ function wrapRollTable(
   tbody: string,
   t: (k: string) => string,
   lastColKey = 'printKit.decision',
-  colgroup = ROLL_COLGROUP
+  colgroup = ROLL_COLGROUP,
+  hide?: Iterable<string>
 ) {
-  return `${lawyerLine}<table class="hearings-roll" dir="rtl">${colgroup}${rollThead(t, lastColKey)}<tbody>${tbody}</tbody></table>`
+  return `${lawyerLine}<table class="hearings-roll" dir="rtl">${rollColgroup(hide, colgroup)}${rollThead(t, lastColKey, hide)}<tbody>${tbody}</tbody></table>`
 }
 
 function rollDataRow(
   r: Record<string, unknown>,
   t: (k: string) => string,
   decisionHtml: string,
-  opts?: { preferVenue?: boolean; extraDates?: unknown[] }
+  opts?: { preferVenue?: boolean; extraDates?: unknown[]; hideCols?: Iterable<string> }
 ) {
+  const h = hideSet(opts?.hideCols)
   return `<tr>
-          <td>${rollCourtCell(r, opts?.preferVenue)}</td>
-          <td>${rollCaseNumberLines(r, t)}</td>
-          <td>${rollTypeCell(r, opts?.extraDates)}</td>
-          <td>${rollClientCell(r)}</td>
-          <td>${rollOpponentCell(r, t)}</td>
+          ${colOn(h, 'court') ? `<td>${rollCourtCell(r, opts?.preferVenue)}</td>` : ''}
+          <td>${rollCaseNumberLines(r, t, !colOn(h, 'court'))}</td>
+          ${colOn(h, 'type') ? `<td>${rollTypeCell(r, opts?.extraDates)}</td>` : ''}
+          ${colOn(h, 'client') ? `<td>${rollClientCell(r, h.has('previous'))}</td>` : ''}
+          ${colOn(h, 'opponent') ? `<td>${rollOpponentCell(r, t)}</td>` : ''}
           <td>${decisionHtml}</td>
         </tr>`
 }
@@ -523,8 +555,9 @@ export function hearingRollTableHtml(
   hearings: Record<string, unknown>[],
   t: (k: string, opts?: Record<string, string>) => string,
   lang: string,
-  opts?: { emptyLabel?: string }
+  opts?: { emptyLabel?: string; hideCols?: Iterable<string> }
 ): { html: string; sheetTitle: string } {
+  const hide = opts?.hideCols
   const lawyerLine = BLANK_LAWYER_LINE
   const emptyTitle = t('nav.hearings')
   if (!hearings.length) {
@@ -532,8 +565,11 @@ export function hearingRollTableHtml(
       sheetTitle: emptyTitle,
       html: wrapRollTable(
         lawyerLine,
-        `<tr><td colspan="6">${escPrint(opts?.emptyLabel || t('noData'))}</td></tr>`,
-        t
+        `<tr><td colspan="${rollColCount(hide)}">${escPrint(opts?.emptyLabel || t('noData'))}</td></tr>`,
+        t,
+        'printKit.decision',
+        ROLL_COLGROUP,
+        hide
       )
     }
   }
@@ -551,21 +587,16 @@ export function hearingRollTableHtml(
   const tbody = order
     .map((key) => {
       const rows = groups.get(key) || []
-      const header = groupHeaderRow(hearingsDayTitle(rows[0], lang, t))
+      const header = groupHeaderRow(hearingsDayTitle(rows[0], lang, t), hide)
       const body = rows
         .map((r) => {
           const decision = nz(r.court_decision) || nz(r.what_happened) || nz(r.result)
-          return rollDataRow(
-            r,
-            t,
-            hrStack(
-              [
-                nz(r.previous_decision) ? hrLabeled(t('fields.previous_decision'), r.previous_decision, false) : '',
-                hrLine(decision)
-              ],
-              1
-            )
-          )
+          const prev = hideSet(hide).has('previous')
+            ? ''
+            : nz(r.previous_decision)
+              ? hrLabeled(t('fields.previous_decision'), r.previous_decision, false)
+              : ''
+          return rollDataRow(r, t, hrStack([prev, hrLine(decision)], 1), { hideCols: hide })
         })
         .join('')
       return `${header}${body}`
@@ -576,7 +607,7 @@ export function hearingRollTableHtml(
       distinctDates(hearings, 'hearing_date') > 1
         ? t('printKit.hearingsLedger')
         : hearingsSheetTitle(hearings[0], lang, t) || emptyTitle,
-    html: wrapRollTable(lawyerLine, tbody, t)
+    html: wrapRollTable(lawyerLine, tbody, t, 'printKit.decision', ROLL_COLGROUP, hide)
   }
 }
 
@@ -584,8 +615,10 @@ export function expertRollTableHtml(
   rows: Record<string, unknown>[],
   t: (k: string, opts?: Record<string, string>) => string,
   lang: string,
-  opts?: { emptyLabel?: string }
+  opts?: { emptyLabel?: string; hideCols?: Iterable<string> }
 ): { html: string; sheetTitle: string } {
+  const hide = opts?.hideCols
+  const h = hideSet(hide)
   const lawyerLine = BLANK_LAWYER_LINE
   const emptyTitle = t('nav.experts')
   if (!rows.length) {
@@ -593,9 +626,11 @@ export function expertRollTableHtml(
       sheetTitle: emptyTitle,
       html: wrapRollTable(
         lawyerLine,
-        `<tr><td colspan="6">${escPrint(opts?.emptyLabel || t('noData'))}</td></tr>`,
+        `<tr><td colspan="${rollColCount(hide)}">${escPrint(opts?.emptyLabel || t('noData'))}</td></tr>`,
         t,
-        'fields.current_action'
+        'fields.current_action',
+        ROLL_COLGROUP,
+        hide
       )
     }
   }
@@ -613,21 +648,23 @@ export function expertRollTableHtml(
   const tbody = order
     .map((key) => {
       const group = groups.get(key) || []
-      const header = groupHeaderRow(hearingsDayTitle(group[0], lang, t))
+      const header = groupHeaderRow(hearingsDayTitle(group[0], lang, t), hide)
       const body = group
         .map((r) => {
-          const court = `<td>${hrStack(
-            [
-              hrProgramCodeLine(r),
-              hrLine(r.expert_office),
-              hrLabeled(t('printKit.expertNameLine'), r.expert_name, false),
-              hrLine([nz(r.floor), nz(r.hall)].filter(Boolean).join(' — '))
-            ],
-            2
-          )}</td>`
+          const court = colOn(h, 'court')
+            ? `<td>${hrStack(
+                [
+                  hrProgramCodeLine(r),
+                  hrLine(r.expert_office),
+                  hrLabeled(t('printKit.expertNameLine'), r.expert_name, false),
+                  hrLine([nz(r.floor), nz(r.hall)].filter(Boolean).join(' — '))
+                ],
+                2
+              )}</td>`
+            : ''
           const decision = hrStack(
             [
-              hrLabeled(t('fields.previous_action'), r.previous_action),
+              h.has('previous') ? '' : hrLabeled(t('fields.previous_action'), r.previous_action),
               hrLabeled(t('fields.current_action'), r.current_action)
             ],
             1
@@ -635,10 +672,10 @@ export function expertRollTableHtml(
           const typeLine = hrLine(expertTypeLabel(r))
           return `<tr>
           ${court}
-          <td>${rollCaseNumberLines(r, t)}</td>
-          <td>${hrStack([typeLine, hrLine(r.case_type || r.case_type_name), hrLine(r.case_subject || r.case_title), hrLine(r.hearing_time)], 2)}</td>
-          <td>${rollClientCell(r)}</td>
-          <td>${rollOpponentCell(r, t)}</td>
+          <td>${rollCaseNumberLines(r, t, !colOn(h, 'court'))}</td>
+          ${colOn(h, 'type') ? `<td>${hrStack([typeLine, hrLine(r.case_type || r.case_type_name), hrLine(r.case_subject || r.case_title), hrLine(r.hearing_time)], 2)}</td>` : ''}
+          ${colOn(h, 'client') ? `<td>${rollClientCell(r, h.has('previous'))}</td>` : ''}
+          ${colOn(h, 'opponent') ? `<td>${rollOpponentCell(r, t)}</td>` : ''}
           <td>${decision}</td>
         </tr>`
         })
@@ -649,7 +686,7 @@ export function expertRollTableHtml(
   return {
     sheetTitle:
       distinctDates(rows, 'hearing_date') > 1 ? t('nav.experts') : hearingsSheetTitle(rows[0], lang, t) || emptyTitle,
-    html: wrapRollTable(lawyerLine, tbody, t, 'fields.current_action')
+    html: wrapRollTable(lawyerLine, tbody, t, 'fields.current_action', ROLL_COLGROUP, hide)
   }
 }
 
@@ -657,8 +694,9 @@ export function taskRollTableHtml(
   tasks: Record<string, unknown>[],
   t: (k: string, opts?: Record<string, string>) => string,
   lang: string,
-  opts?: { emptyLabel?: string }
+  opts?: { emptyLabel?: string; hideCols?: Iterable<string> }
 ): { html: string; sheetTitle: string } {
+  const hide = opts?.hideCols
   const lawyerLine = BLANK_LAWYER_LINE
   const emptyTitle = t('nav.tasks')
   if (!tasks.length) {
@@ -666,9 +704,11 @@ export function taskRollTableHtml(
       sheetTitle: emptyTitle,
       html: wrapRollTable(
         lawyerLine,
-        `<tr><td colspan="6">${escPrint(opts?.emptyLabel || t('noData'))}</td></tr>`,
+        `<tr><td colspan="${rollColCount(hide)}">${escPrint(opts?.emptyLabel || t('noData'))}</td></tr>`,
         t,
-        'printKit.requiredAction'
+        'printKit.requiredAction',
+        ROLL_COLGROUP,
+        hide
       )
     }
   }
@@ -686,13 +726,14 @@ export function taskRollTableHtml(
   const tbody = order
     .map((key) => {
       const rows = groups.get(key) || []
-      const header = groupHeaderRow(adminDayTitle(rows[0], lang, t))
+      const header = groupHeaderRow(adminDayTitle(rows[0], lang, t), hide)
       const body = rows
         .map((r) => {
           const action = nz(r.required_action) || nz(r.description) || nz(r.title)
           return rollDataRow(r, t, hrLine(action, true), {
             preferVenue: true,
-            extraDates: [r.start_date, r.due_date]
+            extraDates: [r.start_date, r.due_date],
+            hideCols: hide
           })
         })
         .join('')
@@ -702,7 +743,7 @@ export function taskRollTableHtml(
   return {
     sheetTitle:
       distinctDates(tasks, 'due_date') > 1 ? t('printKit.adminLedger') : adminDayTitle(tasks[0], lang, t) || emptyTitle,
-    html: wrapRollTable(lawyerLine, tbody, t, 'printKit.requiredAction')
+    html: wrapRollTable(lawyerLine, tbody, t, 'printKit.requiredAction', ROLL_COLGROUP, hide)
   }
 }
 
@@ -758,10 +799,10 @@ function execCourtCell(r: Record<string, unknown>, t: (k: string) => string): st
   )
 }
 
-function execCaseNumberCell(r: Record<string, unknown>, t: (k: string) => string): string {
+function execCaseNumberCell(r: Record<string, unknown>, t: (k: string) => string, includeProgramCode = false): string {
   return hrStack(
     [
-      rollCaseNumberLines(r, t),
+      rollCaseNumberLines(r, t, includeProgramCode),
       hrLabeled(t('fields.execution_number'), executionNumberOf(r)),
       hrLabeled(t('fields.execution_officer'), r.execution_officer)
     ],
@@ -796,8 +837,10 @@ export function executionTasksRollTableHtml(
   tasks: Record<string, unknown>[],
   t: (k: string, opts?: Record<string, string>) => string,
   lang: string,
-  opts?: { emptyLabel?: string }
+  opts?: { emptyLabel?: string; hideCols?: Iterable<string> }
 ): { html: string; sheetTitle: string } {
+  const hide = opts?.hideCols
+  const h = hideSet(hide)
   const lawyerLine = BLANK_LAWYER_LINE
   const emptyTitle = t('printKit.executionLedger')
   if (!tasks.length) {
@@ -805,10 +848,11 @@ export function executionTasksRollTableHtml(
       sheetTitle: emptyTitle,
       html: wrapRollTable(
         lawyerLine,
-        `<tr><td colspan="6">${escPrint(opts?.emptyLabel || t('noData'))}</td></tr>`,
+        `<tr><td colspan="${rollColCount(hide)}">${escPrint(opts?.emptyLabel || t('noData'))}</td></tr>`,
         t,
         'printKit.addressCol',
-        EXEC_COLGROUP
+        EXEC_COLGROUP,
+        hide
       )
     }
   }
@@ -826,15 +870,15 @@ export function executionTasksRollTableHtml(
   const tbody = order
     .map((key) => {
       const rows = groups.get(key) || []
-      const header = groupHeaderRow(executionDayTitle(rows[0], lang, t))
+      const header = groupHeaderRow(executionDayTitle(rows[0], lang, t), hide)
       const body = rows
         .map(
           (r) => `<tr>
-          <td>${execCourtCell(r, t)}</td>
-          <td>${execCaseNumberCell(r, t)}</td>
-          <td>${rollTypeCell(r, [r.start_date, r.due_date])}</td>
-          <td>${execClientCell(r, t)}</td>
-          <td>${execOpponentCell(r, t)}</td>
+          ${colOn(h, 'court') ? `<td>${execCourtCell(r, t)}</td>` : ''}
+          <td>${execCaseNumberCell(r, t, !colOn(h, 'court'))}</td>
+          ${colOn(h, 'type') ? `<td>${rollTypeCell(r, [r.start_date, r.due_date])}</td>` : ''}
+          ${colOn(h, 'client') ? `<td>${execClientCell(r, t)}</td>` : ''}
+          ${colOn(h, 'opponent') ? `<td>${execOpponentCell(r, t)}</td>` : ''}
           <td>${hrLine(r.opponent_address, true)}</td>
         </tr>`
         )
@@ -847,7 +891,7 @@ export function executionTasksRollTableHtml(
       distinctDates(tasks, 'due_date') > 1
         ? t('printKit.executionLedger')
         : executionDayTitle(tasks[0], lang, t) || emptyTitle,
-    html: wrapRollTable(lawyerLine, tbody, t, 'printKit.addressCol', EXEC_COLGROUP)
+    html: wrapRollTable(lawyerLine, tbody, t, 'printKit.addressCol', EXEC_COLGROUP, hide)
   }
 }
 
@@ -927,6 +971,11 @@ export async function sendPrint(
 ) {
   pendingPrint = { kind, title, body, layout }
   notifyPrintPreview()
+}
+
+export async function sheetRollOpts(extra: { emptyLabel?: string } = {}) {
+  const s = await invoke<Record<string, string>>('settings:get').catch(() => ({} as Record<string, string>))
+  return { ...extra, hideCols: parseSheetHideCols(s.print_sheet_hide_cols) }
 }
 
 export type PrintFieldOpt = { id: string; label: string; defaultOn?: boolean }

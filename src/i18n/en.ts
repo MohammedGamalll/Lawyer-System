@@ -106,7 +106,24 @@ const en = {
     hearings: 'Court hearings',
     experts: 'Expert sessions',
     admin: 'Administrative work',
-    execution: 'Execution work'
+    execution: 'Execution work',
+    addVenue: 'Add another venue'
+  },
+  printSheetPrefs: {
+    title: 'Work sheets and hearing reports',
+    fontSize: 'Table font size',
+    sm: 'Small',
+    md: 'Normal',
+    lg: 'Large',
+    columns: 'Visible columns',
+    hint: 'The program code stays 18pt bold. Save, then print.',
+    col: {
+      court: 'Court and circuit',
+      type: 'Case type',
+      client: 'Client',
+      opponent: 'Opponent',
+      previous: 'Previous decision'
+    }
   },
   printSelected: 'Print visible',
   printCaseSheet: 'Print case sheet',
@@ -214,6 +231,13 @@ const en = {
     title: 'Title',
     freeText: 'Free text',
     fontSize: 'Font size',
+    weight: 'Font weight',
+    normal: 'Regular',
+    bold: 'Bold',
+    color: 'Font color',
+    navy: 'Navy',
+    black: 'Black',
+    gold: 'Gold',
     align: 'Text align',
     vAlign: 'Vertical align',
     top: 'Top',

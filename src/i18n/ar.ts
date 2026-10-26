@@ -106,7 +106,24 @@ const ar = {
     hearings: 'جلسات المحكمة',
     experts: 'جلسات الخبراء',
     admin: 'الأعمال الإدارية',
-    execution: 'الأعمال التنفيذية'
+    execution: 'الأعمال التنفيذية',
+    addVenue: 'إضافة جهة أخرى'
+  },
+  printSheetPrefs: {
+    title: 'ورق الشغل وتقارير الجلسات',
+    fontSize: 'حجم خط الجدول',
+    sm: 'صغير',
+    md: 'عادي',
+    lg: 'كبير',
+    columns: 'أعمدة ظاهرة',
+    hint: 'كود القضية يبقى 18 نقطة وعريضاً. احفظ ثم اطبع.',
+    col: {
+      court: 'المحكمة والدائرة',
+      type: 'نوع القضية',
+      client: 'الموكل',
+      opponent: 'الخصم',
+      previous: 'القرار السابق'
+    }
   },
   printSelected: 'طباعة الظاهر',
   printCaseSheet: 'طباعة بيانات القضية',
@@ -215,6 +232,13 @@ const ar = {
     title: 'العنوان',
     freeText: 'نص حر',
     fontSize: 'حجم الخط',
+    weight: 'سماكة الخط',
+    normal: 'عادي',
+    bold: 'غامق',
+    color: 'لون الخط',
+    navy: 'كحلي',
+    black: 'أسود',
+    gold: 'ذهبي',
     align: 'محاذاة النص',
     vAlign: 'محاذاة رأسية',
     top: 'أعلى',

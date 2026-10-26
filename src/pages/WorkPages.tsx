@@ -22,6 +22,7 @@ import {
   expertRollTableHtml,
   hearingRollTableHtml,
   sendPrint,
+  sheetRollOpts,
   taskRollTableHtml
 } from '../lib/printKit'
 
@@ -253,7 +254,7 @@ export function HearingsPage({ embeddedCaseId }: { embeddedCaseId?: string } = {
         })
         const fetched = res.rows || []
         const rows = applyPrintColFilters(fetched, ctx.colFilters, i18n.language, t)
-        const roll = hearingRollTableHtml(rows, t, i18n.language, { emptyLabel: t('noData') })
+        const roll = hearingRollTableHtml(rows, t, i18n.language, await sheetRollOpts({ emptyLabel: t('noData') }))
         await sendPrint('report', roll.sheetTitle, roll.html, 'hearingsRoll')
         if ((res.total || 0) > fetched.length) toast(t('printListCapped', { count: fetched.length }))
       }}
@@ -524,10 +525,11 @@ export function TasksPage({
           })
           const fetched = res.rows || []
           const rows = applyPrintColFilters(fetched, ctx.colFilters, i18n.language, t)
+          const rollOpts = await sheetRollOpts({ emptyLabel: t('noData') })
           const roll =
             workKind === 'execution'
-              ? executionTasksRollTableHtml(rows, t, i18n.language, { emptyLabel: t('noData') })
-              : taskRollTableHtml(rows, t, i18n.language, { emptyLabel: t('noData') })
+              ? executionTasksRollTableHtml(rows, t, i18n.language, rollOpts)
+              : taskRollTableHtml(rows, t, i18n.language, rollOpts)
           await sendPrint('report', roll.sheetTitle, roll.html, 'hearingsRoll')
           if ((res.total || 0) > fetched.length) toast(t('printListCapped', { count: fetched.length }))
         }}
